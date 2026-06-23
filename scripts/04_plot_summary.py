@@ -21,7 +21,12 @@ from nek_post.plotting import plot_contour, plot_difference, plot_error_vs_order
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate concentration summary plots.")
     parser.add_argument("--comparison-set", default="t19p5", help="Named comparison set from config/cases.yaml.")
-    parser.add_argument("--field", default="concentration", help="Field to plot. Only concentration is implemented.")
+    parser.add_argument(
+        "--field",
+        default="concentration",
+        choices=("concentration", "velocity"),
+        help="Field to plot.",
+    )
     return parser.parse_args()
 
 
@@ -29,16 +34,29 @@ def _interpolated_path(config: dict, case: str, index: int) -> Path:
     return Path(config["paths"]["postproc_root"]) / "interpolated" / "C" / f"interp_C_{case}_f{index:05d}.npz"
 
 
+def _velocity_interpolated_path(config: dict, case: str, index: int) -> Path:
+    return (
+        Path(config["paths"]["postproc_root"])
+        / "interpolated"
+        / "velocity"
+        / f"interp_velocity_{case}_f{index:05d}.npz"
+    )
+
+
 def _error_table_path(config: dict, comparison_set: str) -> Path:
     return Path(config["paths"]["results_root"]) / "tables" / f"concentration_error_{comparison_set}.csv"
+
+
+def _velocity_error_table_path(config: dict, comparison_set: str) -> Path:
+    return Path(config["paths"]["results_root"]) / "tables" / f"velocity_error_{comparison_set}.csv"
 
 
 def _front_table_path(config: dict, comparison_set: str) -> Path:
     return Path(config["paths"]["results_root"]) / "tables" / f"front_position_{comparison_set}.csv"
 
 
-def _figure_dir(config: dict, comparison_set: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "figures" / "concentration" / comparison_set
+def _figure_dir(config: dict, field: str, comparison_set: str) -> Path:
+    return Path(config["paths"]["results_root"]) / "figures" / field / comparison_set
 
 
 def _log_path(config: dict) -> Path:
@@ -74,6 +92,23 @@ def _load_npz_grid(path: Path) -> dict[str, np.ndarray]:
         }
 
 
+def _load_velocity_grid(path: Path) -> dict[str, np.ndarray]:
+    if not path.exists():
+        raise FileNotFoundError(f"Interpolated velocity file not found: {path}")
+
+    with np.load(path) as data:
+        missing = [name for name in ("Xi", "Zi", "speed_grid") if name not in data.files]
+        if missing:
+            missing_text = ", ".join(missing)
+            raise KeyError(f"{path} is missing required key(s): {missing_text}")
+
+        return {
+            "X": data["Xi"],
+            "Z": data["Zi"],
+            "speed": data["speed_grid"],
+        }
+
+
 def _read_csv(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         raise FileNotFoundError(f"CSV table not found: {path}")
@@ -86,9 +121,18 @@ def _case_order(config: dict, case: str) -> int:
     return int(config["cases"]["orders"][case])
 
 
-def _build_summary(comparison_set: str, figure_dir: Path, saved_paths: list[Path]) -> str:
+def _finite_min_max(arrays: list[np.ndarray]) -> tuple[float, float]:
+    finite_values = [array[np.isfinite(array)] for array in arrays]
+    finite_values = [values for values in finite_values if values.size]
+    if not finite_values:
+        raise ValueError("No finite values found for plotting color scale.")
+
+    return min(float(np.min(values)) for values in finite_values), max(float(np.max(values)) for values in finite_values)
+
+
+def _build_summary(field: str, comparison_set: str, figure_dir: Path, saved_paths: list[Path]) -> str:
     lines = [
-        "Nek5000 concentration plot summary",
+        f"Nek5000 {field} plot summary",
         "",
         f"Comparison set: {comparison_set}",
         f"Output figure directory: {figure_dir}",
@@ -108,9 +152,6 @@ def main() -> None:
     )
 
     try:
-        if args.field != "concentration":
-            raise ValueError("Only --field concentration is implemented.")
-
         comparison_sets = config["cases"].get("comparison_sets", {})
         if args.comparison_set not in comparison_sets:
             available = ", ".join(sorted(comparison_sets)) or "none"
@@ -120,8 +161,71 @@ def main() -> None:
         case_indices = {case: int(index) for case, index in comparison_set["case_indices"].items()}
         reference_case = comparison_set.get("reference_case") or config["cases"]["reference_case"]
         cases = list(config["cases"]["orders"].keys())
-        figure_dir = _figure_dir(config, args.comparison_set)
+        figure_dir = _figure_dir(config, args.field, args.comparison_set)
         figure_dir.mkdir(parents=True, exist_ok=True)
+
+        if args.field == "velocity":
+            grids = {
+                case: _load_velocity_grid(_velocity_interpolated_path(config, case, case_indices[case]))
+                for case in cases
+            }
+            speed_vmin, speed_vmax = _finite_min_max([grids[case]["speed"] for case in cases])
+            saved_paths: list[Path] = []
+
+            for case in cases:
+                path = figure_dir / f"speed_field_{args.comparison_set}_{case}.png"
+                plot_contour(
+                    grids[case]["X"],
+                    grids[case]["Z"],
+                    grids[case]["speed"],
+                    path,
+                    title=f"{args.comparison_set} {case} speed",
+                    label="speed",
+                    vmin=speed_vmin,
+                    vmax=speed_vmax,
+                )
+                saved_paths.append(path)
+
+            reference_speed = grids[reference_case]["speed"]
+            diffs = {
+                case: np.abs(grids[case]["speed"] - reference_speed)
+                for case in cases
+                if case != reference_case
+            }
+            _, diff_vmax = _finite_min_max(list(diffs.values()))
+
+            for case, diff in diffs.items():
+                path = figure_dir / f"speed_absdiff_{args.comparison_set}_{case}_vs_{reference_case}.png"
+                plot_difference(
+                    grids[case]["X"],
+                    grids[case]["Z"],
+                    diff,
+                    path,
+                    title=f"{args.comparison_set} |speed_{case} - speed_{reference_case}|",
+                    label="|difference|",
+                    vmin=0,
+                    vmax=diff_vmax,
+                )
+                saved_paths.append(path)
+
+            error_rows = _read_csv(_velocity_error_table_path(config, args.comparison_set))
+            error_rows.sort(key=lambda row: _case_order(config, row["case"]))
+            error_orders = [_case_order(config, row["case"]) for row in error_rows]
+            errors = [float(row["relative_L2_speed"]) for row in error_rows]
+            error_plot = figure_dir / f"relative_L2_speed_vs_order_{args.comparison_set}.png"
+            plot_error_vs_order(
+                error_orders,
+                errors,
+                error_plot,
+                title=f"{args.comparison_set} relative L2 error of speed",
+                ylabel="Relative L2 error of speed",
+            )
+            saved_paths.append(error_plot)
+
+            summary = _build_summary(args.field, args.comparison_set, figure_dir, saved_paths)
+            print(summary)
+            _append_log(config, summary)
+            return
 
         grids = {
             case: _load_npz_grid(_interpolated_path(config, case, case_indices[case]))
@@ -188,7 +292,7 @@ def main() -> None:
         plot_front_position(front_orders, x_front, front_plot, title=f"{args.comparison_set} concentration front position")
         saved_paths.append(front_plot)
 
-        summary = _build_summary(args.comparison_set, figure_dir, saved_paths)
+        summary = _build_summary(args.field, args.comparison_set, figure_dir, saved_paths)
         print(summary)
         _append_log(config, summary)
     except Exception as exc:

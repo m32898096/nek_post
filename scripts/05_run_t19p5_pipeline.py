@@ -1,4 +1,4 @@
-"""Run the t19p5 concentration comparison pipeline."""
+"""Run the t19p5 comparison pipeline."""
 
 from __future__ import annotations
 
@@ -16,8 +16,13 @@ from nek_post.config import load_project_config  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the t19p5 concentration comparison pipeline.")
+    parser = argparse.ArgumentParser(description="Run the t19p5 comparison pipeline.")
     parser.add_argument("--comparison-set", default="t19p5", help="Named comparison set from config/cases.yaml.")
+    parser.add_argument(
+        "--fields",
+        default="concentration",
+        help="Comma-separated fields to compare and plot, for example concentration,velocity.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate extract and comparison outputs.")
     parser.add_argument("--skip-extract", action="store_true", help="Skip midspan slice extraction.")
     parser.add_argument("--skip-compare", action="store_true", help="Skip polynomial-order comparison.")
@@ -61,6 +66,19 @@ def _summary_paths(config: dict, comparison_set: str) -> tuple[Path, Path, Path]
     return error_csv, front_csv, figure_dir
 
 
+def _parse_fields(raw: str) -> list[str]:
+    fields = [field.strip() for field in raw.split(",") if field.strip()]
+    if not fields:
+        raise ValueError("--fields must include at least one field.")
+
+    allowed = {"concentration", "velocity"}
+    unknown = [field for field in fields if field not in allowed]
+    if unknown:
+        raise ValueError(f"Unknown field(s): {', '.join(unknown)}. Allowed fields: concentration, velocity")
+
+    return fields
+
+
 def main() -> None:
     """Run extraction, comparison, and plotting for a configured comparison set."""
     args = _parse_args()
@@ -72,8 +90,9 @@ def main() -> None:
     try:
         comparison_set = _comparison_set(config, args.comparison_set)
         case_indices = comparison_set["case_indices"]
+        fields = _parse_fields(args.fields)
 
-        _append_log(config, f"Pipeline start: comparison_set={args.comparison_set}")
+        _append_log(config, f"Pipeline start: comparison_set={args.comparison_set}, fields={','.join(fields)}")
 
         if not args.skip_extract:
             for case, index in case_indices.items():
@@ -89,35 +108,47 @@ def main() -> None:
                     command.append("--overwrite")
                 _run_command(command, config)
 
-        if not args.skip_compare:
-            command = [
-                sys.executable,
-                "scripts/03_compare_poly_orders.py",
-                "--comparison-set",
-                args.comparison_set,
-            ]
-            if args.overwrite:
-                command.append("--overwrite")
-            _run_command(command, config)
+        for field in fields:
+            if not args.skip_compare:
+                command = [
+                    sys.executable,
+                    "scripts/03_compare_poly_orders.py",
+                    "--comparison-set",
+                    args.comparison_set,
+                    "--field",
+                    field,
+                ]
+                if args.overwrite:
+                    command.append("--overwrite")
+                _run_command(command, config)
 
-        if not args.skip_plot:
-            command = [
-                sys.executable,
-                "scripts/04_plot_summary.py",
-                "--comparison-set",
-                args.comparison_set,
-            ]
-            _run_command(command, config)
+            if not args.skip_plot:
+                command = [
+                    sys.executable,
+                    "scripts/04_plot_summary.py",
+                    "--comparison-set",
+                    args.comparison_set,
+                    "--field",
+                    field,
+                ]
+                _run_command(command, config)
 
         error_csv, front_csv, figure_dir = _summary_paths(config, args.comparison_set)
-        summary = "\n".join(
-            [
-                "Pipeline completed.",
-                f"Concentration error CSV: {error_csv}",
-                f"Front position CSV: {front_csv}",
-                f"Figure directory: {figure_dir}",
-            ]
-        )
+        summary_lines = [
+            "Pipeline completed.",
+            f"Concentration error CSV: {error_csv}",
+            f"Front position CSV: {front_csv}",
+            f"Concentration figure directory: {figure_dir}",
+        ]
+        if "velocity" in fields:
+            results_root = Path(config["paths"]["results_root"])
+            summary_lines.extend(
+                [
+                    f"Velocity error CSV: {results_root / 'tables' / f'velocity_error_{args.comparison_set}.csv'}",
+                    f"Velocity figure directory: {results_root / 'figures' / 'velocity' / args.comparison_set}",
+                ]
+            )
+        summary = "\n".join(summary_lines)
         print(summary)
         _append_log(config, summary)
     except subprocess.CalledProcessError as exc:

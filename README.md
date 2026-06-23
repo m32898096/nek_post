@@ -69,4 +69,10 @@ Run the configured time-aligned concentration comparison pipeline from the repos
 python scripts/05_run_t19p5_pipeline.py --overwrite
 ```
 
+To run both concentration and velocity comparisons:
+
+```bash
+python scripts/05_run_t19p5_pipeline.py --fields concentration,velocity --overwrite
+```
+
 The pipeline calls the existing slice extraction, comparison, and plotting scripts for the `t19p5` comparison set.
