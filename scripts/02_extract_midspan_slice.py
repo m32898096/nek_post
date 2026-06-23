@@ -19,10 +19,20 @@ from nek_post.slicing import extract_y_slice, save_slice_npz  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Extract one Nek5000 y-midspan slab slice.")
+    parser = argparse.ArgumentParser(description="Extract one Nek5000 y-midspan slice.")
     parser.add_argument("--case", help="Case name from config/cases.yaml, for example N11.")
     parser.add_argument("--index", type=int, help="File index, for example 80 for GC0.f00080.")
     parser.add_argument("--slab-ratio", type=float, help="Slab tolerance as a fraction of the y extent.")
+    parser.add_argument(
+        "--slice-mode",
+        choices=("nearest_plane", "slab"),
+        help="Extraction mode. Defaults to cases.slice.mode from config.",
+    )
+    parser.add_argument(
+        "--y-round-decimals",
+        type=int,
+        help="Decimals used to group y levels for nearest-plane extraction.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing slice file.")
     return parser.parse_args()
 
@@ -57,6 +67,10 @@ def _min_max_line(name: str, values: np.ndarray) -> str:
     return f"{name} min/max: {np.min(values)} / {np.max(values)}"
 
 
+def _rounded_unique_count(values: np.ndarray, decimals: int) -> int:
+    return int(np.unique(np.round(np.asarray(values, dtype=float), decimals)).size)
+
+
 def _build_summary(
     input_path: Path,
     output_path: Path,
@@ -65,6 +79,7 @@ def _build_summary(
     time: object,
     slice_data: dict,
 ) -> str:
+    y_round_decimals = int(slice_data.get("y_round_decimals", 10))
     lines = [
         "Nek5000 midspan slice extraction",
         "",
@@ -73,12 +88,20 @@ def _build_summary(
         f"Case: {case}",
         f"Index: {index}",
         f"Time: {time}",
+        f"slice_mode: {slice_data['mode']}",
         f"y0: {slice_data['y0']}",
-        f"dy_tol: {slice_data['dy_tol']}",
+        f"selected_y: {slice_data.get('selected_y', '')}",
+        f"dy_tol: {slice_data.get('dy_tol', '')}",
         f"slab_ratio: {slice_data['slab_ratio']}",
+        f"y_round_decimals: {y_round_decimals}",
+        (
+            "rounded_unique_y_count_before_selection: "
+            f"{slice_data.get('rounded_unique_y_count_before_selection', '')}"
+        ),
         f"point_count: {slice_data['point_count']}",
         _min_max_line("x", slice_data["x"]),
         _min_max_line("y", slice_data["y"]),
+        f"extracted rounded unique y count: {_rounded_unique_count(slice_data['y'], y_round_decimals)}",
         _min_max_line("z", slice_data["z"]),
         _min_max_line("C", slice_data["C"]),
         _min_max_line("u", slice_data["u"]),
@@ -100,7 +123,14 @@ def main() -> None:
     case = args.case or config["cases"]["reference_case"]
     file_indices = config["cases"]["file_indices"]
     index = args.index if args.index is not None else file_indices[-1]
-    slab_ratio = args.slab_ratio if args.slab_ratio is not None else config["cases"]["slice"]["slab_ratio"]
+    slice_config = config["cases"].get("slice", {})
+    slab_ratio = args.slab_ratio if args.slab_ratio is not None else slice_config.get("slab_ratio", 0.01)
+    slice_mode = args.slice_mode if args.slice_mode is not None else slice_config.get("mode", "nearest_plane")
+    y_round_decimals = (
+        args.y_round_decimals
+        if args.y_round_decimals is not None
+        else int(slice_config.get("y_round_decimals", 10))
+    )
 
     try:
         input_path = _input_file(config, case, index)
@@ -114,16 +144,25 @@ def main() -> None:
 
         data = read_nek_file(input_path)
         time = get_nek_time(data)
-        slice_data = extract_y_slice(data, slab_ratio=slab_ratio)
+        slice_data = extract_y_slice(
+            data,
+            slab_ratio=slab_ratio,
+            mode=slice_mode,
+            y_round_decimals=y_round_decimals,
+        )
         metadata = {
             "case": case,
             "index": index,
             "time": time,
             "source_file": str(input_path),
+            "mode": slice_data["mode"],
             "y0": slice_data["y0"],
-            "dy_tol": slice_data["dy_tol"],
             "slab_ratio": slice_data["slab_ratio"],
+            "y_round_decimals": slice_data["y_round_decimals"],
         }
+        for name in ("selected_y", "dy_tol", "rounded_unique_y_count_before_selection"):
+            if name in slice_data:
+                metadata[name] = slice_data[name]
         save_slice_npz(slice_data, output_path, metadata=metadata)
 
         summary = _build_summary(input_path, output_path, case, index, time, slice_data)
