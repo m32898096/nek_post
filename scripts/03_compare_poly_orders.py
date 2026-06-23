@@ -441,6 +441,7 @@ def main() -> None:
 
         nx = int(config["cases"]["grid"]["nx"])
         nz = int(config["cases"]["grid"]["nz"])
+        duplicate_decimals = int(config["cases"].get("slice", {}).get("y_round_decimals", 10))
 
         slice_paths = _check_slice_files(config, case_indices)
         slice_data_by_case = {case: _load_slice_file(path) for case, path in slice_paths.items()}
@@ -470,9 +471,33 @@ def main() -> None:
             velocity_grids: dict[str, dict[str, np.ndarray]] = {}
             for case in cases:
                 slice_data = slice_data_by_case[case]
-                u_grid = interpolate_to_grid(slice_data["x"], slice_data["z"], slice_data["u"], Xi, Zi, method=args.method)
-                v_grid = interpolate_to_grid(slice_data["x"], slice_data["z"], slice_data["v"], Xi, Zi, method=args.method)
-                w_grid = interpolate_to_grid(slice_data["x"], slice_data["z"], slice_data["w"], Xi, Zi, method=args.method)
+                u_grid = interpolate_to_grid(
+                    slice_data["x"],
+                    slice_data["z"],
+                    slice_data["u"],
+                    Xi,
+                    Zi,
+                    method=args.method,
+                    duplicate_decimals=duplicate_decimals,
+                )
+                v_grid = interpolate_to_grid(
+                    slice_data["x"],
+                    slice_data["z"],
+                    slice_data["v"],
+                    Xi,
+                    Zi,
+                    method=args.method,
+                    duplicate_decimals=duplicate_decimals,
+                )
+                w_grid = interpolate_to_grid(
+                    slice_data["x"],
+                    slice_data["z"],
+                    slice_data["w"],
+                    Xi,
+                    Zi,
+                    method=args.method,
+                    duplicate_decimals=duplicate_decimals,
+                )
                 speed_grid = np.sqrt(u_grid**2 + v_grid**2 + w_grid**2)
                 velocity_grids[case] = {
                     "u": u_grid,
@@ -572,7 +597,15 @@ def main() -> None:
         c_grids: dict[str, np.ndarray] = {}
         for case in cases:
             slice_data = slice_data_by_case[case]
-            C_grid = interpolate_to_grid(slice_data["x"], slice_data["z"], slice_data["C"], Xi, Zi, method=args.method)
+            C_grid = interpolate_to_grid(
+                slice_data["x"],
+                slice_data["z"],
+                slice_data["C"],
+                Xi,
+                Zi,
+                method=args.method,
+                duplicate_decimals=duplicate_decimals,
+            )
             c_grids[case] = C_grid
 
             interp_path = _interpolated_path(config, case, case_indices[case])

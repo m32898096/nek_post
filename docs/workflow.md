@@ -19,7 +19,13 @@ Run the slice extractor from the repository root:
 python scripts/02_extract_midspan_slice.py --case N11 --index 80
 ```
 
-The script reads one Nek5000 file, extracts the configured `y`-midspan slab, and saves a compressed `.npz` file under `/data/Nek5000_data/postproc/poly_order_compare/slices/<case>/`. Existing slice files are preserved unless `--overwrite` is passed.
+The script reads one Nek5000 file, extracts the configured `y`-midspan slice, and saves a compressed `.npz` file under `/data/Nek5000_data/postproc/poly_order_compare/slices/<case>/`. Existing slice files are preserved unless `--overwrite` is passed.
+
+By default, `config/cases.yaml` uses `slice.mode: nearest_plane`, which selects the single rounded `y` plane closest to midspan. The previous finite-thickness slab behavior is still available:
+
+```bash
+python scripts/02_extract_midspan_slice.py --case N11 --index 40 --slice-mode slab --overwrite
+```
 
 ## Compare Polynomial Orders
 
@@ -49,6 +55,14 @@ Velocity comparison uses the same time-aligned slice files and interpolates `u`,
 
 ```bash
 python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field velocity --overwrite
+```
+
+Both concentration and velocity interpolation average duplicate projected `(x,z)` points before calling SciPy `griddata`.
+
+To diagnose velocity stripe artifacts for a generated slice:
+
+```bash
+python scripts/06_diagnose_velocity_stripes.py --case N11 --index 40
 ```
 
 ## Plot Summary Figures

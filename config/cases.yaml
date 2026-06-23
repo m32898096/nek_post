@@ -28,7 +28,9 @@ comparison_sets:
 
 slice:
   type: y_mid
+  mode: nearest_plane
   slab_ratio: 0.01
+  y_round_decimals: 10
 
 grid:
   nx: 500
