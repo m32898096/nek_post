@@ -27,7 +27,12 @@ def _parse_args() -> argparse.Namespace:
         "--case-indices",
         help="Comma-separated per-case indices, for example N5=80,N7=80,N9=80,N11=40. Overrides --index.",
     )
-    parser.add_argument("--field", default="concentration", help="Field to compare. Only concentration is implemented.")
+    parser.add_argument(
+        "--field",
+        default="concentration",
+        choices=("concentration", "velocity"),
+        help="Field to compare.",
+    )
     parser.add_argument("--method", default="linear", help="Interpolation method passed to scipy.interpolate.griddata.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing interpolated .npz files.")
     parser.add_argument("--time-tolerance", type=float, default=0.05, help="Allowed physical-time mismatch.")
@@ -49,6 +54,15 @@ def _interpolated_path(config: dict, case: str, index: int) -> Path:
     return Path(config["paths"]["postproc_root"]) / "interpolated" / "C" / f"interp_C_{case}_f{index:05d}.npz"
 
 
+def _velocity_interpolated_path(config: dict, case: str, index: int) -> Path:
+    return (
+        Path(config["paths"]["postproc_root"])
+        / "interpolated"
+        / "velocity"
+        / f"interp_velocity_{case}_f{index:05d}.npz"
+    )
+
+
 def _comparison_label(case_indices: dict[str, int], use_case_indices: bool) -> str:
     if not use_case_indices and len(set(case_indices.values())) == 1:
         index = next(iter(case_indices.values()))
@@ -64,6 +78,10 @@ def _error_table_path(config: dict, label: str) -> Path:
 
 def _front_table_path(config: dict, label: str) -> Path:
     return Path(config["paths"]["results_root"]) / "tables" / f"front_position_{label}.csv"
+
+
+def _velocity_error_table_path(config: dict, label: str) -> Path:
+    return Path(config["paths"]["results_root"]) / "tables" / f"velocity_error_{label}.csv"
 
 
 def _metadata_path(config: dict, comparison_set_name: str) -> Path:
@@ -201,6 +219,37 @@ def _save_interpolated(
     )
 
 
+def _save_velocity_interpolated(
+    path: Path,
+    Xi: np.ndarray,
+    Zi: np.ndarray,
+    u_grid: np.ndarray,
+    v_grid: np.ndarray,
+    w_grid: np.ndarray,
+    speed_grid: np.ndarray,
+    case: str,
+    index: int,
+    comparison_set: str | None,
+    source_slice_file: Path,
+    interpolation_method: str,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        Xi=Xi,
+        Zi=Zi,
+        u_grid=u_grid,
+        v_grid=v_grid,
+        w_grid=w_grid,
+        speed_grid=speed_grid,
+        case=case,
+        index=index,
+        comparison_set=comparison_set or "",
+        source_slice_file=str(source_slice_file),
+        interpolation_method=interpolation_method,
+    )
+
+
 def _write_error_table(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     columns = [
@@ -229,6 +278,49 @@ def _write_front_table(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _write_velocity_error_table(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "case",
+        "order",
+        "reference_case",
+        "comparison_set",
+        "index",
+        "reference_index",
+        "relative_L2_speed",
+        "absolute_Linf_speed",
+        "relative_Linf_speed",
+        "relative_L2_u",
+        "relative_L2_v",
+        "relative_L2_w",
+        "valid_point_count",
+        "total_grid_point_count",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _safe_relative_l2_error(values, reference, mask=None, denominator_tol: float = 1.0e-14) -> float:
+    values_arr = np.asarray(values, dtype=float)
+    ref_arr = np.asarray(reference, dtype=float)
+    if mask is None:
+        mask_arr = np.isfinite(values_arr) & np.isfinite(ref_arr)
+    else:
+        mask_arr = np.asarray(mask, dtype=bool) & np.isfinite(values_arr) & np.isfinite(ref_arr)
+
+    if not np.any(mask_arr):
+        return float("nan")
+
+    denominator = float(np.sum(ref_arr[mask_arr] ** 2))
+    if denominator <= denominator_tol:
+        return float("nan")
+
+    numerator = float(np.sum((values_arr[mask_arr] - ref_arr[mask_arr]) ** 2))
+    return float(np.sqrt(numerator / denominator))
 
 
 def _write_comparison_set_metadata(
@@ -303,6 +395,32 @@ def _build_summary(
     return "\n".join(lines)
 
 
+def _build_velocity_summary(
+    comparison_set_name: str | None,
+    reference_case: str,
+    grid_metadata: dict[str, float | int],
+    valid_point_count: int,
+    total_grid_point_count: int,
+    error_table: Path,
+    error_rows: list[dict[str, object]],
+) -> str:
+    lines = [
+        "Nek5000 polynomial-order velocity comparison",
+        "",
+        f"Comparison set: {comparison_set_name or 'custom'}",
+        "Field: velocity",
+        f"Reference case: {reference_case}",
+        f"Grid size: {grid_metadata['nx']} x {grid_metadata['nz']}",
+        f"Valid point count: {valid_point_count} / {total_grid_point_count}",
+        f"Velocity error table: {error_table}",
+        "",
+        "Speed errors relative to reference:",
+    ]
+    for row in error_rows:
+        lines.append(f"  {row['case']}: relative_L2_speed={row['relative_L2_speed']}")
+    return "\n".join(lines)
+
+
 def main() -> None:
     """Load slice files, interpolate concentration, and compare to the reference case."""
     args = _parse_args()
@@ -312,9 +430,6 @@ def main() -> None:
     )
 
     try:
-        if args.field != "concentration":
-            raise ValueError("Only --field concentration is implemented.")
-
         cases = list(config["cases"]["orders"].keys())
         case_indices, reference_case, comparison_set_name, target_time, use_case_indices = _build_comparison_selection(
             args,
@@ -350,6 +465,109 @@ def main() -> None:
             raise SystemExit(1)
 
         Xi, Zi, _, _, grid_metadata = create_common_xz_grid(slice_data_by_case, nx, nz)
+
+        if args.field == "velocity":
+            velocity_grids: dict[str, dict[str, np.ndarray]] = {}
+            for case in cases:
+                slice_data = slice_data_by_case[case]
+                u_grid = interpolate_to_grid(slice_data["x"], slice_data["z"], slice_data["u"], Xi, Zi, method=args.method)
+                v_grid = interpolate_to_grid(slice_data["x"], slice_data["z"], slice_data["v"], Xi, Zi, method=args.method)
+                w_grid = interpolate_to_grid(slice_data["x"], slice_data["z"], slice_data["w"], Xi, Zi, method=args.method)
+                speed_grid = np.sqrt(u_grid**2 + v_grid**2 + w_grid**2)
+                velocity_grids[case] = {
+                    "u": u_grid,
+                    "v": v_grid,
+                    "w": w_grid,
+                    "speed": speed_grid,
+                }
+
+                interp_path = _velocity_interpolated_path(config, case, case_indices[case])
+                if interp_path.exists() and not args.overwrite:
+                    continue
+                _save_velocity_interpolated(
+                    interp_path,
+                    Xi,
+                    Zi,
+                    u_grid,
+                    v_grid,
+                    w_grid,
+                    speed_grid,
+                    case,
+                    case_indices[case],
+                    comparison_set_name,
+                    slice_paths[case],
+                    args.method,
+                )
+
+            reference_speed = velocity_grids[reference_case]["speed"]
+            common_mask = valid_common_mask(*(velocity_grids[case]["speed"] for case in cases))
+            valid_point_count = int(np.count_nonzero(common_mask))
+            total_grid_point_count = int(common_mask.size)
+            if valid_point_count == 0:
+                raise ValueError("No finite common grid points are available for velocity comparison.")
+
+            error_rows = []
+            for case in cases:
+                if case == reference_case:
+                    continue
+                row = {
+                    "case": case,
+                    "order": config["cases"]["orders"][case],
+                    "reference_case": reference_case,
+                    "comparison_set": comparison_set_name or "",
+                    "index": case_indices[case],
+                    "reference_index": case_indices[reference_case],
+                    "relative_L2_speed": relative_l2_error(
+                        velocity_grids[case]["speed"],
+                        reference_speed,
+                        common_mask,
+                    ),
+                    "absolute_Linf_speed": absolute_linf_error(
+                        velocity_grids[case]["speed"],
+                        reference_speed,
+                        common_mask,
+                    ),
+                    "relative_Linf_speed": relative_linf_error(
+                        velocity_grids[case]["speed"],
+                        reference_speed,
+                        common_mask,
+                    ),
+                    "relative_L2_u": _safe_relative_l2_error(
+                        velocity_grids[case]["u"],
+                        velocity_grids[reference_case]["u"],
+                        common_mask,
+                    ),
+                    "relative_L2_v": _safe_relative_l2_error(
+                        velocity_grids[case]["v"],
+                        velocity_grids[reference_case]["v"],
+                        common_mask,
+                    ),
+                    "relative_L2_w": _safe_relative_l2_error(
+                        velocity_grids[case]["w"],
+                        velocity_grids[reference_case]["w"],
+                        common_mask,
+                    ),
+                    "valid_point_count": valid_point_count,
+                    "total_grid_point_count": total_grid_point_count,
+                }
+                error_rows.append(row)
+
+            output_label = comparison_set_name or _comparison_label(case_indices, use_case_indices)
+            error_table = _velocity_error_table_path(config, output_label)
+            _write_velocity_error_table(error_table, error_rows)
+
+            summary = _build_velocity_summary(
+                comparison_set_name,
+                reference_case,
+                grid_metadata,
+                valid_point_count,
+                total_grid_point_count,
+                error_table,
+                error_rows,
+            )
+            print(summary)
+            _append_log(config, summary)
+            return
 
         c_grids: dict[str, np.ndarray] = {}
         for case in cases:
