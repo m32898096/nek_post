@@ -44,3 +44,13 @@ python scripts/03_compare_poly_orders.py --index 80
 ```
 
 The script interpolates concentration onto a common overlapping `x-z` grid and writes CSV tables under `/data/Nek5000_data/results/poly_order_compare/tables/`.
+
+## Plot Summary Figures
+
+After running the comparison set, generate concentration summary figures with:
+
+```bash
+python scripts/04_plot_summary.py --comparison-set t19p5
+```
+
+The plotting script reads only interpolated concentration `.npz` files and CSV summary tables. Figures are written under `/data/Nek5000_data/results/poly_order_compare/figures/concentration/t19p5/`.
