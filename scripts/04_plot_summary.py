@@ -1,9 +1,204 @@
 """Generate summary plots for the polynomial-order comparison study."""
 
+from __future__ import annotations
+
+import argparse
+import csv
+from datetime import datetime
+from pathlib import Path
+import sys
+
+import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+sys.path.insert(0, str(SRC_DIR))
+
+from nek_post.config import load_project_config  # noqa: E402
+from nek_post.plotting import plot_contour, plot_difference, plot_error_vs_order, plot_front_position  # noqa: E402
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate concentration summary plots.")
+    parser.add_argument("--comparison-set", default="t19p5", help="Named comparison set from config/cases.yaml.")
+    parser.add_argument("--field", default="concentration", help="Field to plot. Only concentration is implemented.")
+    return parser.parse_args()
+
+
+def _interpolated_path(config: dict, case: str, index: int) -> Path:
+    return Path(config["paths"]["postproc_root"]) / "interpolated" / "C" / f"interp_C_{case}_f{index:05d}.npz"
+
+
+def _error_table_path(config: dict, comparison_set: str) -> Path:
+    return Path(config["paths"]["results_root"]) / "tables" / f"concentration_error_{comparison_set}.csv"
+
+
+def _front_table_path(config: dict, comparison_set: str) -> Path:
+    return Path(config["paths"]["results_root"]) / "tables" / f"front_position_{comparison_set}.csv"
+
+
+def _figure_dir(config: dict, comparison_set: str) -> Path:
+    return Path(config["paths"]["results_root"]) / "figures" / "concentration" / comparison_set
+
+
+def _log_path(config: dict) -> Path:
+    return Path(config["paths"]["postproc_root"]) / "logs" / "plot_summary.log"
+
+
+def _append_log(config: dict, text: str) -> None:
+    path = _log_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"[{timestamp}]\n{text}\n\n")
+
+
+def _load_npz_grid(path: Path) -> dict[str, np.ndarray]:
+    if not path.exists():
+        raise FileNotFoundError(f"Interpolated grid file not found: {path}")
+
+    with np.load(path) as data:
+        missing_grid = [name for name in ("Xi", "Zi") if name not in data.files]
+        if missing_grid:
+            missing = ", ".join(missing_grid)
+            raise KeyError(f"{path} is missing required grid key(s): {missing}")
+
+        value_key = next((name for name in ("C_grid", "C", "values") if name in data.files), None)
+        if value_key is None:
+            raise KeyError(f"{path} is missing concentration grid key: expected C_grid, C, or values")
+
+        return {
+            "X": data["Xi"],
+            "Z": data["Zi"],
+            "C": data[value_key],
+        }
+
+
+def _read_csv(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        raise FileNotFoundError(f"CSV table not found: {path}")
+
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _case_order(config: dict, case: str) -> int:
+    return int(config["cases"]["orders"][case])
+
+
+def _build_summary(comparison_set: str, figure_dir: Path, saved_paths: list[Path]) -> str:
+    lines = [
+        "Nek5000 concentration plot summary",
+        "",
+        f"Comparison set: {comparison_set}",
+        f"Output figure directory: {figure_dir}",
+        "",
+        "Saved figures:",
+    ]
+    lines.extend(f"  {path}" for path in saved_paths)
+    return "\n".join(lines)
+
 
 def main() -> None:
-    """Entry point for the plotting placeholder script."""
-    print("04_plot_summary.py is a placeholder. Plot generation will be added later.")
+    """Load comparison outputs and generate summary figures."""
+    args = _parse_args()
+    config = load_project_config(
+        REPO_ROOT / "config" / "paths.yaml",
+        REPO_ROOT / "config" / "cases.yaml",
+    )
+
+    try:
+        if args.field != "concentration":
+            raise ValueError("Only --field concentration is implemented.")
+
+        comparison_sets = config["cases"].get("comparison_sets", {})
+        if args.comparison_set not in comparison_sets:
+            available = ", ".join(sorted(comparison_sets)) or "none"
+            raise ValueError(f"Unknown comparison set {args.comparison_set!r}. Available sets: {available}")
+
+        comparison_set = comparison_sets[args.comparison_set]
+        case_indices = {case: int(index) for case, index in comparison_set["case_indices"].items()}
+        reference_case = comparison_set.get("reference_case") or config["cases"]["reference_case"]
+        cases = list(config["cases"]["orders"].keys())
+        figure_dir = _figure_dir(config, args.comparison_set)
+        figure_dir.mkdir(parents=True, exist_ok=True)
+
+        grids = {
+            case: _load_npz_grid(_interpolated_path(config, case, case_indices[case]))
+            for case in cases
+        }
+
+        concentration_vmin = 0.0
+        concentration_vmax = 1.0
+        colorbar_ticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+        saved_paths: list[Path] = []
+
+        for case in cases:
+            path = figure_dir / f"C_field_{args.comparison_set}_{case}.png"
+            plot_contour(
+                grids[case]["X"],
+                grids[case]["Z"],
+                grids[case]["C"],
+                path,
+                title=f"{args.comparison_set} {case} concentration",
+                label="C",
+                vmin=concentration_vmin,
+                vmax=concentration_vmax,
+                ticks=colorbar_ticks,
+            )
+            saved_paths.append(path)
+
+        reference_grid = grids[reference_case]["C"]
+        diffs = {
+            case: np.abs(grids[case]["C"] - reference_grid)
+            for case in cases
+            if case != reference_case
+        }
+        diff_vmin = 0.0
+        diff_vmax = 1.0
+
+        for case, diff in diffs.items():
+            path = figure_dir / f"C_absdiff_{args.comparison_set}_{case}_vs_{reference_case}.png"
+            plot_difference(
+                grids[case]["X"],
+                grids[case]["Z"],
+                diff,
+                path,
+                title=f"{args.comparison_set} |C_{case} - C_{reference_case}|",
+                label="|difference|",
+                vmin=diff_vmin,
+                vmax=diff_vmax,
+                ticks=colorbar_ticks,
+            )
+            saved_paths.append(path)
+
+        error_rows = _read_csv(_error_table_path(config, args.comparison_set))
+        error_rows.sort(key=lambda row: _case_order(config, row["case"]))
+        error_orders = [_case_order(config, row["case"]) for row in error_rows]
+        errors = [float(row["relative_L2_C"]) for row in error_rows]
+        error_plot = figure_dir / f"relative_L2_C_vs_order_{args.comparison_set}.png"
+        plot_error_vs_order(error_orders, errors, error_plot, title=f"{args.comparison_set} relative L2 error of C")
+        saved_paths.append(error_plot)
+
+        front_rows = _read_csv(_front_table_path(config, args.comparison_set))
+        front_rows.sort(key=lambda row: _case_order(config, row["case"]))
+        front_orders = [_case_order(config, row["case"]) for row in front_rows]
+        x_front = [float(row["x_front"]) for row in front_rows]
+        front_plot = figure_dir / f"front_position_vs_order_{args.comparison_set}.png"
+        plot_front_position(front_orders, x_front, front_plot, title=f"{args.comparison_set} concentration front position")
+        saved_paths.append(front_plot)
+
+        summary = _build_summary(args.comparison_set, figure_dir, saved_paths)
+        print(summary)
+        _append_log(config, summary)
+    except Exception as exc:
+        message = f"ERROR: {exc}"
+        print(message, file=sys.stderr)
+        try:
+            _append_log(config, message)
+        except OSError as log_exc:
+            print(f"ERROR: Failed to write log file: {log_exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
