@@ -1,0 +1,29 @@
+reference_case: N11
+
+orders:
+  N5: 5
+  N7: 7
+  N9: 9
+  N11: 11
+
+file_prefix: GC0
+
+file_indices:
+  - 1
+  - 20
+  - 40
+  - 60
+  - 80
+
+slice:
+  type: y_mid
+  slab_ratio: 0.01
+
+grid:
+  nx: 500
+  nz: 200
+
+fields:
+  - concentration
+  - velocity
+  - pressure

@@ -1,0 +1,10 @@
+data_root: /data/Nek5000_data
+
+case_dirs:
+  N5: /data/Nek5000_data/case_N5
+  N7: /data/Nek5000_data/case_N7
+  N9: /data/Nek5000_data/case_N9
+  N11: /data/Nek5000_data/case_N11
+
+postproc_root: /data/Nek5000_data/postproc/poly_order_compare
+results_root: /data/Nek5000_data/results/poly_order_compare
