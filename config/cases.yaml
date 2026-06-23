@@ -15,6 +15,17 @@ file_indices:
   - 60
   - 80
 
+comparison_sets:
+  t19p5:
+    description: "Polynomial-order comparison near t = 19.5"
+    target_time: 19.5
+    reference_case: N11
+    case_indices:
+      N5: 79
+      N7: 79
+      N9: 79
+      N11: 40
+
 slice:
   type: y_mid
   slab_ratio: 0.01
