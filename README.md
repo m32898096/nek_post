@@ -60,3 +60,13 @@ python scripts/01_probe_nek_file.py --case N11 --index 80
 ```
 
 The script reads exactly one Nek5000 file with `pymech` and writes the same report to `/data/Nek5000_data/postproc/poly_order_compare/logs/probe_nek_file.log`.
+
+## Run t19p5 pipeline
+
+Run the configured time-aligned concentration comparison pipeline from the repository root:
+
+```bash
+python scripts/05_run_t19p5_pipeline.py --overwrite
+```
+
+The pipeline calls the existing slice extraction, comparison, and plotting scripts for the `t19p5` comparison set.
