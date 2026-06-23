@@ -34,3 +34,13 @@ Final figures, tables, and reports are stored under:
 - `tests/` contains minimal unit tests for the metrics helpers.
 
 This repository currently includes placeholders only. The analysis workflow will be implemented later.
+
+## Check Expected Files
+
+Run the first utility from the repository root:
+
+```bash
+python scripts/00_check_files.py
+```
+
+The script checks configured file paths only and writes the same report to `/data/Nek5000_data/postproc/poly_order_compare/logs/check_files.log`.
