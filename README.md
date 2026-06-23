@@ -44,3 +44,19 @@ python scripts/00_check_files.py
 ```
 
 The script checks configured file paths only and writes the same report to `/data/Nek5000_data/postproc/poly_order_compare/logs/check_files.log`.
+
+## Probe One Nek5000 File
+
+Run the second utility from the repository root:
+
+```bash
+python scripts/01_probe_nek_file.py
+```
+
+By default, it probes the configured reference case and last configured file index. Override those with `--case` and `--index`, for example:
+
+```bash
+python scripts/01_probe_nek_file.py --case N11 --index 80
+```
+
+The script reads exactly one Nek5000 file with `pymech` and writes the same report to `/data/Nek5000_data/postproc/poly_order_compare/logs/probe_nek_file.log`.
