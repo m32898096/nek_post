@@ -1,6 +1,8 @@
 # Nek5000 Polynomial-Order Comparison
 
-This repository is a lightweight Python skeleton for comparing Nek5000 simulation results computed with polynomial orders `N=5`, `N=7`, `N=9`, and `N=11`.
+This repository compares Nek5000 simulation results computed with polynomial orders `N=5`, `N=7`, `N=9`, and `N=11`.
+
+This repository now includes a working `t19p5` polynomial-order comparison workflow for concentration, velocity magnitude, and pressure fluctuation fields.
 
 Raw simulation data is stored outside the repository under `/data/Nek5000_data`:
 
@@ -17,27 +19,35 @@ Final figures, tables, and reports are stored under:
 
 - `/data/Nek5000_data/results/poly_order_compare`
 
-## Initial Workflow
+## Current Completed Workflow
 
-1. Check that the expected input files exist.
-2. Inspect one Nek5000 field file.
-3. Extract a midspan `y`-slice.
-4. Interpolate all polynomial orders onto a common `x-z` grid.
-5. Compute errors against `N11`, which is the reference case.
-6. Generate plots and summary tables.
+The current workflow compares `N5`, `N7`, and `N9` against `N11`, which is the reference case. The main comparison set is `t19p5`, using time-aligned files rather than identical file indices:
+
+- `N5`: `f00079`
+- `N7`: `f00079`
+- `N9`: `f00079`
+- `N11`: `f00040`
+
+Slice extraction uses the nearest midspan `y` plane by default. For the current data this selects `y = 0.75`. The previous finite-thickness slab mode remains available with `--slice-mode slab`.
+
+Supported comparison fields:
+
+- `concentration`
+- `velocity`
+- `pressure`
+
+Duplicate projected `(x,z)` points are averaged before interpolation onto the common grid.
 
 ## Project Layout
 
 - `config/` contains YAML configuration files for paths and cases.
 - `scripts/` contains entry-point scripts for each workflow stage.
-- `src/nek_post/` contains the import-safe Python package skeleton.
+- `src/nek_post/` contains the import-safe Python package.
 - `tests/` contains minimal unit tests for the metrics helpers.
-
-This repository currently includes placeholders only. The analysis workflow will be implemented later.
 
 ## Check Expected Files
 
-Run the first utility from the repository root:
+Run from the repository root:
 
 ```bash
 python scripts/00_check_files.py
@@ -50,29 +60,43 @@ The script checks configured file paths only and writes the same report to `/dat
 Run the second utility from the repository root:
 
 ```bash
-python scripts/01_probe_nek_file.py
-```
-
-By default, it probes the configured reference case and last configured file index. Override those with `--case` and `--index`, for example:
-
-```bash
-python scripts/01_probe_nek_file.py --case N11 --index 80
+python scripts/01_probe_nek_file.py --case N11 --index 40
 ```
 
 The script reads exactly one Nek5000 file with `pymech` and writes the same report to `/data/Nek5000_data/postproc/poly_order_compare/logs/probe_nek_file.log`.
 
-## Run t19p5 pipeline
+## Run t19p5 Pipeline
 
-Run the configured time-aligned concentration comparison pipeline from the repository root:
-
-```bash
-python scripts/05_run_t19p5_pipeline.py --overwrite
-```
-
-To run concentration, velocity, and pressure comparisons:
+Run the full configured time-aligned comparison pipeline:
 
 ```bash
 python scripts/05_run_t19p5_pipeline.py --fields concentration,velocity,pressure --overwrite
 ```
 
-The pipeline calls the existing slice extraction, comparison, and plotting scripts for the `t19p5` comparison set.
+The pipeline calls slice extraction, comparison, and plotting scripts for the `t19p5` comparison set.
+
+## Run Individual Comparisons
+
+```bash
+python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field concentration --overwrite
+python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field velocity --overwrite
+python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field pressure --overwrite
+```
+
+## Run Individual Plotting
+
+```bash
+python scripts/04_plot_summary.py --comparison-set t19p5 --field concentration
+python scripts/04_plot_summary.py --comparison-set t19p5 --field velocity
+python scripts/04_plot_summary.py --comparison-set t19p5 --field pressure
+```
+
+## Output Locations
+
+Postprocessed slices and interpolated files are written under:
+
+- `/data/Nek5000_data/postproc/poly_order_compare`
+
+Final tables and figures are written under:
+
+- `/data/Nek5000_data/results/poly_order_compare`

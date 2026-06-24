@@ -1,94 +1,147 @@
 # Workflow
 
-This document will describe the full Nek5000 post-processing workflow.
+This repository contains a working Nek5000 polynomial-order comparison workflow for `N5`, `N7`, `N9`, and `N11`. The current completed workflow compares `N5`, `N7`, and `N9` against `N11` for concentration, velocity magnitude, and pressure fluctuation fields.
 
-Planned stages:
+## Data Layout
 
-1. Check expected input files.
-2. Inspect a single Nek5000 file.
-3. Extract a midspan `y`-slice.
-4. Interpolate onto a common `x-z` grid.
-5. Compare `N5`, `N7`, and `N9` against `N11`.
-6. Generate summary plots and tables.
+Raw Nek5000 data lives outside the repository:
 
-## Extract One Midspan Slice
+- `/data/Nek5000_data/case_N5`
+- `/data/Nek5000_data/case_N7`
+- `/data/Nek5000_data/case_N9`
+- `/data/Nek5000_data/case_N11`
+
+Generated post-processing outputs are written under:
+
+- `/data/Nek5000_data/postproc/poly_order_compare`
+
+Final CSV tables and PNG figures are written under:
+
+- `/data/Nek5000_data/results/poly_order_compare`
+
+Comparison and plotting scripts read existing generated slice or interpolated `.npz` files. They do not read raw Nek5000 `.f` files.
+
+## t19p5 Comparison Set
+
+The primary comparison set is `t19p5`, configured near physical time `t = 19.5`. File indices are time-aligned across polynomial orders rather than identical:
+
+- `N5`: `f00079`
+- `N7`: `f00079`
+- `N9`: `f00079`
+- `N11`: `f00040`
+
+`N11` is the reference case.
+
+## Slice Extraction
 
 Run the slice extractor from the repository root:
-
-```bash
-python scripts/02_extract_midspan_slice.py --case N11 --index 80
-```
-
-The script reads one Nek5000 file, extracts the configured `y`-midspan slice, and saves a compressed `.npz` file under `/data/Nek5000_data/postproc/poly_order_compare/slices/<case>/`. Existing slice files are preserved unless `--overwrite` is passed.
-
-By default, `config/cases.yaml` uses `slice.mode: nearest_plane`, which selects the single rounded `y` plane closest to midspan. The previous finite-thickness slab behavior is still available:
-
-```bash
-python scripts/02_extract_midspan_slice.py --case N11 --index 40 --slice-mode slab --overwrite
-```
-
-## Compare Polynomial Orders
-
-Nek5000 file indices may not correspond to the same physical time across polynomial-order cases. Compare time-aligned slice files, not necessarily identical file indices. The configured `t19p5` comparison set uses `N5/N7/N9 f00079` and `N11 f00040`:
-
-```bash
-python scripts/03_compare_poly_orders.py --comparison-set t19p5
-```
-
-If a slice is missing, generate only that slice first, for example:
 
 ```bash
 python scripts/02_extract_midspan_slice.py --case N11 --index 40 --overwrite
 ```
 
-The comparison script reads only slice `.npz` files, reports each case/index/time combination, warns when the time mismatch exceeds `--time-tolerance`, and can fail on mismatch with `--strict-time`. Ad hoc time-aligned comparisons can also use `--case-indices N5=80,N7=80,N9=80,N11=40`.
+The default slice mode is `nearest_plane`, which selects the rounded `y` plane closest to midspan. For the current data, this selects `y = 0.75`.
 
-For quick checks where all cases intentionally use the same file index, the old shorthand still works:
+The previous finite-thickness slab behavior is still available:
 
 ```bash
-python scripts/03_compare_poly_orders.py --index 80
+python scripts/02_extract_midspan_slice.py --case N11 --index 40 --slice-mode slab --overwrite
 ```
 
-The script interpolates concentration onto a common overlapping `x-z` grid and writes CSV tables under `/data/Nek5000_data/results/poly_order_compare/tables/`.
+Slice files are written under `/data/Nek5000_data/postproc/poly_order_compare/slices/<case>/`. Duplicate projected `(x,z)` points are averaged before interpolation in the comparison stage.
 
-Velocity comparison uses the same time-aligned slice files and interpolates `u`, `v`, and `w` before computing speed:
+## Comparison Fields
+
+Run concentration comparison:
+
+```bash
+python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field concentration --overwrite
+```
+
+The concentration comparison interpolates `C`, computes relative L2 and Linf errors against `N11`, and writes a front-position table.
+
+Run velocity comparison:
 
 ```bash
 python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field velocity --overwrite
 ```
 
-Pressure comparison uses the same slice files, interpolates pressure, removes each case's spatial mean on the common valid grid, and compares the resulting pressure fluctuation `p_prime`:
+The velocity comparison interpolates `u`, `v`, and `w`, computes speed magnitude, and reports errors for speed and component relative L2 errors for `u`, `v`, and `w`.
+
+Run pressure comparison:
 
 ```bash
 python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field pressure --overwrite
 ```
 
-Concentration, velocity, and pressure interpolation average duplicate projected `(x,z)` points before calling SciPy `griddata`.
+The pressure comparison interpolates pressure, removes each case's spatial mean on the valid common grid, and compares `p_prime = p - mean(p)` against the `N11` pressure fluctuation.
 
-To diagnose velocity stripe artifacts for a generated slice:
+## Plotting
 
-```bash
-python scripts/06_diagnose_velocity_stripes.py --case N11 --index 40
-```
-
-## Plot Summary Figures
-
-After running the comparison set, generate concentration summary figures with:
+Generate concentration figures:
 
 ```bash
-python scripts/04_plot_summary.py --comparison-set t19p5
+python scripts/04_plot_summary.py --comparison-set t19p5 --field concentration
 ```
 
-The plotting script reads only interpolated concentration `.npz` files and CSV summary tables. Figures are written under `/data/Nek5000_data/results/poly_order_compare/figures/concentration/t19p5/`.
-
-Velocity summary figures are generated separately:
+Generate velocity figures:
 
 ```bash
 python scripts/04_plot_summary.py --comparison-set t19p5 --field velocity
 ```
 
-Pressure summary figures are generated with:
+Generate pressure figures:
 
 ```bash
+python scripts/04_plot_summary.py --comparison-set t19p5 --field pressure
+```
+
+Figures are written under `/data/Nek5000_data/results/poly_order_compare/figures/<field>/t19p5/`.
+
+## Diagnostics
+
+Velocity and pressure plots may show vertical banding. Diagnostics showed that the velocity banding is already visible in the raw midspan slice data and is not primarily caused by slab extraction, duplicate projected `(x,z)` points, or computing speed from interpolated `u/v/w` instead of direct raw speed interpolation.
+
+Run the velocity stripe diagnostic with:
+
+```bash
+python scripts/06_diagnose_velocity_stripes.py --case N11 --index 40
+```
+
+Diagnostic figures are written under `/data/Nek5000_data/results/poly_order_compare/figures/velocity/t19p5/diagnostics/`.
+
+## Recommended Workflow Commands
+
+Check configured files:
+
+```bash
+python scripts/00_check_files.py
+```
+
+Probe one Nek5000 file:
+
+```bash
+python scripts/01_probe_nek_file.py --case N11 --index 40
+```
+
+Run the full `t19p5` workflow:
+
+```bash
+python scripts/05_run_t19p5_pipeline.py --fields concentration,velocity,pressure --overwrite
+```
+
+Run comparisons individually:
+
+```bash
+python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field concentration --overwrite
+python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field velocity --overwrite
+python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field pressure --overwrite
+```
+
+Run plotting individually:
+
+```bash
+python scripts/04_plot_summary.py --comparison-set t19p5 --field concentration
+python scripts/04_plot_summary.py --comparison-set t19p5 --field velocity
 python scripts/04_plot_summary.py --comparison-set t19p5 --field pressure
 ```
