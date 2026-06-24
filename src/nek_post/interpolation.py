@@ -48,10 +48,64 @@ def create_common_xz_grid(slice_data_by_case: dict[str, Any], nx: int, nz: int):
     return Xi, Zi, xi, zi, metadata
 
 
-def interpolate_to_grid(x, z, values, Xi, Zi, method: str = "linear"):
+def average_duplicate_xz_points(x, z, values, decimals: int = 10):
+    """Average values that share the same rounded projected x-z location."""
+    x_arr = np.asarray(x, dtype=float).ravel()
+    z_arr = np.asarray(z, dtype=float).ravel()
+    values_arr = np.asarray(values, dtype=float).ravel()
+    if x_arr.shape != z_arr.shape or x_arr.shape != values_arr.shape:
+        raise ValueError("x, z, and values must have matching one-dimensional sizes.")
+
+    finite_mask = np.isfinite(x_arr) & np.isfinite(z_arr) & np.isfinite(values_arr)
+    if not np.any(finite_mask):
+        raise ValueError("No finite x-z-value points are available for duplicate averaging.")
+
+    x_finite = x_arr[finite_mask]
+    z_finite = z_arr[finite_mask]
+    values_finite = values_arr[finite_mask]
+    keys = np.column_stack((np.round(x_finite, decimals), np.round(z_finite, decimals)))
+    _, inverse, counts = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
+
+    x_sum = np.bincount(inverse, weights=x_finite)
+    z_sum = np.bincount(inverse, weights=z_finite)
+    values_sum = np.bincount(inverse, weights=values_finite)
+
+    stats = {
+        "original_point_count": int(x_arr.size),
+        "finite_point_count": int(x_finite.size),
+        "unique_point_count": int(counts.size),
+        "duplicate_point_count": int(x_finite.size - counts.size),
+        "max_multiplicity": int(np.max(counts)),
+        "decimals": int(decimals),
+    }
+    return x_sum / counts, z_sum / counts, values_sum / counts, stats
+
+
+def interpolate_to_grid(
+    x,
+    z,
+    values,
+    Xi,
+    Zi,
+    method: str = "linear",
+    deduplicate: bool = True,
+    duplicate_decimals: int = 10,
+):
     """Interpolate values defined on scattered x-z points to a structured grid."""
-    points = (np.asarray(x, dtype=float), np.asarray(z, dtype=float))
-    return griddata(points, np.asarray(values, dtype=float), (Xi, Zi), method=method)
+    if deduplicate:
+        x_interp, z_interp, values_interp, _ = average_duplicate_xz_points(
+            x,
+            z,
+            values,
+            decimals=duplicate_decimals,
+        )
+    else:
+        x_interp = np.asarray(x, dtype=float).ravel()
+        z_interp = np.asarray(z, dtype=float).ravel()
+        values_interp = np.asarray(values, dtype=float).ravel()
+
+    points = (x_interp, z_interp)
+    return griddata(points, values_interp, (Xi, Zi), method=method)
 
 
 def valid_common_mask(*arrays):

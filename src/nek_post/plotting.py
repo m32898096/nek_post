@@ -52,7 +52,7 @@ def plot_difference(X, Z, diff, output_path, title, label="|difference|", vmin=N
     _save_contour(X, Z, diff, output_path, title, label, vmin=vmin, vmax=vmax, ticks=ticks)
 
 
-def plot_error_vs_order(orders, errors, output_path, title):
+def plot_error_vs_order(orders, errors, output_path, title, ylabel="Relative L2 error of C"):
     """Plot error trends versus polynomial order."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,7 +60,7 @@ def plot_error_vs_order(orders, errors, output_path, title):
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.plot(orders, errors, marker="o")
     ax.set_xlabel("Polynomial order N")
-    ax.set_ylabel("Relative L2 error of C")
+    ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
