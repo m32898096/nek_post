@@ -32,6 +32,8 @@ The primary comparison set is `t19p5`, configured near physical time `t = 19.5`.
 
 `N11` is the reference case.
 
+Earlier same-index `f00080` comparison tables were archived under `/data/Nek5000_data/results/poly_order_compare/archive/same_index_f00080/`. They are diagnostic only; current analysis should use the time-aligned `t19p5` outputs in `/data/Nek5000_data/results/poly_order_compare/tables/`.
+
 ## Slice Extraction
 
 Run the slice extractor from the repository root:
