@@ -57,7 +57,13 @@ Velocity comparison uses the same time-aligned slice files and interpolates `u`,
 python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field velocity --overwrite
 ```
 
-Both concentration and velocity interpolation average duplicate projected `(x,z)` points before calling SciPy `griddata`.
+Pressure comparison uses the same slice files, interpolates pressure, removes each case's spatial mean on the common valid grid, and compares the resulting pressure fluctuation `p_prime`:
+
+```bash
+python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field pressure --overwrite
+```
+
+Concentration, velocity, and pressure interpolation average duplicate projected `(x,z)` points before calling SciPy `griddata`.
 
 To diagnose velocity stripe artifacts for a generated slice:
 
@@ -79,4 +85,10 @@ Velocity summary figures are generated separately:
 
 ```bash
 python scripts/04_plot_summary.py --comparison-set t19p5 --field velocity
+```
+
+Pressure summary figures are generated with:
+
+```bash
+python scripts/04_plot_summary.py --comparison-set t19p5 --field pressure
 ```

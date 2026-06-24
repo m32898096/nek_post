@@ -24,7 +24,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--field",
         default="concentration",
-        choices=("concentration", "velocity"),
+        choices=("concentration", "velocity", "pressure"),
         help="Field to plot.",
     )
     return parser.parse_args()
@@ -43,12 +43,25 @@ def _velocity_interpolated_path(config: dict, case: str, index: int) -> Path:
     )
 
 
+def _pressure_interpolated_path(config: dict, case: str, index: int) -> Path:
+    return (
+        Path(config["paths"]["postproc_root"])
+        / "interpolated"
+        / "pressure"
+        / f"interp_pressure_{case}_f{index:05d}.npz"
+    )
+
+
 def _error_table_path(config: dict, comparison_set: str) -> Path:
     return Path(config["paths"]["results_root"]) / "tables" / f"concentration_error_{comparison_set}.csv"
 
 
 def _velocity_error_table_path(config: dict, comparison_set: str) -> Path:
     return Path(config["paths"]["results_root"]) / "tables" / f"velocity_error_{comparison_set}.csv"
+
+
+def _pressure_error_table_path(config: dict, comparison_set: str) -> Path:
+    return Path(config["paths"]["results_root"]) / "tables" / f"pressure_error_{comparison_set}.csv"
 
 
 def _front_table_path(config: dict, comparison_set: str) -> Path:
@@ -109,6 +122,23 @@ def _load_velocity_grid(path: Path) -> dict[str, np.ndarray]:
         }
 
 
+def _load_pressure_grid(path: Path) -> dict[str, np.ndarray]:
+    if not path.exists():
+        raise FileNotFoundError(f"Interpolated pressure file not found: {path}")
+
+    with np.load(path) as data:
+        missing = [name for name in ("Xi", "Zi", "p_prime_grid") if name not in data.files]
+        if missing:
+            missing_text = ", ".join(missing)
+            raise KeyError(f"{path} is missing required key(s): {missing_text}")
+
+        return {
+            "X": data["Xi"],
+            "Z": data["Zi"],
+            "p_prime": data["p_prime_grid"],
+        }
+
+
 def _read_csv(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         raise FileNotFoundError(f"CSV table not found: {path}")
@@ -128,6 +158,16 @@ def _finite_min_max(arrays: list[np.ndarray]) -> tuple[float, float]:
         raise ValueError("No finite values found for plotting color scale.")
 
     return min(float(np.min(values)) for values in finite_values), max(float(np.max(values)) for values in finite_values)
+
+
+def _finite_max_abs(arrays: list[np.ndarray]) -> float:
+    finite_values = [np.abs(array[np.isfinite(array)]) for array in arrays]
+    finite_values = [values for values in finite_values if values.size]
+    if not finite_values:
+        raise ValueError("No finite values found for plotting color scale.")
+
+    max_abs = max(float(np.max(values)) for values in finite_values)
+    return max_abs if max_abs > 0.0 else 1.0
 
 
 def _build_summary(field: str, comparison_set: str, figure_dir: Path, saved_paths: list[Path]) -> str:
@@ -219,6 +259,71 @@ def main() -> None:
                 error_plot,
                 title=f"{args.comparison_set} relative L2 error of speed",
                 ylabel="Relative L2 error of speed",
+            )
+            saved_paths.append(error_plot)
+
+            summary = _build_summary(args.field, args.comparison_set, figure_dir, saved_paths)
+            print(summary)
+            _append_log(config, summary)
+            return
+
+        if args.field == "pressure":
+            grids = {
+                case: _load_pressure_grid(_pressure_interpolated_path(config, case, case_indices[case]))
+                for case in cases
+            }
+            p_prime_absmax = _finite_max_abs([grids[case]["p_prime"] for case in cases])
+            saved_paths: list[Path] = []
+
+            for case in cases:
+                path = figure_dir / f"p_prime_field_{args.comparison_set}_{case}.png"
+                plot_contour(
+                    grids[case]["X"],
+                    grids[case]["Z"],
+                    grids[case]["p_prime"],
+                    path,
+                    title=f"{args.comparison_set} {case} pressure fluctuation",
+                    label="p_prime",
+                    vmin=-p_prime_absmax,
+                    vmax=p_prime_absmax,
+                )
+                saved_paths.append(path)
+
+            reference_p_prime = grids[reference_case]["p_prime"]
+            diffs = {
+                case: np.abs(grids[case]["p_prime"] - reference_p_prime)
+                for case in cases
+                if case != reference_case
+            }
+            _, diff_vmax = _finite_min_max(list(diffs.values()))
+            if diff_vmax == 0.0:
+                diff_vmax = 1.0
+
+            for case, diff in diffs.items():
+                path = figure_dir / f"p_prime_absdiff_{args.comparison_set}_{case}_vs_{reference_case}.png"
+                plot_difference(
+                    grids[case]["X"],
+                    grids[case]["Z"],
+                    diff,
+                    path,
+                    title=f"{args.comparison_set} |p_prime_{case} - p_prime_{reference_case}|",
+                    label="|difference|",
+                    vmin=0,
+                    vmax=diff_vmax,
+                )
+                saved_paths.append(path)
+
+            error_rows = _read_csv(_pressure_error_table_path(config, args.comparison_set))
+            error_rows.sort(key=lambda row: _case_order(config, row["case"]))
+            error_orders = [_case_order(config, row["case"]) for row in error_rows]
+            errors = [float(row["relative_L2_p_prime"]) for row in error_rows]
+            error_plot = figure_dir / f"relative_L2_p_prime_vs_order_{args.comparison_set}.png"
+            plot_error_vs_order(
+                error_orders,
+                errors,
+                error_plot,
+                title=f"{args.comparison_set} relative L2 error of p_prime",
+                ylabel="Relative L2 error of p_prime",
             )
             saved_paths.append(error_plot)
 
