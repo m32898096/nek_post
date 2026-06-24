@@ -21,7 +21,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fields",
         default="concentration",
-        help="Comma-separated fields to compare and plot, for example concentration,velocity.",
+        help="Comma-separated fields to compare and plot, for example concentration,velocity,pressure.",
     )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate extract and comparison outputs.")
     parser.add_argument("--skip-extract", action="store_true", help="Skip midspan slice extraction.")
@@ -71,10 +71,10 @@ def _parse_fields(raw: str) -> list[str]:
     if not fields:
         raise ValueError("--fields must include at least one field.")
 
-    allowed = {"concentration", "velocity"}
+    allowed = {"concentration", "velocity", "pressure"}
     unknown = [field for field in fields if field not in allowed]
     if unknown:
-        raise ValueError(f"Unknown field(s): {', '.join(unknown)}. Allowed fields: concentration, velocity")
+        raise ValueError(f"Unknown field(s): {', '.join(unknown)}. Allowed fields: concentration, velocity, pressure")
 
     return fields
 
@@ -146,6 +146,14 @@ def main() -> None:
                 [
                     f"Velocity error CSV: {results_root / 'tables' / f'velocity_error_{args.comparison_set}.csv'}",
                     f"Velocity figure directory: {results_root / 'figures' / 'velocity' / args.comparison_set}",
+                ]
+            )
+        if "pressure" in fields:
+            results_root = Path(config["paths"]["results_root"])
+            summary_lines.extend(
+                [
+                    f"Pressure error CSV: {results_root / 'tables' / f'pressure_error_{args.comparison_set}.csv'}",
+                    f"Pressure figure directory: {results_root / 'figures' / 'pressure' / args.comparison_set}",
                 ]
             )
         summary = "\n".join(summary_lines)

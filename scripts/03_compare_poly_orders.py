@@ -30,7 +30,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--field",
         default="concentration",
-        choices=("concentration", "velocity"),
+        choices=("concentration", "velocity", "pressure"),
         help="Field to compare.",
     )
     parser.add_argument("--method", default="linear", help="Interpolation method passed to scipy.interpolate.griddata.")
@@ -63,6 +63,15 @@ def _velocity_interpolated_path(config: dict, case: str, index: int) -> Path:
     )
 
 
+def _pressure_interpolated_path(config: dict, case: str, index: int) -> Path:
+    return (
+        Path(config["paths"]["postproc_root"])
+        / "interpolated"
+        / "pressure"
+        / f"interp_pressure_{case}_f{index:05d}.npz"
+    )
+
+
 def _comparison_label(case_indices: dict[str, int], use_case_indices: bool) -> str:
     if not use_case_indices and len(set(case_indices.values())) == 1:
         index = next(iter(case_indices.values()))
@@ -82,6 +91,10 @@ def _front_table_path(config: dict, label: str) -> Path:
 
 def _velocity_error_table_path(config: dict, label: str) -> Path:
     return Path(config["paths"]["results_root"]) / "tables" / f"velocity_error_{label}.csv"
+
+
+def _pressure_error_table_path(config: dict, label: str) -> Path:
+    return Path(config["paths"]["results_root"]) / "tables" / f"pressure_error_{label}.csv"
 
 
 def _metadata_path(config: dict, comparison_set_name: str) -> Path:
@@ -250,6 +263,33 @@ def _save_velocity_interpolated(
     )
 
 
+def _save_pressure_interpolated(
+    path: Path,
+    Xi: np.ndarray,
+    Zi: np.ndarray,
+    p_grid: np.ndarray,
+    p_prime_grid: np.ndarray,
+    case: str,
+    index: int,
+    comparison_set: str | None,
+    source_slice_file: Path,
+    interpolation_method: str,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        Xi=Xi,
+        Zi=Zi,
+        p_grid=p_grid,
+        p_prime_grid=p_prime_grid,
+        case=case,
+        index=index,
+        comparison_set=comparison_set or "",
+        source_slice_file=str(source_slice_file),
+        interpolation_method=interpolation_method,
+    )
+
+
 def _write_error_table(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     columns = [
@@ -304,6 +344,27 @@ def _write_velocity_error_table(path: Path, rows: list[dict[str, object]]) -> No
         writer.writerows(rows)
 
 
+def _write_pressure_error_table(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "case",
+        "order",
+        "reference_case",
+        "comparison_set",
+        "index",
+        "reference_index",
+        "relative_L2_p_prime",
+        "absolute_Linf_p_prime",
+        "relative_Linf_p_prime",
+        "valid_point_count",
+        "total_grid_point_count",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _safe_relative_l2_error(values, reference, mask=None, denominator_tol: float = 1.0e-14) -> float:
     values_arr = np.asarray(values, dtype=float)
     ref_arr = np.asarray(reference, dtype=float)
@@ -321,6 +382,24 @@ def _safe_relative_l2_error(values, reference, mask=None, denominator_tol: float
 
     numerator = float(np.sum((values_arr[mask_arr] - ref_arr[mask_arr]) ** 2))
     return float(np.sqrt(numerator / denominator))
+
+
+def _safe_relative_linf_error(values, reference, mask=None, denominator_tol: float = 1.0e-14) -> float:
+    values_arr = np.asarray(values, dtype=float)
+    ref_arr = np.asarray(reference, dtype=float)
+    if mask is None:
+        mask_arr = np.isfinite(values_arr) & np.isfinite(ref_arr)
+    else:
+        mask_arr = np.asarray(mask, dtype=bool) & np.isfinite(values_arr) & np.isfinite(ref_arr)
+
+    if not np.any(mask_arr):
+        return float("nan")
+
+    denominator = float(np.max(np.abs(ref_arr[mask_arr])))
+    if denominator <= denominator_tol:
+        return float("nan")
+
+    return float(np.max(np.abs(values_arr[mask_arr] - ref_arr[mask_arr])) / denominator)
 
 
 def _write_comparison_set_metadata(
@@ -419,6 +498,40 @@ def _build_velocity_summary(
     for row in error_rows:
         lines.append(f"  {row['case']}: relative_L2_speed={row['relative_L2_speed']}")
     return "\n".join(lines)
+
+
+def _build_pressure_summary(
+    comparison_set_name: str | None,
+    reference_case: str,
+    grid_metadata: dict[str, float | int],
+    valid_point_count: int,
+    total_grid_point_count: int,
+    error_table: Path,
+    error_rows: list[dict[str, object]],
+) -> str:
+    lines = [
+        "Nek5000 polynomial-order pressure comparison",
+        "",
+        f"Comparison set: {comparison_set_name or 'custom'}",
+        "Field: pressure",
+        f"Reference case: {reference_case}",
+        f"Grid size: {grid_metadata['nx']} x {grid_metadata['nz']}",
+        f"Valid point count: {valid_point_count} / {total_grid_point_count}",
+        f"Pressure error table: {error_table}",
+        "",
+        "Pressure fluctuation errors relative to reference:",
+    ]
+    for row in error_rows:
+        lines.append(f"  {row['case']}: relative_L2_p_prime={row['relative_L2_p_prime']}")
+    return "\n".join(lines)
+
+
+def _pressure_fluctuation(p_grid: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    p_arr = np.asarray(p_grid, dtype=float)
+    p_prime = p_arr.copy()
+    p_prime -= float(np.mean(p_arr[mask]))
+    p_prime[~np.isfinite(p_arr)] = np.nan
+    return p_prime
 
 
 def main() -> None:
@@ -582,6 +695,94 @@ def main() -> None:
             _write_velocity_error_table(error_table, error_rows)
 
             summary = _build_velocity_summary(
+                comparison_set_name,
+                reference_case,
+                grid_metadata,
+                valid_point_count,
+                total_grid_point_count,
+                error_table,
+                error_rows,
+            )
+            print(summary)
+            _append_log(config, summary)
+            return
+
+        if args.field == "pressure":
+            pressure_grids: dict[str, dict[str, np.ndarray]] = {}
+            for case in cases:
+                slice_data = slice_data_by_case[case]
+                p_grid = interpolate_to_grid(
+                    slice_data["x"],
+                    slice_data["z"],
+                    slice_data["p"],
+                    Xi,
+                    Zi,
+                    method=args.method,
+                    duplicate_decimals=duplicate_decimals,
+                )
+                pressure_grids[case] = {"p": p_grid}
+
+            common_mask = valid_common_mask(*(pressure_grids[case]["p"] for case in cases))
+            valid_point_count = int(np.count_nonzero(common_mask))
+            total_grid_point_count = int(common_mask.size)
+            if valid_point_count == 0:
+                raise ValueError("No finite common grid points are available for pressure comparison.")
+
+            for case in cases:
+                pressure_grids[case]["p_prime"] = _pressure_fluctuation(pressure_grids[case]["p"], common_mask)
+                interp_path = _pressure_interpolated_path(config, case, case_indices[case])
+                if interp_path.exists() and not args.overwrite:
+                    continue
+                _save_pressure_interpolated(
+                    interp_path,
+                    Xi,
+                    Zi,
+                    pressure_grids[case]["p"],
+                    pressure_grids[case]["p_prime"],
+                    case,
+                    case_indices[case],
+                    comparison_set_name,
+                    slice_paths[case],
+                    args.method,
+                )
+
+            reference_p_prime = pressure_grids[reference_case]["p_prime"]
+            error_rows = []
+            for case in cases:
+                if case == reference_case:
+                    continue
+                row = {
+                    "case": case,
+                    "order": config["cases"]["orders"][case],
+                    "reference_case": reference_case,
+                    "comparison_set": comparison_set_name or "",
+                    "index": case_indices[case],
+                    "reference_index": case_indices[reference_case],
+                    "relative_L2_p_prime": _safe_relative_l2_error(
+                        pressure_grids[case]["p_prime"],
+                        reference_p_prime,
+                        common_mask,
+                    ),
+                    "absolute_Linf_p_prime": absolute_linf_error(
+                        pressure_grids[case]["p_prime"],
+                        reference_p_prime,
+                        common_mask,
+                    ),
+                    "relative_Linf_p_prime": _safe_relative_linf_error(
+                        pressure_grids[case]["p_prime"],
+                        reference_p_prime,
+                        common_mask,
+                    ),
+                    "valid_point_count": valid_point_count,
+                    "total_grid_point_count": total_grid_point_count,
+                }
+                error_rows.append(row)
+
+            output_label = comparison_set_name or _comparison_label(case_indices, use_case_indices)
+            error_table = _pressure_error_table_path(config, output_label)
+            _write_pressure_error_table(error_table, error_rows)
+
+            summary = _build_pressure_summary(
                 comparison_set_name,
                 reference_case,
                 grid_metadata,
