@@ -164,6 +164,14 @@ python scripts/08_collect_multitime_error_summary.py \
 
 The collector writes `/data/Nek5000_data/results/poly_order_compare/tables/multitime_error_summary.csv`. It does not recompute errors, and the summary CSV will be used by later plotting tasks.
 
+Plot error-versus-time figures from the collected summary:
+
+```bash
+python scripts/09_plot_multitime_error_summary.py
+```
+
+The plotter reads `multitime_error_summary.csv`, writes figures under `/data/Nek5000_data/results/poly_order_compare/figures/error_summary/`, and does not recompute errors. Run `scripts/08_collect_multitime_error_summary.py` first.
+
 Run comparisons individually:
 
 ```bash
