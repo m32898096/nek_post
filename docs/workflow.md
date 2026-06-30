@@ -172,6 +172,19 @@ python scripts/09_plot_multitime_error_summary.py
 
 The plotter reads `multitime_error_summary.csv`, writes figures under `/data/Nek5000_data/results/poly_order_compare/figures/error_summary/`, and does not recompute errors. Run `scripts/08_collect_multitime_error_summary.py` first.
 
+Create selected-time qualitative overlays from already interpolated `.npz` files:
+
+```bash
+python scripts/10_plot_selected_overlays.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure \
+  --profile-z 0.5 \
+  --profile-x 0.0 \
+  --concentration-thresholds 0.01
+```
+
+The overlay script writes figures under `/data/Nek5000_data/results/poly_order_compare/figures/overlays/`. It does not recompute errors and is mainly for comparing `N5`, `N7`, `N9`, and `N11` at selected times.
+
 Run comparisons individually:
 
 ```bash
