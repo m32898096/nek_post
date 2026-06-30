@@ -134,6 +134,26 @@ Run the full `t19p5` workflow:
 python scripts/05_run_t19p5_pipeline.py --fields concentration,velocity,pressure --overwrite
 ```
 
+Run all configured multi-time comparison sets:
+
+```bash
+python scripts/07_run_multitime_pipeline.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure \
+  --overwrite
+```
+
+Dry run the multi-time workflow without executing commands:
+
+```bash
+python scripts/07_run_multitime_pipeline.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure \
+  --dry-run
+```
+
+The multi-time runner only orchestrates the existing slice extraction, comparison, and plotting scripts. It does not collect cross-time summary tables; that will be handled by a later task.
+
 Run comparisons individually:
 
 ```bash
