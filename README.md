@@ -97,6 +97,18 @@ python scripts/07_run_multitime_pipeline.py \
 
 The multi-time runner only executes the existing slice extraction, comparison, and plotting scripts. It does not collect cross-time summary tables or create error-vs-time plots; cross-time summary collection will be handled by a later task.
 
+## Collect Multi-Time Error Summary
+
+Collect existing per-time error CSV files into one summary table:
+
+```bash
+python scripts/08_collect_multitime_error_summary.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure
+```
+
+The collector writes `/data/Nek5000_data/results/poly_order_compare/tables/multitime_error_summary.csv`. It does not recompute errors; the summary CSV will be used by later plotting tasks.
+
 ## Run Individual Comparisons
 
 ```bash
