@@ -16,7 +16,13 @@ sys.path.insert(0, str(SRC_DIR))
 
 from nek_post.config import load_project_config  # noqa: E402
 from nek_post.interpolation import create_common_xz_grid, interpolate_to_grid, valid_common_mask  # noqa: E402
-from nek_post.metrics import absolute_linf_error, front_position, relative_l2_error, relative_linf_error  # noqa: E402
+from nek_post.metrics import (  # noqa: E402
+    absolute_linf_error,
+    front_position,
+    mean_absolute_error,
+    relative_l2_error,
+    relative_linf_error,
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -300,6 +306,7 @@ def _write_error_table(path: Path, rows: list[dict[str, object]]) -> None:
         "index",
         "reference_index",
         "relative_L2_C",
+        "mean_abs_error_C",
         "absolute_Linf_C",
         "relative_Linf_C",
         "valid_point_count",
@@ -330,11 +337,15 @@ def _write_velocity_error_table(path: Path, rows: list[dict[str, object]]) -> No
         "index",
         "reference_index",
         "relative_L2_speed",
+        "mean_abs_error_speed",
         "absolute_Linf_speed",
         "relative_Linf_speed",
         "relative_L2_u",
+        "mean_abs_error_u",
         "relative_L2_v",
+        "mean_abs_error_v",
         "relative_L2_w",
+        "mean_abs_error_w",
         "valid_point_count",
         "total_grid_point_count",
     ]
@@ -354,6 +365,7 @@ def _write_pressure_error_table(path: Path, rows: list[dict[str, object]]) -> No
         "index",
         "reference_index",
         "relative_L2_p_prime",
+        "mean_abs_error_p_prime",
         "absolute_Linf_p_prime",
         "relative_Linf_p_prime",
         "valid_point_count",
@@ -660,6 +672,10 @@ def main() -> None:
                         reference_speed,
                         common_mask,
                     ),
+                    "mean_abs_error_speed": mean_absolute_error(
+                        velocity_grids[case]["speed"] - reference_speed,
+                        common_mask,
+                    ),
                     "absolute_Linf_speed": absolute_linf_error(
                         velocity_grids[case]["speed"],
                         reference_speed,
@@ -675,14 +691,26 @@ def main() -> None:
                         velocity_grids[reference_case]["u"],
                         common_mask,
                     ),
+                    "mean_abs_error_u": mean_absolute_error(
+                        velocity_grids[case]["u"] - velocity_grids[reference_case]["u"],
+                        common_mask,
+                    ),
                     "relative_L2_v": _safe_relative_l2_error(
                         velocity_grids[case]["v"],
                         velocity_grids[reference_case]["v"],
                         common_mask,
                     ),
+                    "mean_abs_error_v": mean_absolute_error(
+                        velocity_grids[case]["v"] - velocity_grids[reference_case]["v"],
+                        common_mask,
+                    ),
                     "relative_L2_w": _safe_relative_l2_error(
                         velocity_grids[case]["w"],
                         velocity_grids[reference_case]["w"],
+                        common_mask,
+                    ),
+                    "mean_abs_error_w": mean_absolute_error(
+                        velocity_grids[case]["w"] - velocity_grids[reference_case]["w"],
                         common_mask,
                     ),
                     "valid_point_count": valid_point_count,
@@ -763,6 +791,10 @@ def main() -> None:
                         reference_p_prime,
                         common_mask,
                     ),
+                    "mean_abs_error_p_prime": mean_absolute_error(
+                        pressure_grids[case]["p_prime"] - reference_p_prime,
+                        common_mask,
+                    ),
                     "absolute_Linf_p_prime": absolute_linf_error(
                         pressure_grids[case]["p_prime"],
                         reference_p_prime,
@@ -833,6 +865,7 @@ def main() -> None:
                 "index": case_indices[case],
                 "reference_index": case_indices[reference_case],
                 "relative_L2_C": relative_l2_error(c_grids[case], reference_grid, common_mask),
+                "mean_abs_error_C": mean_absolute_error(c_grids[case] - reference_grid, common_mask),
                 "absolute_Linf_C": absolute_linf_error(c_grids[case], reference_grid, common_mask),
                 "relative_Linf_C": relative_linf_error(c_grids[case], reference_grid, common_mask),
                 "valid_point_count": valid_point_count,

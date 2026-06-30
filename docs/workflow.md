@@ -54,13 +54,15 @@ Slice files are written under `/data/Nek5000_data/postproc/poly_order_compare/sl
 
 ## Comparison Fields
 
+Comparison CSV files report relative L2, mean absolute error, and Linf error metrics. Relative L2 remains the primary global comparison metric. Mean absolute error is a supplementary global average-difference metric, while Linf / max absolute error is a local maximum-difference metric and can be sensitive to local extrema.
+
 Run concentration comparison:
 
 ```bash
 python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field concentration --overwrite
 ```
 
-The concentration comparison interpolates `C`, computes relative L2 and Linf errors against `N11`, and writes a front-position table.
+The concentration comparison interpolates `C`, computes error metrics against `N11`, and writes a front-position table.
 
 Run velocity comparison:
 
@@ -68,7 +70,7 @@ Run velocity comparison:
 python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field velocity --overwrite
 ```
 
-The velocity comparison interpolates `u`, `v`, and `w`, computes speed magnitude, and reports errors for speed and component relative L2 errors for `u`, `v`, and `w`.
+The velocity comparison interpolates `u`, `v`, and `w`, computes speed magnitude, and reports speed errors plus component relative L2 and mean absolute errors for `u`, `v`, and `w`.
 
 Run pressure comparison:
 

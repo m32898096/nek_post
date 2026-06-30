@@ -34,6 +34,20 @@ def absolute_linf_error(values, reference, mask=None) -> float:
     return float(np.max(np.abs(values_arr - ref_arr)))
 
 
+def mean_absolute_error(difference, mask=None) -> float:
+    """Return the mean absolute value of a difference array on valid points."""
+    diff_arr = np.asarray(difference, dtype=float)
+    if mask is None:
+        mask_arr = np.isfinite(diff_arr)
+    else:
+        mask_arr = np.asarray(mask, dtype=bool) & np.isfinite(diff_arr)
+
+    if not np.any(mask_arr):
+        return float("nan")
+
+    return float(np.mean(np.abs(diff_arr[mask_arr])))
+
+
 def linf_error(values, reference) -> float:
     """Return the L-infinity error between `values` and `reference`."""
     return absolute_linf_error(values, reference)
