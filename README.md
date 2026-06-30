@@ -75,6 +75,28 @@ python scripts/05_run_t19p5_pipeline.py --fields concentration,velocity,pressure
 
 The pipeline calls slice extraction, comparison, and plotting scripts for the `t19p5` comparison set.
 
+## Run Multi-Time Pipeline
+
+Run all configured multi-time comparison sets:
+
+```bash
+python scripts/07_run_multitime_pipeline.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure \
+  --overwrite
+```
+
+Preview the commands without executing them:
+
+```bash
+python scripts/07_run_multitime_pipeline.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure \
+  --dry-run
+```
+
+The multi-time runner only executes the existing slice extraction, comparison, and plotting scripts. It does not collect cross-time summary tables or create error-vs-time plots; cross-time summary collection will be handled by a later task.
+
 ## Run Individual Comparisons
 
 ```bash
