@@ -172,6 +172,14 @@ python scripts/09_plot_multitime_error_summary.py
 
 The plotter reads `multitime_error_summary.csv`, writes figures under `/data/Nek5000_data/results/poly_order_compare/figures/error_summary/`, and does not recompute errors. Run `scripts/08_collect_multitime_error_summary.py` first.
 
+Create compact teacher-facing summary tables from the collected summary:
+
+```bash
+python scripts/11_make_teacher_summary_tables.py
+```
+
+The report generator reads `/data/Nek5000_data/results/poly_order_compare/tables/multitime_error_summary.csv`, writes CSV and Markdown reports under `/data/Nek5000_data/results/poly_order_compare/reports/`, and does not recompute errors.
+
 Create selected-time qualitative overlays from already interpolated `.npz` files:
 
 ```bash
