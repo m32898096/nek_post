@@ -27,7 +27,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--y-round-decimals", type=int, default=10, help="Decimals for unique y counting.")
     parser.add_argument("--nx", type=int, help="Diagnostic grid x size. Defaults to config grid nx.")
     parser.add_argument("--nz", type=int, help="Diagnostic grid z size. Defaults to config grid nz.")
-    parser.add_argument("--scatter-max-points", type=int, default=250_000, help="Maximum raw scatter points to plot.")
+    parser.add_argument(
+        "--scatter-max-points",
+        type=int,
+        default=250_000,
+        help="Maximum points shown in raw scatter plots; deterministic downsampling is used when needed.",
+    )
     parser.add_argument("--scatter-seed", type=int, default=20260623, help="Seed for raw scatter downsampling.")
     return parser.parse_args()
 
@@ -47,7 +52,8 @@ def _load_slice(path: Path) -> dict[str, np.ndarray]:
     with np.load(path) as data:
         missing = [name for name in ("x", "y", "z", "u", "v", "w") if name not in data.files]
         if missing:
-            raise KeyError(f"{path} is missing required key(s): {', '.join(missing)}")
+            missing_text = ", ".join(missing)
+            raise KeyError(f"{path} is missing required key(s): {missing_text}")
         return {name: data[name] for name in data.files}
 
 
@@ -210,6 +216,7 @@ def _print_stats(
     z = np.asarray(slice_data["z"], dtype=float)
     y0 = _midspan_value(slice_data)
     y_distance = np.abs(y - y0)
+    unique_y_count = int(np.unique(np.round(y, y_round_decimals)).size)
 
     print(f"Slice file: {slice_path}")
     print(f"Slice mode: {_metadata_scalar(slice_data, 'mode')}")
@@ -223,7 +230,7 @@ def _print_stats(
     print(_format_min_max("v", slice_data["v"]))
     print(_format_min_max("w", slice_data["w"]))
     print(_format_min_max("speed_raw", speed_raw))
-    print(f"Rounded unique y count ({y_round_decimals} decimals): {int(np.unique(np.round(y, y_round_decimals)).size)}")
+    print(f"Rounded unique y count ({y_round_decimals} decimals): {unique_y_count}")
     print(f"Slice midspan y value: {y0:.16g}")
     print(_format_min_max("|y - y_midspan|", y_distance))
     print(f"Exact projected (x,z) unique pairs: {duplicate_counts['exact_unique_pair_count']}")
@@ -232,6 +239,10 @@ def _print_stats(
     print(f"Exact projected (x,z) max pair multiplicity: {duplicate_counts['exact_max_pair_multiplicity']}")
     print(f"Rounded projected (x,z) unique pairs ({round_decimals} decimals): {duplicate_counts['rounded_unique_pair_count']}")
     print(f"Rounded projected (x,z) duplicate points ({round_decimals} decimals): {duplicate_counts['rounded_duplicate_point_count']}")
+    print(
+        f"Rounded projected (x,z) duplicate pair groups ({round_decimals} decimals): "
+        f"{duplicate_counts['rounded_duplicate_pair_group_count']}"
+    )
     print(f"Rounded projected (x,z) max pair multiplicity ({round_decimals} decimals): {duplicate_counts['rounded_max_pair_multiplicity']}")
     print("average_duplicate_xz_points stats:")
     for key in ("original_point_count", "finite_point_count", "unique_point_count", "duplicate_point_count", "max_multiplicity", "decimals"):
@@ -276,7 +287,7 @@ def main() -> None:
     w = np.asarray(slice_data["w"], dtype=float)
     speed_raw = np.sqrt(u**2 + v**2 + w**2)
 
-    x_avg, z_avg, speed_avg, averaged_stats = average_duplicate_xz_points(x, z, speed_raw, decimals=args.round_decimals)
+    x_avg, z_avg, _speed_avg, averaged_stats = average_duplicate_xz_points(x, z, speed_raw, decimals=args.round_decimals)
     duplicate_counts = _duplicate_counts(x, z, args.round_decimals)
     post_average_counts = _duplicate_counts(x_avg, z_avg, args.round_decimals)
     _print_stats(
@@ -310,11 +321,46 @@ def main() -> None:
         output_dir / f"compare_speed_interpolation_methods_{args.case}_f{args.index:05d}.png",
     ]
 
-    _plot_raw_scatter(x, z, speed_raw, plot_paths[0], f"{args.case} f{args.index:05d} raw speed", "speed_raw", args.scatter_max_points, args.scatter_seed)
-    _plot_raw_scatter(x, z, u, plot_paths[1], f"{args.case} f{args.index:05d} raw u", "u", args.scatter_max_points, args.scatter_seed)
-    _plot_raw_scatter(x, z, w, plot_paths[2], f"{args.case} f{args.index:05d} raw w", "w", args.scatter_max_points, args.scatter_seed)
+    _plot_raw_scatter(
+        x,
+        z,
+        speed_raw,
+        plot_paths[0],
+        f"{args.case} f{args.index:05d} raw speed on extracted slice",
+        "speed_raw",
+        args.scatter_max_points,
+        args.scatter_seed,
+    )
+    _plot_raw_scatter(
+        x,
+        z,
+        u,
+        plot_paths[1],
+        f"{args.case} f{args.index:05d} raw u on extracted slice",
+        "u",
+        args.scatter_max_points,
+        args.scatter_seed,
+    )
+    _plot_raw_scatter(
+        x,
+        z,
+        w,
+        plot_paths[2],
+        f"{args.case} f{args.index:05d} raw w on extracted slice",
+        "w",
+        args.scatter_max_points,
+        args.scatter_seed,
+    )
     _plot_y_distribution(y, plot_paths[3], f"{args.case} f{args.index:05d} extracted y distribution")
-    _plot_interpolation_comparison(Xi, Zi, speed_from_components, speed_direct, plot_paths[4], args.case, args.index)
+    _plot_interpolation_comparison(
+        Xi,
+        Zi,
+        speed_from_components,
+        speed_direct,
+        plot_paths[4],
+        args.case,
+        args.index,
+    )
 
     print("Generated diagnostic figures:")
     for path in plot_paths:
