@@ -21,7 +21,7 @@ Metrics are computed by interpolating each simulation curve onto the paper time 
 Run the overlay with:
 
 ```bash
-python scripts/13_overlay_fig5a_paper_data.py \
+python scripts/14_fig5a_paper_overlay.py \
   --cases N5,N7,N9 \
   --overwrite
 ```

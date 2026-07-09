@@ -10,7 +10,7 @@ Inputs:
 The script reads the `x_reconstructed` column from each processed front-kinematics CSV. It does not read raw `front_simple.dat` files and does not recompute the processed front trajectory. If the processed CSV files are missing, run:
 
 ```bash
-python scripts/13_analyze_front_kinematics.py \
+python scripts/13_front_kinematics.py \
   --cases N5,N7,N9 \
   --overwrite
 ```
@@ -25,7 +25,7 @@ For plotting and comparison, processed `x_reconstructed` is shifted by its initi
 Run:
 
 ```bash
-python scripts/14_plot_combined_xt_overlay.py \
+python scripts/15_processed_xt_paper_overlay.py \
   --cases N5,N7,N9 \
   --overwrite
 ```

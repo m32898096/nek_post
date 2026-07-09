@@ -37,7 +37,7 @@ DEFAULT_OUTPUT_DIR = Path("/data/Nek5000_data/results/poly_order_compare/combine
 SLUMP_TMIN = 3.0
 SLUMP_TMAX = 12.0
 FRONT_KINEMATICS_COMMAND = (
-    "python scripts/13_analyze_front_kinematics.py \\\n"
+    "python scripts/13_front_kinematics.py \\\n"
     "  --cases N5,N7,N9 \\\n"
     "  --overwrite"
 )
