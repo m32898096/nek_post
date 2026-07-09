@@ -15,7 +15,7 @@ Both the original front position and the reconstructed front position are fit ov
 Run the diagnostic with:
 
 ```bash
-python scripts/13_analyze_front_kinematics.py \
+python scripts/13_front_kinematics.py \
   --cases N5,N7,N9 \
   --overwrite
 ```

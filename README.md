@@ -45,6 +45,8 @@ Duplicate projected `(x,z)` points are averaged before interpolation onto the co
 - `src/nek_post/` contains the import-safe Python package.
 - `tests/` contains minimal unit tests for the metrics helpers.
 
+See [docs/script_index.md](docs/script_index.md) for a concise index of available scripts.
+
 ## Check Expected Files
 
 Run from the repository root:
