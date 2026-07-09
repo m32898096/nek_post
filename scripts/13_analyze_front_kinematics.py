@@ -13,6 +13,14 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-nek-post")
 import matplotlib.pyplot as plt
 import numpy as np
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+sys.path.insert(0, str(SRC_DIR))
+
+from nek_post.front_compare import max_abs, mean_abs, rms, slumping_region_linear_fit  # noqa: E402
+from nek_post.front_io import front_simple_path, parse_case_labels, read_front_simple_dat  # noqa: E402
+from nek_post.front_kinematics import compute_kinematics  # noqa: E402
+
 DEFAULT_DATA_ROOT = Path("/data/Nek5000_data")
 DEFAULT_OUTPUT_DIR = Path("/data/Nek5000_data/results/poly_order_compare/front_kinematics")
 SLUMPING_TMIN = 3.0
@@ -64,129 +72,9 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _parse_cases(raw: str) -> list[str]:
-    cases = [case.strip().upper() for case in raw.split(",") if case.strip()]
-    if not cases:
-        raise ValueError("--cases must include at least one case.")
-    for case in cases:
-        if not case.startswith("N") or not case[1:].isdigit():
-            raise ValueError(f"Invalid case {case!r}; expected labels such as N5, N7, N9.")
-    return cases
-
-
-def _input_path(data_root: Path, case: str, filename: str) -> Path:
-    return data_root / f"case_{case}" / filename
-
-
-def _load_front(path: Path) -> dict[str, np.ndarray]:
-    if not path.exists():
-        raise FileNotFoundError(f"Front-position file not found: {path}")
-
-    data = np.loadtxt(path, comments="#")
-    data = np.atleast_2d(data)
-    if data.shape[1] < 2:
-        raise ValueError(f"{path} must contain at least two columns: time and x_front.")
-
-    data = data[:, :2]
-    data = data[np.argsort(data[:, 0])]
-    time = np.asarray(data[:, 0], dtype=float)
-    x_front = np.asarray(data[:, 1], dtype=float)
-
-    if time.size < 2:
-        raise ValueError(f"{path} must contain at least two time samples.")
-    if not np.all(np.isfinite(time)):
-        raise ValueError(f"{path} contains non-finite time values.")
-    if not np.all(np.isfinite(x_front)):
-        raise ValueError(f"{path} contains non-finite x_front values.")
-    if np.any(np.diff(time) <= 0.0):
-        raise ValueError(f"{path} contains duplicate time values after sorting. Remove duplicates before analysis.")
-
-    return {"time": time, "x_front": x_front}
-
-
-def _odd_window(window: int, n_points: int) -> int:
-    if n_points < 1:
-        raise ValueError("Cannot smooth an empty array.")
-    window = max(1, int(window))
-    if window % 2 == 0:
-        window += 1
-    if window > n_points:
-        window = n_points if n_points % 2 == 1 else n_points - 1
-    return max(1, window)
-
-
-def _moving_average(values: np.ndarray, window: int) -> np.ndarray:
-    window = _odd_window(window, values.size)
-    if window == 1:
-        return values.copy()
-    kernel = np.ones(window, dtype=float)
-    numerator = np.convolve(values, kernel, mode="same")
-    denominator = np.convolve(np.ones_like(values, dtype=float), kernel, mode="same")
-    return numerator / denominator
-
-
-def _smooth_velocity(values: np.ndarray, method: str, window: int, polyorder: int) -> np.ndarray:
-    window = _odd_window(window, values.size)
-    if method == "moving_average" or window == 1:
-        return _moving_average(values, window)
-
-    try:
-        from scipy.signal import savgol_filter
-    except ImportError:
-        print("WARNING: scipy is unavailable; falling back to moving_average smoothing.")
-        return _moving_average(values, window)
-
-    polyorder = min(max(0, int(polyorder)), window - 1)
-    if polyorder < 1:
-        print("WARNING: Savitzky-Golay window is too small for requested polyorder; falling back to moving_average.")
-        return _moving_average(values, window)
-    return savgol_filter(values, window_length=window, polyorder=polyorder, mode="interp")
-
-
-def _integrate_velocity(time: np.ndarray, velocity: np.ndarray, x0: float) -> np.ndarray:
-    reconstructed = np.empty_like(velocity, dtype=float)
-    reconstructed[0] = x0
-    increments = 0.5 * (velocity[1:] + velocity[:-1]) * np.diff(time)
-    reconstructed[1:] = x0 + np.cumsum(increments)
-    return reconstructed
-
-
 def _slumping_velocity(time: np.ndarray, values: np.ndarray) -> float:
-    mask = (time >= SLUMPING_TMIN) & (time <= SLUMPING_TMAX)
-    if np.count_nonzero(mask) < 2:
-        return float("nan")
-    slope, _intercept = np.polyfit(time[mask], values[mask], deg=1)
-    return float(slope)
-
-
-def _compute_kinematics(front: dict[str, np.ndarray], method: str, window: int, polyorder: int) -> dict[str, np.ndarray]:
-    time = front["time"]
-    x_front = front["x_front"]
-    edge_order = 2 if time.size >= 3 else 1
-    v_raw = np.gradient(x_front, time, edge_order=edge_order)
-    v_smooth = _smooth_velocity(v_raw, method, window, polyorder)
-    x_reconstructed = _integrate_velocity(time, v_smooth, float(x_front[0]))
-    x_reconstruction_error = x_reconstructed - x_front
-    return {
-        "time": time,
-        "x_front": x_front,
-        "v_raw": v_raw,
-        "v_smooth": v_smooth,
-        "x_reconstructed": x_reconstructed,
-        "x_reconstruction_error": x_reconstruction_error,
-    }
-
-
-def _mean_abs(values: np.ndarray) -> float:
-    return float(np.mean(np.abs(values)))
-
-
-def _max_abs(values: np.ndarray) -> float:
-    return float(np.max(np.abs(values)))
-
-
-def _rms(values: np.ndarray) -> float:
-    return float(np.sqrt(np.mean(values**2)))
+    _n_points, slope = slumping_region_linear_fit(time, values, SLUMPING_TMIN, SLUMPING_TMAX)
+    return slope
 
 
 def _format(value: float | int) -> str:
@@ -213,9 +101,9 @@ def _summary_row(case: str, kinematics: dict[str, np.ndarray]) -> dict[str, str]
         "v_raw_max": float(np.max(v_raw)),
         "v_smooth_min": float(np.min(v_smooth)),
         "v_smooth_max": float(np.max(v_smooth)),
-        "mean_abs_reconstruction_error": _mean_abs(error),
-        "max_abs_reconstruction_error": _max_abs(error),
-        "rms_reconstruction_error": _rms(error),
+        "mean_abs_reconstruction_error": mean_abs(error),
+        "max_abs_reconstruction_error": max_abs(error),
+        "rms_reconstruction_error": rms(error),
         "final_reconstruction_error": float(error[-1]),
         "slumping_velocity_raw_position_fit": _slumping_velocity(time, x_front),
         "slumping_velocity_reconstructed_position_fit": _slumping_velocity(time, x_reconstructed),
@@ -338,7 +226,7 @@ def _print_summary_table(rows: list[dict[str, str]]) -> None:
 
 def main() -> None:
     args = _parse_args()
-    cases = _parse_cases(args.cases)
+    cases = parse_case_labels(args.cases)
     data_root = args.data_root.expanduser()
     output_dir = args.output_dir.expanduser()
 
@@ -349,10 +237,10 @@ def main() -> None:
 
         print("Input files:")
         for case in cases:
-            input_path = _input_path(data_root, case, args.filename)
+            input_path = front_simple_path(data_root, case, args.filename)
             print(f"  {case}: {input_path}")
-            front = _load_front(input_path)
-            kinematics = _compute_kinematics(front, args.smooth_method, args.smooth_window, args.savgol_polyorder)
+            front = read_front_simple_dat(input_path)
+            kinematics = compute_kinematics(front, args.smooth_method, args.smooth_window, args.savgol_polyorder)
             kinematics_by_case[case] = kinematics
             summary_rows.append(_summary_row(case, kinematics))
 

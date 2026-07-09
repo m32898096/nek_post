@@ -6,11 +6,30 @@ import argparse
 import csv
 import os
 from pathlib import Path
+import sys
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-nek-post")
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+sys.path.insert(0, str(SRC_DIR))
+
+from nek_post.front_compare import (  # noqa: E402
+    compare_front_to_paper,
+    max_abs,
+    mean_abs,
+    rms,
+    slumping_velocity_metrics,
+)
+from nek_post.front_io import (  # noqa: E402
+    parse_case_labels,
+    processed_front_kinematics_path,
+    read_digitized_paper_csv,
+    read_processed_front_kinematics_csv,
+)
 
 DEFAULT_PROCESSED_DIR = Path("/data/Nek5000_data/results/poly_order_compare/front_kinematics")
 DEFAULT_PAPER_CSV = Path("/data/Nek5000_data/cantero/cantero_fig5a_3D_Re3450.csv")
@@ -18,7 +37,7 @@ DEFAULT_OUTPUT_DIR = Path("/data/Nek5000_data/results/poly_order_compare/combine
 SLUMP_TMIN = 3.0
 SLUMP_TMAX = 12.0
 FRONT_KINEMATICS_COMMAND = (
-    "python scripts/12_analyze_front_kinematics.py \\\n"
+    "python scripts/13_analyze_front_kinematics.py \\\n"
     "  --cases N5,N7,N9 \\\n"
     "  --overwrite"
 )
@@ -63,20 +82,6 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _parse_cases(raw: str) -> list[str]:
-    cases = [case.strip().upper() for case in raw.split(",") if case.strip()]
-    if not cases:
-        raise ValueError("--cases must include at least one case.")
-    for case in cases:
-        if not case.startswith("N") or not case[1:].isdigit():
-            raise ValueError(f"Invalid case {case!r}; expected labels such as N5, N7, N9.")
-    return cases
-
-
-def _processed_path(processed_dir: Path, case: str) -> Path:
-    return processed_dir / f"{case}_front_kinematics_timeseries.csv"
-
-
 def _missing_processed_message(case: str, path: Path) -> str:
     return (
         f"Processed front kinematics CSV is missing for {case}: {path}\n"
@@ -88,66 +93,7 @@ def _missing_processed_message(case: str, path: Path) -> str:
 def _load_processed_front(path: Path, case: str) -> dict[str, np.ndarray]:
     if not path.exists():
         raise FileNotFoundError(_missing_processed_message(case, path))
-
-    with path.open("r", newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        required = {"time", "x_reconstructed"}
-        available = set(reader.fieldnames or [])
-        missing = sorted(required - available)
-        if missing:
-            raise ValueError(f"{path} is missing required column(s): {', '.join(missing)}")
-        rows = [(float(row["time"]), float(row["x_reconstructed"])) for row in reader]
-
-    if len(rows) < 2:
-        raise ValueError(f"{path} must contain at least two processed samples.")
-    data = np.asarray(rows, dtype=float)
-    data = data[np.argsort(data[:, 0])]
-    time = data[:, 0]
-    x_reconstructed = data[:, 1]
-    if not np.all(np.isfinite(time)) or not np.all(np.isfinite(x_reconstructed)):
-        raise ValueError(f"{path} contains non-finite time or x_reconstructed values.")
-    if np.any(np.diff(time) <= 0.0):
-        raise ValueError(f"{path} contains duplicate time values after sorting.")
-
-    x0 = float(x_reconstructed[0])
-    return {
-        "time": time,
-        "x_processed": x_reconstructed - x0,
-        "processed_x0_shift": np.array([x0], dtype=float),
-    }
-
-
-def _load_paper_csv(path: Path) -> dict[str, np.ndarray]:
-    if not path.exists():
-        raise FileNotFoundError(f"Paper CSV not found: {path}")
-
-    rows: list[tuple[float, float]] = []
-    with path.open("r", newline="", encoding="utf-8") as handle:
-        reader = csv.reader(handle)
-        for line_number, row in enumerate(reader, start=1):
-            if not row or not row[0].strip() or row[0].lstrip().startswith("#"):
-                continue
-            if len(row) < 2:
-                continue
-            try:
-                time = float(row[0])
-                x_value = float(row[1])
-            except ValueError:
-                if line_number == 1:
-                    continue
-                raise ValueError(f"{path}:{line_number} has non-numeric first or second column: {row}") from None
-            if np.isfinite(time) and np.isfinite(x_value):
-                rows.append((time, x_value))
-
-    if len(rows) < 2:
-        raise ValueError(f"{path} must contain at least two finite paper rows.")
-    data = np.asarray(rows, dtype=float)
-    data = data[np.argsort(data[:, 0])]
-    time = data[:, 0]
-    x_value = data[:, 1]
-    if np.any(np.diff(time) <= 0.0):
-        raise ValueError(f"{path} contains duplicate paper time values after sorting.")
-    return {"time": time, "paper_x": x_value}
+    return read_processed_front_kinematics_csv(path)
 
 
 def _ensure_writable(path: Path, overwrite: bool) -> None:
@@ -172,89 +118,29 @@ def _format(value: float | int | str) -> str:
     return f"{float(value):.16g}"
 
 
-def _mean_abs(values: np.ndarray) -> float:
-    return float(np.mean(np.abs(values)))
-
-
-def _max_abs(values: np.ndarray) -> float:
-    return float(np.max(np.abs(values)))
-
-
-def _rms(values: np.ndarray) -> float:
-    return float(np.sqrt(np.mean(values**2)))
-
-
-def _linear_fit_slope(time: np.ndarray, values: np.ndarray) -> float:
-    if time.size < 2:
-        return float("nan")
-    slope, _intercept = np.polyfit(time, values, deg=1)
-    return float(slope)
-
-
-def _relative_difference(value: float, reference: float) -> float:
-    if not np.isfinite(value) or not np.isfinite(reference) or reference == 0.0:
-        return float("nan")
-    return float((value - reference) / reference)
-
-
 def _comparison_for_case(processed: dict[str, np.ndarray], paper: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-    processed_time = processed["time"]
-    processed_x = processed["x_processed"]
-    paper_time = paper["time"]
-    paper_x = paper["paper_x"]
-    overlap = (paper_time >= processed_time[0]) & (paper_time <= processed_time[-1])
-    if not np.any(overlap):
-        raise ValueError("Processed and paper time ranges do not overlap.")
-
-    time = paper_time[overlap]
-    paper_overlap_x = paper_x[overlap]
-    processed_interp = np.interp(time, processed_time, processed_x)
-    error = processed_interp - paper_overlap_x
-    relative_error = error / paper_overlap_x
-    positive = (processed_interp > 0.0) & (paper_overlap_x > 0.0)
-    log_error = np.full_like(error, np.nan, dtype=float)
-    log_error[positive] = np.log(processed_interp[positive]) - np.log(paper_overlap_x[positive])
-    return {
-        "time": time,
-        "paper_x": paper_overlap_x,
-        "processed_x_interp": processed_interp,
-        "error": error,
-        "relative_error": relative_error,
-        "log_error": log_error,
-    }
+    return compare_front_to_paper(
+        processed,
+        paper,
+        front_x_key="x_processed",
+        interpolated_key="processed_x_interp",
+        error_key="error",
+        no_overlap_message="Processed and paper time ranges do not overlap.",
+    )
 
 
 def _slumping_metrics(comparison: dict[str, np.ndarray]) -> dict[str, float | int]:
-    time = comparison["time"]
-    paper_x = comparison["paper_x"]
-    processed_x = comparison["processed_x_interp"]
-    mask = (time >= SLUMP_TMIN) & (time <= SLUMP_TMAX)
-    n_points = int(np.count_nonzero(mask))
-    if n_points < 2:
-        return {
-            "n_slumping_points": n_points,
-            "processed_slumping_velocity": float("nan"),
-            "paper_slumping_velocity": float("nan"),
-            "slumping_velocity_difference": float("nan"),
-            "slumping_velocity_relative_difference": float("nan"),
-        }
-
-    processed_velocity = _linear_fit_slope(time[mask], processed_x[mask])
-    paper_velocity = _linear_fit_slope(time[mask], paper_x[mask])
-    return {
-        "n_slumping_points": n_points,
-        "processed_slumping_velocity": processed_velocity,
-        "paper_slumping_velocity": paper_velocity,
-        "slumping_velocity_difference": processed_velocity - paper_velocity,
-        "slumping_velocity_relative_difference": _relative_difference(processed_velocity, paper_velocity),
-    }
+    return slumping_velocity_metrics(
+        comparison,
+        compared_x_key="processed_x_interp",
+        compared_label="processed",
+        tmin=SLUMP_TMIN,
+        tmax=SLUMP_TMAX,
+    )
 
 
 def _finite_rms(values: np.ndarray) -> float:
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return float("nan")
-    return _rms(finite)
+    return rms(values, finite_only=True)
 
 
 def _summary_row(case: str, processed: dict[str, np.ndarray], comparison: dict[str, np.ndarray]) -> dict[str, str]:
@@ -265,10 +151,10 @@ def _summary_row(case: str, processed: dict[str, np.ndarray], comparison: dict[s
         "time_min_compared": float(comparison["time"][0]),
         "time_max_compared": float(comparison["time"][-1]),
         "processed_x0_shift": float(processed["processed_x0_shift"][0]),
-        "mean_abs_error": _mean_abs(comparison["error"]),
-        "rms_error": _rms(comparison["error"]),
-        "mean_abs_relative_error": _mean_abs(relative_error),
-        "max_abs_relative_error": _max_abs(relative_error),
+        "mean_abs_error": mean_abs(comparison["error"]),
+        "rms_error": rms(comparison["error"]),
+        "mean_abs_relative_error": mean_abs(relative_error),
+        "max_abs_relative_error": max_abs(relative_error),
         "rms_log_error": _finite_rms(comparison["log_error"]),
         **_slumping_metrics(comparison),
     }
@@ -376,21 +262,21 @@ def _print_summary(rows: list[dict[str, str]]) -> None:
 
 def main() -> None:
     args = _parse_args()
-    cases = _parse_cases(args.cases)
+    cases = parse_case_labels(args.cases)
     processed_dir = args.processed_dir.expanduser()
     paper_csv = args.paper_csv.expanduser()
     output_dir = args.output_dir.expanduser()
 
     try:
         _cleanup_obsolete_outputs(output_dir, args.overwrite)
-        paper = _load_paper_csv(paper_csv)
+        paper = read_digitized_paper_csv(paper_csv, require_positive=False)
         processed_by_case: dict[str, dict[str, np.ndarray]] = {}
         summary_rows: list[dict[str, str]] = []
 
         print(f"Paper CSV: {paper_csv}")
         print("Processed front files:")
         for case in cases:
-            path = _processed_path(processed_dir, case)
+            path = processed_front_kinematics_path(processed_dir, case)
             print(f"  {case}: {path}")
             processed = _load_processed_front(path, case)
             comparison = _comparison_for_case(processed, paper)

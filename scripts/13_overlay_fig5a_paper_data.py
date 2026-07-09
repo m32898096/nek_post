@@ -6,11 +6,32 @@ import argparse
 import csv
 import os
 from pathlib import Path
+import sys
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-nek-post")
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+sys.path.insert(0, str(SRC_DIR))
+
+from nek_post.front_compare import (  # noqa: E402
+    compare_front_to_paper,
+    finite_mean,
+    max_abs,
+    mean_abs,
+    rms,
+    slumping_velocity_metrics,
+)
+from nek_post.front_io import (  # noqa: E402
+    front_relative_to_initial,
+    front_simple_path,
+    parse_case_labels,
+    read_digitized_paper_csv,
+    read_front_simple_dat,
+)
 
 DEFAULT_DATA_ROOT = Path("/data/Nek5000_data")
 DEFAULT_PAPER_CSV = Path("/data/Nek5000_data/cantero/cantero_fig5a_3D_Re3450.csv")
@@ -59,82 +80,6 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _parse_cases(raw: str) -> list[str]:
-    cases = [case.strip().upper() for case in raw.split(",") if case.strip()]
-    if not cases:
-        raise ValueError("--cases must include at least one case.")
-    for case in cases:
-        if not case.startswith("N") or not case[1:].isdigit():
-            raise ValueError(f"Invalid case {case!r}; expected labels such as N5, N7, N9.")
-    return cases
-
-
-def _front_path(data_root: Path, case: str, filename: str) -> Path:
-    return data_root / f"case_{case}" / filename
-
-
-def _load_front(path: Path) -> dict[str, np.ndarray]:
-    if not path.exists():
-        raise FileNotFoundError(f"Front-position file not found: {path}")
-
-    data = np.loadtxt(path, comments="#")
-    data = np.atleast_2d(data)
-    if data.shape[1] < 2:
-        raise ValueError(f"{path} must contain at least two columns: time and x_front.")
-
-    data = data[:, :2]
-    data = data[np.argsort(data[:, 0])]
-    time = np.asarray(data[:, 0], dtype=float)
-    x_front = np.asarray(data[:, 1], dtype=float)
-
-    if time.size < 2:
-        raise ValueError(f"{path} must contain at least two time samples.")
-    if not np.all(np.isfinite(time)) or not np.all(np.isfinite(x_front)):
-        raise ValueError(f"{path} contains non-finite time or front-position values.")
-    if np.any(np.diff(time) <= 0.0):
-        raise ValueError(f"{path} contains duplicate time values after sorting.")
-
-    x_front_minus_x0 = x_front - x_front[0]
-    return {"time": time, "x_front_minus_x0": x_front_minus_x0, "x0": np.array([x_front[0]], dtype=float)}
-
-
-def _load_paper_csv(path: Path) -> dict[str, np.ndarray]:
-    if not path.exists():
-        raise FileNotFoundError(f"Paper CSV not found: {path}")
-
-    rows: list[tuple[float, float]] = []
-    with path.open("r", newline="", encoding="utf-8") as handle:
-        reader = csv.reader(handle)
-        for line_number, row in enumerate(reader, start=1):
-            if not row or not row[0].strip() or row[0].lstrip().startswith("#"):
-                continue
-            if len(row) < 2:
-                continue
-            try:
-                time = float(row[0])
-                x_value = float(row[1])
-            except ValueError:
-                if line_number == 1:
-                    continue
-                raise ValueError(f"{path}:{line_number} has non-numeric first or second column: {row}") from None
-            if np.isfinite(time) and np.isfinite(x_value):
-                rows.append((time, x_value))
-
-    if len(rows) < 2:
-        raise ValueError(f"{path} must contain at least two finite paper data rows.")
-
-    data = np.asarray(rows, dtype=float)
-    data = data[np.argsort(data[:, 0])]
-    time = data[:, 0]
-    x_value = data[:, 1]
-    if np.any(np.diff(time) <= 0.0):
-        raise ValueError(f"{path} contains duplicate paper time values after sorting.")
-    positive = (time > 0.0) & (x_value > 0.0)
-    if not np.any(positive):
-        raise ValueError(f"{path} has no finite positive rows for log-log plotting.")
-    return {"time": time, "x": x_value, "positive_mask": positive}
-
-
 def _ensure_writable(path: Path, overwrite: bool) -> None:
     if path.exists() and not overwrite:
         raise FileExistsError(f"Output exists: {path}. Pass --overwrite to replace it.")
@@ -146,103 +91,15 @@ def _format(value: float | int) -> str:
     return f"{float(value):.16g}"
 
 
-def _finite_mean(values: np.ndarray) -> float:
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return float("nan")
-    return float(np.mean(finite))
-
-
-def _mean_abs(values: np.ndarray) -> float:
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return float("nan")
-    return float(np.mean(np.abs(finite)))
-
-
-def _max_abs(values: np.ndarray) -> float:
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return float("nan")
-    return float(np.max(np.abs(finite)))
-
-
-def _rms(values: np.ndarray) -> float:
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return float("nan")
-    return float(np.sqrt(np.mean(finite**2)))
-
-
-def _linear_fit_slope(time: np.ndarray, values: np.ndarray) -> float:
-    if time.size < 2:
-        return float("nan")
-    slope, _intercept = np.polyfit(time, values, deg=1)
-    return float(slope)
-
-
-def _relative_difference(value: float, reference: float) -> float:
-    if not np.isfinite(value) or not np.isfinite(reference) or reference == 0.0:
-        return float("nan")
-    return float((value - reference) / reference)
-
-
-def _comparison_for_case(front: dict[str, np.ndarray], paper: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-    sim_time = front["time"]
-    sim_x = front["x_front_minus_x0"]
-    paper_time = paper["time"]
-    paper_x = paper["x"]
-    overlap = (paper_time >= sim_time[0]) & (paper_time <= sim_time[-1])
-    if not np.any(overlap):
-        raise ValueError("Simulation and paper time ranges do not overlap.")
-
-    time = paper_time[overlap]
-    paper_x_overlap = paper_x[overlap]
-    sim_x_interp = np.interp(time, sim_time, sim_x)
-    x_error = sim_x_interp - paper_x_overlap
-    relative_error = x_error / paper_x_overlap
-    positive = (sim_x_interp > 0.0) & (paper_x_overlap > 0.0)
-    log_error = np.full_like(x_error, np.nan, dtype=float)
-    log_error[positive] = np.log(sim_x_interp[positive]) - np.log(paper_x_overlap[positive])
-    return {
-        "time": time,
-        "paper_x": paper_x_overlap,
-        "simulation_x_interp": sim_x_interp,
-        "x_error": x_error,
-        "relative_error": relative_error,
-        "log_error": log_error,
-    }
-
-
 def _slumping_metrics(comparison: dict[str, np.ndarray]) -> dict[str, float | int]:
-    time = comparison["time"]
-    paper_x = comparison["paper_x"]
-    sim_x = comparison["simulation_x_interp"]
-    relative_error = comparison["relative_error"]
-    mask = (time >= SLUMP_TMIN) & (time <= SLUMP_TMAX)
-    n_points = int(np.count_nonzero(mask))
-    if n_points < 2:
-        return {
-            "n_slumping_points": n_points,
-            "paper_slumping_velocity": float("nan"),
-            "simulation_slumping_velocity": float("nan"),
-            "slumping_velocity_difference": float("nan"),
-            "slumping_velocity_relative_difference": float("nan"),
-            "slumping_mean_abs_relative_error": float("nan"),
-            "slumping_max_abs_relative_error": float("nan"),
-        }
-
-    paper_velocity = _linear_fit_slope(time[mask], paper_x[mask])
-    sim_velocity = _linear_fit_slope(time[mask], sim_x[mask])
-    return {
-        "n_slumping_points": n_points,
-        "paper_slumping_velocity": paper_velocity,
-        "simulation_slumping_velocity": sim_velocity,
-        "slumping_velocity_difference": sim_velocity - paper_velocity,
-        "slumping_velocity_relative_difference": _relative_difference(sim_velocity, paper_velocity),
-        "slumping_mean_abs_relative_error": _mean_abs(relative_error[mask]),
-        "slumping_max_abs_relative_error": _max_abs(relative_error[mask]),
-    }
+    return slumping_velocity_metrics(
+        comparison,
+        compared_x_key="simulation_x_interp",
+        compared_label="simulation",
+        tmin=SLUMP_TMIN,
+        tmax=SLUMP_TMAX,
+        include_relative_error_stats=True,
+    )
 
 
 def _summary_row(case: str, comparison: dict[str, np.ndarray]) -> dict[str, str]:
@@ -256,13 +113,13 @@ def _summary_row(case: str, comparison: dict[str, np.ndarray]) -> dict[str, str]
         "n_comparison_points": int(time.size),
         "time_min_compared": float(time[0]),
         "time_max_compared": float(time[-1]),
-        "mean_signed_error": _finite_mean(x_error),
-        "mean_abs_error": _mean_abs(x_error),
-        "rms_error": _rms(x_error),
-        "mean_signed_relative_error": _finite_mean(relative_error),
-        "mean_abs_relative_error": _mean_abs(relative_error),
-        "max_abs_relative_error": _max_abs(relative_error),
-        "rms_log_error": _rms(log_error),
+        "mean_signed_error": finite_mean(x_error),
+        "mean_abs_error": mean_abs(x_error, finite_only=True),
+        "rms_error": rms(x_error, finite_only=True),
+        "mean_signed_relative_error": finite_mean(relative_error),
+        "mean_abs_relative_error": mean_abs(relative_error, finite_only=True),
+        "max_abs_relative_error": max_abs(relative_error, finite_only=True),
+        "rms_log_error": rms(log_error, finite_only=True),
         **slumping,
     }
     return {key: str(value) if isinstance(value, str) else _format(value) for key, value in values.items()}
@@ -399,13 +256,13 @@ def _print_summary(rows: list[dict[str, str]]) -> None:
 
 def main() -> None:
     args = _parse_args()
-    cases = _parse_cases(args.cases)
+    cases = parse_case_labels(args.cases)
     data_root = args.data_root.expanduser()
     output_dir = args.output_dir.expanduser()
     paper_csv = args.paper_csv.expanduser()
 
     try:
-        paper = _load_paper_csv(paper_csv)
+        paper = read_digitized_paper_csv(paper_csv)
         fronts_by_case: dict[str, dict[str, np.ndarray]] = {}
         comparisons_by_case: dict[str, dict[str, np.ndarray]] = {}
         summary_rows: list[dict[str, str]] = []
@@ -414,10 +271,16 @@ def main() -> None:
         print(f"Paper CSV: {paper_csv}")
         print("Simulation front files:")
         for case in cases:
-            front_path = _front_path(data_root, case, args.front_filename)
+            front_path = front_simple_path(data_root, case, args.front_filename)
             print(f"  {case}: {front_path}")
-            front = _load_front(front_path)
-            comparison = _comparison_for_case(front, paper)
+            front = front_relative_to_initial(read_front_simple_dat(front_path))
+            comparison = compare_front_to_paper(
+                front,
+                paper,
+                front_x_key="x_front_minus_x0",
+                interpolated_key="simulation_x_interp",
+                error_key="x_error",
+            )
             fronts_by_case[case] = front
             comparisons_by_case[case] = comparison
             summary_rows.append(_summary_row(case, comparison))
