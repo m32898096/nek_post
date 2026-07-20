@@ -6,7 +6,6 @@ import argparse
 import csv
 import os
 from pathlib import Path
-import sys
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-nek-post")
 
@@ -14,10 +13,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-sys.path.insert(0, str(SRC_DIR))
 
-from nek_post.front_compare import (  # noqa: E402
+from nek_post.front_compare import (
     compare_front_to_paper,
     finite_mean,
     max_abs,
@@ -25,14 +22,14 @@ from nek_post.front_compare import (  # noqa: E402
     rms,
     slumping_velocity_metrics,
 )
-from nek_post.front_io import (  # noqa: E402
+from nek_post.front_io import (
     front_relative_to_initial,
     front_simple_path,
     parse_case_labels,
     read_digitized_paper_csv,
     read_front_simple_dat,
 )
-from nek_post.paths import ProjectPaths, load_project_paths  # noqa: E402
+from nek_post.paths import ProjectPaths, load_project_paths
 
 SLUMP_TMIN = 3.0
 SLUMP_TMAX = 12.0

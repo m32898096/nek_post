@@ -7,13 +7,11 @@ from pathlib import Path
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-sys.path.insert(0, str(SRC_DIR))
 
-from nek_post.config import load_project_config  # noqa: E402
-from nek_post.fields import summarize_element_fields  # noqa: E402
-from nek_post.io_nek import describe_nek_data, get_first_element, read_nek_file  # noqa: E402
-from nek_post.paths import ProjectPaths  # noqa: E402
+from nek_post.config import load_project_config
+from nek_post.fields import summarize_element_fields
+from nek_post.io_nek import describe_nek_data, get_first_element, read_nek_file
+from nek_post.paths import ProjectPaths
 
 
 def _parse_args() -> argparse.Namespace:

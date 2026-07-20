@@ -14,10 +14,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-sys.path.insert(0, str(SRC_DIR))
 
-from nek_post.paths import ProjectPaths, load_project_paths  # noqa: E402
+from nek_post.paths import ProjectPaths, load_project_paths
 
 TIMESERIES_COLUMNS = (
     "time",
