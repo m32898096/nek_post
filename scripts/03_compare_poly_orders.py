@@ -12,15 +12,13 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-from nek_post.config import load_project_config
-from nek_post.interpolation import create_common_xz_grid, interpolate_to_grid, valid_common_mask
-from nek_post.metrics import (
-    absolute_linf_error,
-    front_position,
-    mean_absolute_error,
-    relative_l2_error,
-    relative_linf_error,
+from nek_post.comparison import (
+    compare_concentration_slices,
+    compare_pressure_slices,
+    compare_velocity_slices,
 )
+from nek_post.config import load_project_config
+from nek_post.interpolation import create_common_xz_grid
 from nek_post.paths import ProjectPaths
 
 
@@ -374,43 +372,6 @@ def _write_pressure_error_table(path: Path, rows: list[dict[str, object]]) -> No
         writer.writerows(rows)
 
 
-def _safe_relative_l2_error(values, reference, mask=None, denominator_tol: float = 1.0e-14) -> float:
-    values_arr = np.asarray(values, dtype=float)
-    ref_arr = np.asarray(reference, dtype=float)
-    if mask is None:
-        mask_arr = np.isfinite(values_arr) & np.isfinite(ref_arr)
-    else:
-        mask_arr = np.asarray(mask, dtype=bool) & np.isfinite(values_arr) & np.isfinite(ref_arr)
-
-    if not np.any(mask_arr):
-        return float("nan")
-
-    denominator = float(np.sum(ref_arr[mask_arr] ** 2))
-    if denominator <= denominator_tol:
-        return float("nan")
-
-    numerator = float(np.sum((values_arr[mask_arr] - ref_arr[mask_arr]) ** 2))
-    return float(np.sqrt(numerator / denominator))
-
-
-def _safe_relative_linf_error(values, reference, mask=None, denominator_tol: float = 1.0e-14) -> float:
-    values_arr = np.asarray(values, dtype=float)
-    ref_arr = np.asarray(reference, dtype=float)
-    if mask is None:
-        mask_arr = np.isfinite(values_arr) & np.isfinite(ref_arr)
-    else:
-        mask_arr = np.asarray(mask, dtype=bool) & np.isfinite(values_arr) & np.isfinite(ref_arr)
-
-    if not np.any(mask_arr):
-        return float("nan")
-
-    denominator = float(np.max(np.abs(ref_arr[mask_arr])))
-    if denominator <= denominator_tol:
-        return float("nan")
-
-    return float(np.max(np.abs(values_arr[mask_arr] - ref_arr[mask_arr])) / denominator)
-
-
 def _write_comparison_set_metadata(
     path: Path,
     comparison_set_name: str,
@@ -535,14 +496,6 @@ def _build_pressure_summary(
     return "\n".join(lines)
 
 
-def _pressure_fluctuation(p_grid: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    p_arr = np.asarray(p_grid, dtype=float)
-    p_prime = p_arr.copy()
-    p_prime -= float(np.mean(p_arr[mask]))
-    p_prime[~np.isfinite(p_arr)] = np.nan
-    return p_prime
-
-
 def main() -> None:
     """Load slice files, interpolate concentration, and compare to the reference case."""
     args = _parse_args()
@@ -591,55 +544,31 @@ def main() -> None:
         Xi, Zi, _, _, grid_metadata = create_common_xz_grid(slice_data_by_case, nx, nz)
 
         if args.field == "velocity":
-            velocity_grids: dict[str, dict[str, np.ndarray]] = {}
+            result = compare_velocity_slices(
+                slice_data_by_case=slice_data_by_case,
+                cases=cases,
+                orders=config["cases"]["orders"],
+                case_indices=case_indices,
+                reference_case=reference_case,
+                comparison_set_name=comparison_set_name,
+                Xi=Xi,
+                Zi=Zi,
+                interpolation_method=args.method,
+                duplicate_decimals=duplicate_decimals,
+            )
             for case in cases:
-                slice_data = slice_data_by_case[case]
-                u_grid = interpolate_to_grid(
-                    slice_data["x"],
-                    slice_data["z"],
-                    slice_data["u"],
-                    Xi,
-                    Zi,
-                    method=args.method,
-                    duplicate_decimals=duplicate_decimals,
-                )
-                v_grid = interpolate_to_grid(
-                    slice_data["x"],
-                    slice_data["z"],
-                    slice_data["v"],
-                    Xi,
-                    Zi,
-                    method=args.method,
-                    duplicate_decimals=duplicate_decimals,
-                )
-                w_grid = interpolate_to_grid(
-                    slice_data["x"],
-                    slice_data["z"],
-                    slice_data["w"],
-                    Xi,
-                    Zi,
-                    method=args.method,
-                    duplicate_decimals=duplicate_decimals,
-                )
-                speed_grid = np.sqrt(u_grid**2 + v_grid**2 + w_grid**2)
-                velocity_grids[case] = {
-                    "u": u_grid,
-                    "v": v_grid,
-                    "w": w_grid,
-                    "speed": speed_grid,
-                }
-
                 interp_path = _velocity_interpolated_path(paths, case, case_indices[case])
                 if interp_path.exists() and not args.overwrite:
                     continue
+                grids = result.grids[case]
                 _save_velocity_interpolated(
                     interp_path,
                     Xi,
                     Zi,
-                    u_grid,
-                    v_grid,
-                    w_grid,
-                    speed_grid,
+                    grids["u"],
+                    grids["v"],
+                    grids["w"],
+                    grids["speed"],
                     case,
                     case_indices[case],
                     comparison_set_name,
@@ -647,124 +576,47 @@ def main() -> None:
                     args.method,
                 )
 
-            reference_speed = velocity_grids[reference_case]["speed"]
-            common_mask = valid_common_mask(*(velocity_grids[case]["speed"] for case in cases))
-            valid_point_count = int(np.count_nonzero(common_mask))
-            total_grid_point_count = int(common_mask.size)
-            if valid_point_count == 0:
-                raise ValueError("No finite common grid points are available for velocity comparison.")
-
-            error_rows = []
-            for case in cases:
-                if case == reference_case:
-                    continue
-                row = {
-                    "case": case,
-                    "order": config["cases"]["orders"][case],
-                    "reference_case": reference_case,
-                    "comparison_set": comparison_set_name or "",
-                    "index": case_indices[case],
-                    "reference_index": case_indices[reference_case],
-                    "relative_L2_speed": relative_l2_error(
-                        velocity_grids[case]["speed"],
-                        reference_speed,
-                        common_mask,
-                    ),
-                    "mean_abs_error_speed": mean_absolute_error(
-                        velocity_grids[case]["speed"] - reference_speed,
-                        common_mask,
-                    ),
-                    "absolute_Linf_speed": absolute_linf_error(
-                        velocity_grids[case]["speed"],
-                        reference_speed,
-                        common_mask,
-                    ),
-                    "relative_Linf_speed": relative_linf_error(
-                        velocity_grids[case]["speed"],
-                        reference_speed,
-                        common_mask,
-                    ),
-                    "relative_L2_u": _safe_relative_l2_error(
-                        velocity_grids[case]["u"],
-                        velocity_grids[reference_case]["u"],
-                        common_mask,
-                    ),
-                    "mean_abs_error_u": mean_absolute_error(
-                        velocity_grids[case]["u"] - velocity_grids[reference_case]["u"],
-                        common_mask,
-                    ),
-                    "relative_L2_v": _safe_relative_l2_error(
-                        velocity_grids[case]["v"],
-                        velocity_grids[reference_case]["v"],
-                        common_mask,
-                    ),
-                    "mean_abs_error_v": mean_absolute_error(
-                        velocity_grids[case]["v"] - velocity_grids[reference_case]["v"],
-                        common_mask,
-                    ),
-                    "relative_L2_w": _safe_relative_l2_error(
-                        velocity_grids[case]["w"],
-                        velocity_grids[reference_case]["w"],
-                        common_mask,
-                    ),
-                    "mean_abs_error_w": mean_absolute_error(
-                        velocity_grids[case]["w"] - velocity_grids[reference_case]["w"],
-                        common_mask,
-                    ),
-                    "valid_point_count": valid_point_count,
-                    "total_grid_point_count": total_grid_point_count,
-                }
-                error_rows.append(row)
-
             output_label = comparison_set_name or _comparison_label(case_indices, use_case_indices)
             error_table = _velocity_error_table_path(paths, output_label)
-            _write_velocity_error_table(error_table, error_rows)
+            _write_velocity_error_table(error_table, result.error_rows)
 
             summary = _build_velocity_summary(
                 comparison_set_name,
                 reference_case,
                 grid_metadata,
-                valid_point_count,
-                total_grid_point_count,
+                result.valid_point_count,
+                result.total_grid_point_count,
                 error_table,
-                error_rows,
+                result.error_rows,
             )
             print(summary)
             _append_log(paths, summary)
             return
 
         if args.field == "pressure":
-            pressure_grids: dict[str, dict[str, np.ndarray]] = {}
+            result = compare_pressure_slices(
+                slice_data_by_case=slice_data_by_case,
+                cases=cases,
+                orders=config["cases"]["orders"],
+                case_indices=case_indices,
+                reference_case=reference_case,
+                comparison_set_name=comparison_set_name,
+                Xi=Xi,
+                Zi=Zi,
+                interpolation_method=args.method,
+                duplicate_decimals=duplicate_decimals,
+            )
             for case in cases:
-                slice_data = slice_data_by_case[case]
-                p_grid = interpolate_to_grid(
-                    slice_data["x"],
-                    slice_data["z"],
-                    slice_data["p"],
-                    Xi,
-                    Zi,
-                    method=args.method,
-                    duplicate_decimals=duplicate_decimals,
-                )
-                pressure_grids[case] = {"p": p_grid}
-
-            common_mask = valid_common_mask(*(pressure_grids[case]["p"] for case in cases))
-            valid_point_count = int(np.count_nonzero(common_mask))
-            total_grid_point_count = int(common_mask.size)
-            if valid_point_count == 0:
-                raise ValueError("No finite common grid points are available for pressure comparison.")
-
-            for case in cases:
-                pressure_grids[case]["p_prime"] = _pressure_fluctuation(pressure_grids[case]["p"], common_mask)
                 interp_path = _pressure_interpolated_path(paths, case, case_indices[case])
                 if interp_path.exists() and not args.overwrite:
                     continue
+                grids = result.grids[case]
                 _save_pressure_interpolated(
                     interp_path,
                     Xi,
                     Zi,
-                    pressure_grids[case]["p"],
-                    pressure_grids[case]["p_prime"],
+                    grids["p"],
+                    grids["p_prime"],
                     case,
                     case_indices[case],
                     comparison_set_name,
@@ -772,124 +624,56 @@ def main() -> None:
                     args.method,
                 )
 
-            reference_p_prime = pressure_grids[reference_case]["p_prime"]
-            error_rows = []
-            for case in cases:
-                if case == reference_case:
-                    continue
-                row = {
-                    "case": case,
-                    "order": config["cases"]["orders"][case],
-                    "reference_case": reference_case,
-                    "comparison_set": comparison_set_name or "",
-                    "index": case_indices[case],
-                    "reference_index": case_indices[reference_case],
-                    "relative_L2_p_prime": _safe_relative_l2_error(
-                        pressure_grids[case]["p_prime"],
-                        reference_p_prime,
-                        common_mask,
-                    ),
-                    "mean_abs_error_p_prime": mean_absolute_error(
-                        pressure_grids[case]["p_prime"] - reference_p_prime,
-                        common_mask,
-                    ),
-                    "absolute_Linf_p_prime": absolute_linf_error(
-                        pressure_grids[case]["p_prime"],
-                        reference_p_prime,
-                        common_mask,
-                    ),
-                    "relative_Linf_p_prime": _safe_relative_linf_error(
-                        pressure_grids[case]["p_prime"],
-                        reference_p_prime,
-                        common_mask,
-                    ),
-                    "valid_point_count": valid_point_count,
-                    "total_grid_point_count": total_grid_point_count,
-                }
-                error_rows.append(row)
-
             output_label = comparison_set_name or _comparison_label(case_indices, use_case_indices)
             error_table = _pressure_error_table_path(paths, output_label)
-            _write_pressure_error_table(error_table, error_rows)
+            _write_pressure_error_table(error_table, result.error_rows)
 
             summary = _build_pressure_summary(
                 comparison_set_name,
                 reference_case,
                 grid_metadata,
-                valid_point_count,
-                total_grid_point_count,
+                result.valid_point_count,
+                result.total_grid_point_count,
                 error_table,
-                error_rows,
+                result.error_rows,
             )
             print(summary)
             _append_log(paths, summary)
             return
 
-        c_grids: dict[str, np.ndarray] = {}
+        result = compare_concentration_slices(
+            slice_data_by_case=slice_data_by_case,
+            cases=cases,
+            orders=config["cases"]["orders"],
+            case_indices=case_indices,
+            reference_case=reference_case,
+            comparison_set_name=comparison_set_name,
+            Xi=Xi,
+            Zi=Zi,
+            interpolation_method=args.method,
+            duplicate_decimals=duplicate_decimals,
+            front_threshold_ratio=args.front_threshold_ratio,
+        )
         for case in cases:
-            slice_data = slice_data_by_case[case]
-            C_grid = interpolate_to_grid(
-                slice_data["x"],
-                slice_data["z"],
-                slice_data["C"],
-                Xi,
-                Zi,
-                method=args.method,
-                duplicate_decimals=duplicate_decimals,
-            )
-            c_grids[case] = C_grid
-
             interp_path = _interpolated_path(paths, case, case_indices[case])
             if interp_path.exists() and not args.overwrite:
                 continue
-            _save_interpolated(interp_path, Xi, Zi, C_grid, case, case_indices[case], slice_paths[case], args.method)
-
-        reference_grid = c_grids[reference_case]
-        common_mask = valid_common_mask(*(c_grids[case] for case in cases))
-        valid_point_count = int(np.count_nonzero(common_mask))
-        total_grid_point_count = int(common_mask.size)
-        if valid_point_count == 0:
-            raise ValueError("No finite common grid points are available for comparison.")
-
-        error_rows = []
-        for case in cases:
-            if case == reference_case:
-                continue
-            row = {
-                "case": case,
-                "order": config["cases"]["orders"][case],
-                "reference_case": reference_case,
-                "comparison_set": comparison_set_name or "",
-                "index": case_indices[case],
-                "reference_index": case_indices[reference_case],
-                "relative_L2_C": relative_l2_error(c_grids[case], reference_grid, common_mask),
-                "mean_abs_error_C": mean_absolute_error(c_grids[case] - reference_grid, common_mask),
-                "absolute_Linf_C": absolute_linf_error(c_grids[case], reference_grid, common_mask),
-                "relative_Linf_C": relative_linf_error(c_grids[case], reference_grid, common_mask),
-                "valid_point_count": valid_point_count,
-                "total_grid_point_count": total_grid_point_count,
-            }
-            error_rows.append(row)
-
-        threshold = float(args.front_threshold_ratio * np.max(reference_grid[common_mask]))
-        front_rows = []
-        for case in cases:
-            front_rows.append(
-                {
-                    "case": case,
-                    "order": config["cases"]["orders"][case],
-                    "comparison_set": comparison_set_name or "",
-                    "index": case_indices[case],
-                    "threshold": threshold,
-                    "x_front": front_position(Xi, c_grids[case], threshold, common_mask),
-                }
+            _save_interpolated(
+                interp_path,
+                Xi,
+                Zi,
+                result.grids[case],
+                case,
+                case_indices[case],
+                slice_paths[case],
+                args.method,
             )
 
         output_label = comparison_set_name or _comparison_label(case_indices, use_case_indices)
         error_table = _error_table_path(paths, output_label)
         front_table = _front_table_path(paths, output_label)
-        _write_error_table(error_table, error_rows)
-        _write_front_table(front_table, front_rows)
+        _write_error_table(error_table, result.error_rows)
+        _write_front_table(front_table, result.front_rows)
         if comparison_set_name:
             _write_comparison_set_metadata(
                 _metadata_path(paths, comparison_set_name),
@@ -907,11 +691,11 @@ def main() -> None:
             case_times,
             time_differences,
             grid_metadata,
-            valid_point_count,
-            total_grid_point_count,
+            result.valid_point_count,
+            result.total_grid_point_count,
             error_table,
             front_table,
-            error_rows,
+            result.error_rows,
             config["cases"]["orders"],
             warnings,
         )
