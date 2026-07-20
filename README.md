@@ -47,6 +47,16 @@ Duplicate projected `(x,z)` points are averaged before interpolation onto the co
 
 See [docs/script_index.md](docs/script_index.md) for a concise index of available scripts.
 
+## Setup
+
+This project uses a `src/` layout. Install it once in editable mode so scripts and tests can import `nek_post`:
+
+```bash
+PYENV_VERSION=research312 python -m pip install -e . --no-deps --no-build-isolation
+```
+
+Editable installation reflects source-code changes immediately without reinstalling. Existing commands remain unchanged, for example `python scripts/03_compare_poly_orders.py --help`.
+
 ## Check Expected Files
 
 Run from the repository root:
