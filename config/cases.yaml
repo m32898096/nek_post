@@ -16,6 +16,33 @@ file_indices:
   - 80
 
 comparison_sets:
+  t05:
+    description: "Polynomial-order comparison near t = 5.0"
+    target_time: 5.0
+    reference_case: N11
+    case_indices:
+      N5: 21
+      N7: 21
+      N9: 21
+      N11: 11
+  t10:
+    description: "Polynomial-order comparison near t = 10.0"
+    target_time: 10.0
+    reference_case: N11
+    case_indices:
+      N5: 41
+      N7: 41
+      N9: 41
+      N11: 21
+  t15:
+    description: "Polynomial-order comparison near t = 15.0"
+    target_time: 15.0
+    reference_case: N11
+    case_indices:
+      N5: 61
+      N7: 61
+      N9: 61
+      N11: 31
   t19p5:
     description: "Polynomial-order comparison near t = 19.5"
     target_time: 19.5
@@ -25,6 +52,12 @@ comparison_sets:
       N7: 79
       N9: 79
       N11: 40
+
+multitime_comparison_sets:
+  - t05
+  - t10
+  - t15
+  - t19p5
 
 slice:
   type: y_mid

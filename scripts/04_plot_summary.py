@@ -11,11 +11,10 @@ import sys
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-sys.path.insert(0, str(SRC_DIR))
 
-from nek_post.config import load_project_config  # noqa: E402
-from nek_post.plotting import plot_contour, plot_difference, plot_error_vs_order, plot_front_position  # noqa: E402
+from nek_post.config import load_project_config
+from nek_post.paths import ProjectPaths
+from nek_post.plotting import plot_contour, plot_difference, plot_error_vs_order, plot_front_position
 
 
 def _parse_args() -> argparse.Namespace:
@@ -30,54 +29,52 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _interpolated_path(config: dict, case: str, index: int) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "interpolated" / "C" / f"interp_C_{case}_f{index:05d}.npz"
+def _interpolated_path(paths: ProjectPaths, case: str, index: int) -> Path:
+    return paths.interpolated_dir / "C" / f"interp_C_{case}_f{index:05d}.npz"
 
 
-def _velocity_interpolated_path(config: dict, case: str, index: int) -> Path:
+def _velocity_interpolated_path(paths: ProjectPaths, case: str, index: int) -> Path:
     return (
-        Path(config["paths"]["postproc_root"])
-        / "interpolated"
+        paths.interpolated_dir
         / "velocity"
         / f"interp_velocity_{case}_f{index:05d}.npz"
     )
 
 
-def _pressure_interpolated_path(config: dict, case: str, index: int) -> Path:
+def _pressure_interpolated_path(paths: ProjectPaths, case: str, index: int) -> Path:
     return (
-        Path(config["paths"]["postproc_root"])
-        / "interpolated"
+        paths.interpolated_dir
         / "pressure"
         / f"interp_pressure_{case}_f{index:05d}.npz"
     )
 
 
-def _error_table_path(config: dict, comparison_set: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"concentration_error_{comparison_set}.csv"
+def _error_table_path(paths: ProjectPaths, comparison_set: str) -> Path:
+    return paths.tables_dir / f"concentration_error_{comparison_set}.csv"
 
 
-def _velocity_error_table_path(config: dict, comparison_set: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"velocity_error_{comparison_set}.csv"
+def _velocity_error_table_path(paths: ProjectPaths, comparison_set: str) -> Path:
+    return paths.tables_dir / f"velocity_error_{comparison_set}.csv"
 
 
-def _pressure_error_table_path(config: dict, comparison_set: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"pressure_error_{comparison_set}.csv"
+def _pressure_error_table_path(paths: ProjectPaths, comparison_set: str) -> Path:
+    return paths.tables_dir / f"pressure_error_{comparison_set}.csv"
 
 
-def _front_table_path(config: dict, comparison_set: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"front_position_{comparison_set}.csv"
+def _front_table_path(paths: ProjectPaths, comparison_set: str) -> Path:
+    return paths.tables_dir / f"front_position_{comparison_set}.csv"
 
 
-def _figure_dir(config: dict, field: str, comparison_set: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "figures" / field / comparison_set
+def _figure_dir(paths: ProjectPaths, field: str, comparison_set: str) -> Path:
+    return paths.figures_dir / field / comparison_set
 
 
-def _log_path(config: dict) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "logs" / "plot_summary.log"
+def _log_path(paths: ProjectPaths) -> Path:
+    return paths.logs_dir / "plot_summary.log"
 
 
-def _append_log(config: dict, text: str) -> None:
-    path = _log_path(config)
+def _append_log(paths: ProjectPaths, text: str) -> None:
+    path = _log_path(paths)
     path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().isoformat(timespec="seconds")
     with path.open("a", encoding="utf-8") as handle:
@@ -190,6 +187,7 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     try:
         comparison_sets = config["cases"].get("comparison_sets", {})
@@ -201,12 +199,12 @@ def main() -> None:
         case_indices = {case: int(index) for case, index in comparison_set["case_indices"].items()}
         reference_case = comparison_set.get("reference_case") or config["cases"]["reference_case"]
         cases = list(config["cases"]["orders"].keys())
-        figure_dir = _figure_dir(config, args.field, args.comparison_set)
+        figure_dir = _figure_dir(paths, args.field, args.comparison_set)
         figure_dir.mkdir(parents=True, exist_ok=True)
 
         if args.field == "velocity":
             grids = {
-                case: _load_velocity_grid(_velocity_interpolated_path(config, case, case_indices[case]))
+                case: _load_velocity_grid(_velocity_interpolated_path(paths, case, case_indices[case]))
                 for case in cases
             }
             speed_vmin, speed_vmax = _finite_min_max([grids[case]["speed"] for case in cases])
@@ -248,7 +246,7 @@ def main() -> None:
                 )
                 saved_paths.append(path)
 
-            error_rows = _read_csv(_velocity_error_table_path(config, args.comparison_set))
+            error_rows = _read_csv(_velocity_error_table_path(paths, args.comparison_set))
             error_rows.sort(key=lambda row: _case_order(config, row["case"]))
             error_orders = [_case_order(config, row["case"]) for row in error_rows]
             errors = [float(row["relative_L2_speed"]) for row in error_rows]
@@ -264,12 +262,12 @@ def main() -> None:
 
             summary = _build_summary(args.field, args.comparison_set, figure_dir, saved_paths)
             print(summary)
-            _append_log(config, summary)
+            _append_log(paths, summary)
             return
 
         if args.field == "pressure":
             grids = {
-                case: _load_pressure_grid(_pressure_interpolated_path(config, case, case_indices[case]))
+                case: _load_pressure_grid(_pressure_interpolated_path(paths, case, case_indices[case]))
                 for case in cases
             }
             p_prime_absmax = _finite_max_abs([grids[case]["p_prime"] for case in cases])
@@ -313,7 +311,7 @@ def main() -> None:
                 )
                 saved_paths.append(path)
 
-            error_rows = _read_csv(_pressure_error_table_path(config, args.comparison_set))
+            error_rows = _read_csv(_pressure_error_table_path(paths, args.comparison_set))
             error_rows.sort(key=lambda row: _case_order(config, row["case"]))
             error_orders = [_case_order(config, row["case"]) for row in error_rows]
             errors = [float(row["relative_L2_p_prime"]) for row in error_rows]
@@ -329,11 +327,11 @@ def main() -> None:
 
             summary = _build_summary(args.field, args.comparison_set, figure_dir, saved_paths)
             print(summary)
-            _append_log(config, summary)
+            _append_log(paths, summary)
             return
 
         grids = {
-            case: _load_npz_grid(_interpolated_path(config, case, case_indices[case]))
+            case: _load_npz_grid(_interpolated_path(paths, case, case_indices[case]))
             for case in cases
         }
 
@@ -381,7 +379,7 @@ def main() -> None:
             )
             saved_paths.append(path)
 
-        error_rows = _read_csv(_error_table_path(config, args.comparison_set))
+        error_rows = _read_csv(_error_table_path(paths, args.comparison_set))
         error_rows.sort(key=lambda row: _case_order(config, row["case"]))
         error_orders = [_case_order(config, row["case"]) for row in error_rows]
         errors = [float(row["relative_L2_C"]) for row in error_rows]
@@ -389,7 +387,7 @@ def main() -> None:
         plot_error_vs_order(error_orders, errors, error_plot, title=f"{args.comparison_set} relative L2 error of C")
         saved_paths.append(error_plot)
 
-        front_rows = _read_csv(_front_table_path(config, args.comparison_set))
+        front_rows = _read_csv(_front_table_path(paths, args.comparison_set))
         front_rows.sort(key=lambda row: _case_order(config, row["case"]))
         front_orders = [_case_order(config, row["case"]) for row in front_rows]
         x_front = [float(row["x_front"]) for row in front_rows]
@@ -399,12 +397,12 @@ def main() -> None:
 
         summary = _build_summary(args.field, args.comparison_set, figure_dir, saved_paths)
         print(summary)
-        _append_log(config, summary)
+        _append_log(paths, summary)
     except Exception as exc:
         message = f"ERROR: {exc}"
         print(message, file=sys.stderr)
         try:
-            _append_log(config, message)
+            _append_log(paths, message)
         except OSError as log_exc:
             print(f"ERROR: Failed to write log file: {log_exc}", file=sys.stderr)
         raise SystemExit(1) from exc

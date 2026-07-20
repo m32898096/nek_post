@@ -9,10 +9,9 @@ import subprocess
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-sys.path.insert(0, str(SRC_DIR))
 
-from nek_post.config import load_project_config  # noqa: E402
+from nek_post.config import load_project_config
+from nek_post.paths import ProjectPaths
 
 
 def _parse_args() -> argparse.Namespace:
@@ -30,24 +29,24 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _log_path(config: dict) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "logs" / "run_t19p5_pipeline.log"
+def _log_path(paths: ProjectPaths) -> Path:
+    return paths.logs_dir / "run_t19p5_pipeline.log"
 
 
-def _append_log(config: dict, text: str) -> None:
-    path = _log_path(config)
+def _append_log(paths: ProjectPaths, text: str) -> None:
+    path = _log_path(paths)
     path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().isoformat(timespec="seconds")
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"[{timestamp}] {text}\n")
 
 
-def _run_command(command: list[str], config: dict) -> None:
+def _run_command(command: list[str], paths: ProjectPaths) -> None:
     command_text = " ".join(command)
     print(f"Running: {command_text}", flush=True)
-    _append_log(config, f"Running: {command_text}")
+    _append_log(paths, f"Running: {command_text}")
     subprocess.run(command, cwd=REPO_ROOT, check=True)
-    _append_log(config, f"Completed: {command_text}")
+    _append_log(paths, f"Completed: {command_text}")
 
 
 def _comparison_set(config: dict, name: str) -> dict:
@@ -58,11 +57,10 @@ def _comparison_set(config: dict, name: str) -> dict:
     return comparison_sets[name]
 
 
-def _summary_paths(config: dict, comparison_set: str) -> tuple[Path, Path, Path]:
-    results_root = Path(config["paths"]["results_root"])
-    error_csv = results_root / "tables" / f"concentration_error_{comparison_set}.csv"
-    front_csv = results_root / "tables" / f"front_position_{comparison_set}.csv"
-    figure_dir = results_root / "figures" / "concentration" / comparison_set
+def _summary_paths(paths: ProjectPaths, comparison_set: str) -> tuple[Path, Path, Path]:
+    error_csv = paths.tables_dir / f"concentration_error_{comparison_set}.csv"
+    front_csv = paths.tables_dir / f"front_position_{comparison_set}.csv"
+    figure_dir = paths.figures_dir / "concentration" / comparison_set
     return error_csv, front_csv, figure_dir
 
 
@@ -86,13 +84,14 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     try:
         comparison_set = _comparison_set(config, args.comparison_set)
         case_indices = comparison_set["case_indices"]
         fields = _parse_fields(args.fields)
 
-        _append_log(config, f"Pipeline start: comparison_set={args.comparison_set}, fields={','.join(fields)}")
+        _append_log(paths, f"Pipeline start: comparison_set={args.comparison_set}, fields={','.join(fields)}")
 
         if not args.skip_extract:
             for case, index in case_indices.items():
@@ -106,7 +105,7 @@ def main() -> None:
                 ]
                 if args.overwrite:
                     command.append("--overwrite")
-                _run_command(command, config)
+                _run_command(command, paths)
 
         for field in fields:
             if not args.skip_compare:
@@ -120,7 +119,7 @@ def main() -> None:
                 ]
                 if args.overwrite:
                     command.append("--overwrite")
-                _run_command(command, config)
+                _run_command(command, paths)
 
             if not args.skip_plot:
                 command = [
@@ -131,9 +130,9 @@ def main() -> None:
                     "--field",
                     field,
                 ]
-                _run_command(command, config)
+                _run_command(command, paths)
 
-        error_csv, front_csv, figure_dir = _summary_paths(config, args.comparison_set)
+        error_csv, front_csv, figure_dir = _summary_paths(paths, args.comparison_set)
         summary_lines = [
             "Pipeline completed.",
             f"Concentration error CSV: {error_csv}",
@@ -141,34 +140,32 @@ def main() -> None:
             f"Concentration figure directory: {figure_dir}",
         ]
         if "velocity" in fields:
-            results_root = Path(config["paths"]["results_root"])
             summary_lines.extend(
                 [
-                    f"Velocity error CSV: {results_root / 'tables' / f'velocity_error_{args.comparison_set}.csv'}",
-                    f"Velocity figure directory: {results_root / 'figures' / 'velocity' / args.comparison_set}",
+                    f"Velocity error CSV: {paths.tables_dir / f'velocity_error_{args.comparison_set}.csv'}",
+                    f"Velocity figure directory: {paths.figures_dir / 'velocity' / args.comparison_set}",
                 ]
             )
         if "pressure" in fields:
-            results_root = Path(config["paths"]["results_root"])
             summary_lines.extend(
                 [
-                    f"Pressure error CSV: {results_root / 'tables' / f'pressure_error_{args.comparison_set}.csv'}",
-                    f"Pressure figure directory: {results_root / 'figures' / 'pressure' / args.comparison_set}",
+                    f"Pressure error CSV: {paths.tables_dir / f'pressure_error_{args.comparison_set}.csv'}",
+                    f"Pressure figure directory: {paths.figures_dir / 'pressure' / args.comparison_set}",
                 ]
             )
         summary = "\n".join(summary_lines)
         print(summary)
-        _append_log(config, summary)
+        _append_log(paths, summary)
     except subprocess.CalledProcessError as exc:
         message = f"ERROR: Command failed with exit code {exc.returncode}: {' '.join(exc.cmd)}"
         print(message, file=sys.stderr)
-        _append_log(config, message)
+        _append_log(paths, message)
         raise SystemExit(exc.returncode) from exc
     except Exception as exc:
         message = f"ERROR: {exc}"
         print(message, file=sys.stderr)
         try:
-            _append_log(config, message)
+            _append_log(paths, message)
         except OSError as log_exc:
             print(f"ERROR: Failed to write log file: {log_exc}", file=sys.stderr)
         raise SystemExit(1) from exc

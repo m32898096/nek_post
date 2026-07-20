@@ -54,13 +54,15 @@ Slice files are written under `/data/Nek5000_data/postproc/poly_order_compare/sl
 
 ## Comparison Fields
 
+Comparison CSV files report relative L2, mean absolute error, and Linf error metrics. Relative L2 remains the primary global comparison metric. Mean absolute error is a supplementary global average-difference metric, while Linf / max absolute error is a local maximum-difference metric and can be sensitive to local extrema.
+
 Run concentration comparison:
 
 ```bash
 python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field concentration --overwrite
 ```
 
-The concentration comparison interpolates `C`, computes relative L2 and Linf errors against `N11`, and writes a front-position table.
+The concentration comparison interpolates `C`, computes error metrics against `N11`, and writes a front-position table.
 
 Run velocity comparison:
 
@@ -68,7 +70,7 @@ Run velocity comparison:
 python scripts/03_compare_poly_orders.py --comparison-set t19p5 --field velocity --overwrite
 ```
 
-The velocity comparison interpolates `u`, `v`, and `w`, computes speed magnitude, and reports errors for speed and component relative L2 errors for `u`, `v`, and `w`.
+The velocity comparison interpolates `u`, `v`, and `w`, computes speed magnitude, and reports speed errors plus component relative L2 and mean absolute errors for `u`, `v`, and `w`.
 
 Run pressure comparison:
 
@@ -131,6 +133,65 @@ Run the full `t19p5` workflow:
 ```bash
 python scripts/05_run_t19p5_pipeline.py --fields concentration,velocity,pressure --overwrite
 ```
+
+Run all configured multi-time comparison sets:
+
+```bash
+python scripts/07_run_multitime_pipeline.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure \
+  --overwrite
+```
+
+Dry run the multi-time workflow without executing commands:
+
+```bash
+python scripts/07_run_multitime_pipeline.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure \
+  --dry-run
+```
+
+The multi-time runner only orchestrates the existing slice extraction, comparison, and plotting scripts. It does not collect cross-time summary tables; that will be handled by a later task.
+
+Collect existing per-time error CSV files into one multi-time summary CSV:
+
+```bash
+python scripts/08_collect_multitime_error_summary.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure
+```
+
+The collector writes `/data/Nek5000_data/results/poly_order_compare/tables/multitime_error_summary.csv`. It does not recompute errors, and the summary CSV will be used by later plotting tasks.
+
+Plot error-versus-time figures from the collected summary:
+
+```bash
+python scripts/09_plot_multitime_error_summary.py
+```
+
+The plotter reads `multitime_error_summary.csv`, writes figures under `/data/Nek5000_data/results/poly_order_compare/figures/error_summary/`, and does not recompute errors. Run `scripts/08_collect_multitime_error_summary.py` first.
+
+Create compact teacher-facing summary tables from the collected summary:
+
+```bash
+python scripts/11_make_teacher_summary_tables.py
+```
+
+The report generator reads `/data/Nek5000_data/results/poly_order_compare/tables/multitime_error_summary.csv`, writes CSV and Markdown reports under `/data/Nek5000_data/results/poly_order_compare/reports/`, and does not recompute errors.
+
+Create selected-time qualitative overlays from already interpolated `.npz` files:
+
+```bash
+python scripts/10_plot_selected_overlays.py \
+  --comparison-sets t05,t10,t15,t19p5 \
+  --fields concentration,velocity,pressure \
+  --profile-z 0.5 \
+  --profile-x 0.0 \
+  --concentration-thresholds 0.01
+```
+
+The overlay script writes figures under `/data/Nek5000_data/results/poly_order_compare/figures/overlays/`. It does not recompute errors and is mainly for comparing `N5`, `N7`, `N9`, and `N11` at selected times.
 
 Run comparisons individually:
 
