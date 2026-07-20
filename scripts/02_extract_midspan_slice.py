@@ -10,13 +10,11 @@ import sys
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-sys.path.insert(0, str(SRC_DIR))
 
-from nek_post.config import load_project_config  # noqa: E402
-from nek_post.io_nek import get_nek_time, read_nek_file  # noqa: E402
-from nek_post.paths import ProjectPaths  # noqa: E402
-from nek_post.slicing import extract_y_slice, save_slice_npz  # noqa: E402
+from nek_post.config import load_project_config
+from nek_post.io_nek import get_nek_time, read_nek_file
+from nek_post.paths import ProjectPaths
+from nek_post.slicing import extract_y_slice, save_slice_npz
 
 
 def _parse_args() -> argparse.Namespace:

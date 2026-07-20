@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-sys.path.insert(0, str(SRC_DIR))
 
-from nek_post.config import load_project_config  # noqa: E402
-from nek_post.interpolation import average_duplicate_xz_points, interpolate_to_grid  # noqa: E402
-from nek_post.paths import ProjectPaths  # noqa: E402
+from nek_post.config import load_project_config
+from nek_post.interpolation import average_duplicate_xz_points, interpolate_to_grid
+from nek_post.paths import ProjectPaths
 
 
 def _parse_args() -> argparse.Namespace:

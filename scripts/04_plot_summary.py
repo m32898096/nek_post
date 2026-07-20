@@ -11,12 +11,10 @@ import sys
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-sys.path.insert(0, str(SRC_DIR))
 
-from nek_post.config import load_project_config  # noqa: E402
-from nek_post.paths import ProjectPaths  # noqa: E402
-from nek_post.plotting import plot_contour, plot_difference, plot_error_vs_order, plot_front_position  # noqa: E402
+from nek_post.config import load_project_config
+from nek_post.paths import ProjectPaths
+from nek_post.plotting import plot_contour, plot_difference, plot_error_vs_order, plot_front_position
 
 
 def _parse_args() -> argparse.Namespace:
