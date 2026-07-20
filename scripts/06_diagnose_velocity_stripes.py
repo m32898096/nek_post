@@ -15,6 +15,7 @@ sys.path.insert(0, str(SRC_DIR))
 
 from nek_post.config import load_project_config  # noqa: E402
 from nek_post.interpolation import average_duplicate_xz_points, interpolate_to_grid  # noqa: E402
+from nek_post.paths import ProjectPaths  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
@@ -37,12 +38,12 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _slice_path(config: dict, case: str, index: int) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "slices" / case / f"slice_{case}_f{index:05d}.npz"
+def _slice_path(paths: ProjectPaths, case: str, index: int) -> Path:
+    return paths.slices_dir / case / f"slice_{case}_f{index:05d}.npz"
 
 
-def _diagnostic_dir(config: dict, comparison_set: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "figures" / "velocity" / comparison_set / "diagnostics"
+def _diagnostic_dir(paths: ProjectPaths, comparison_set: str) -> Path:
+    return paths.figures_dir / "velocity" / comparison_set / "diagnostics"
 
 
 def _load_slice(path: Path) -> dict[str, np.ndarray]:
@@ -276,8 +277,9 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
-    slice_path = _slice_path(config, args.case, args.index)
+    slice_path = _slice_path(paths, args.case, args.index)
     slice_data = _load_slice(slice_path)
     x = np.asarray(slice_data["x"], dtype=float)
     y = np.asarray(slice_data["y"], dtype=float)
@@ -312,7 +314,7 @@ def main() -> None:
     speed_direct = interpolate_to_grid(x, z, speed_raw, Xi, Zi, method=args.method, duplicate_decimals=args.round_decimals)
     _print_interpolation_comparison(speed_from_components, speed_direct)
 
-    output_dir = _diagnostic_dir(config, args.comparison_set)
+    output_dir = _diagnostic_dir(paths, args.comparison_set)
     plot_paths = [
         output_dir / f"raw_speed_scatter_{args.case}_f{args.index:05d}.png",
         output_dir / f"raw_u_scatter_{args.case}_f{args.index:05d}.png",

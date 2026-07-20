@@ -30,10 +30,8 @@ from nek_post.front_io import (  # noqa: E402
     read_digitized_paper_csv,
     read_processed_front_kinematics_csv,
 )
+from nek_post.paths import ProjectPaths, load_project_paths  # noqa: E402
 
-DEFAULT_PROCESSED_DIR = Path("/data/Nek5000_data/results/poly_order_compare/front_kinematics")
-DEFAULT_PAPER_CSV = Path("/data/Nek5000_data/cantero/cantero_fig5a_3D_Re3450.csv")
-DEFAULT_OUTPUT_DIR = Path("/data/Nek5000_data/results/poly_order_compare/combined_xt_overlay")
 SLUMP_TMIN = 3.0
 SLUMP_TMAX = 12.0
 FRONT_KINEMATICS_COMMAND = (
@@ -66,17 +64,27 @@ OBSOLETE_OUTPUT_NAMES = (
 )
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(paths: ProjectPaths) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot processed front reconstructions over Cantero Fig. 5a data.")
     parser.add_argument("--cases", default="N5,N7,N9", help="Comma-separated cases. Default: N5,N7,N9.")
     parser.add_argument(
         "--processed-dir",
         type=Path,
-        default=DEFAULT_PROCESSED_DIR,
-        help=f"Processed front kinematics directory. Default: {DEFAULT_PROCESSED_DIR}",
+        default=paths.front_kinematics_dir,
+        help=f"Processed front kinematics directory. Default: {paths.front_kinematics_dir}",
     )
-    parser.add_argument("--paper-csv", type=Path, default=DEFAULT_PAPER_CSV, help=f"Paper CSV path. Default: {DEFAULT_PAPER_CSV}")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help=f"Output directory. Default: {DEFAULT_OUTPUT_DIR}")
+    parser.add_argument(
+        "--paper-csv",
+        type=Path,
+        default=paths.cantero_fig5a_re3450_csv,
+        help=f"Paper CSV path. Default: {paths.cantero_fig5a_re3450_csv}",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=paths.combined_xt_overlay_dir,
+        help=f"Output directory. Default: {paths.combined_xt_overlay_dir}",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Allow overwriting existing outputs.")
     parser.add_argument("--no-plots", action="store_true", help="Skip figure generation.")
     return parser.parse_args()
@@ -261,7 +269,8 @@ def _print_summary(rows: list[dict[str, str]]) -> None:
 
 
 def main() -> None:
-    args = _parse_args()
+    paths = load_project_paths(REPO_ROOT / "config" / "paths.yaml")
+    args = _parse_args(paths)
     cases = parse_case_labels(args.cases)
     processed_dir = args.processed_dir.expanduser()
     paper_csv = args.paper_csv.expanduser()

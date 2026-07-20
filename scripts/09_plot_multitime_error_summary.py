@@ -14,6 +14,7 @@ SRC_DIR = REPO_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from nek_post.config import load_project_config  # noqa: E402
+from nek_post.paths import ProjectPaths  # noqa: E402
 
 FIELD_ORDER = ("concentration", "velocity", "pressure")
 METRIC_ORDER = ("relative_L2", "mean_abs_error", "max_abs_error")
@@ -82,12 +83,12 @@ def _parse_orders(raw: str) -> list[int]:
     return orders
 
 
-def _default_summary_csv(config: dict) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / "multitime_error_summary.csv"
+def _default_summary_csv(paths: ProjectPaths) -> Path:
+    return paths.tables_dir / "multitime_error_summary.csv"
 
 
-def _default_output_dir(config: dict) -> Path:
-    return Path(config["paths"]["results_root"]) / "figures" / "error_summary"
+def _default_output_dir(paths: ProjectPaths) -> Path:
+    return paths.figures_dir / "error_summary"
 
 
 def _read_summary(path: Path, metrics: list[str]) -> list[dict[str, str]]:
@@ -173,13 +174,14 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     try:
         fields = _parse_fields(args.fields)
         metrics = _parse_metrics(args.metrics)
         orders = _parse_orders(args.orders)
-        summary_csv = Path(args.summary_csv) if args.summary_csv else _default_summary_csv(config)
-        output_dir = Path(args.output_dir) if args.output_dir else _default_output_dir(config)
+        summary_csv = Path(args.summary_csv) if args.summary_csv else _default_summary_csv(paths)
+        output_dir = Path(args.output_dir) if args.output_dir else _default_output_dir(paths)
         rows = _read_summary(summary_csv, metrics)
 
         saved_paths: list[Path] = []

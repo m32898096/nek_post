@@ -23,6 +23,7 @@ from nek_post.metrics import (  # noqa: E402
     relative_l2_error,
     relative_linf_error,
 )
+from nek_post.paths import ProjectPaths  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
@@ -52,27 +53,25 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _slice_path(config: dict, case: str, index: int) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "slices" / case / f"slice_{case}_f{index:05d}.npz"
+def _slice_path(paths: ProjectPaths, case: str, index: int) -> Path:
+    return paths.slices_dir / case / f"slice_{case}_f{index:05d}.npz"
 
 
-def _interpolated_path(config: dict, case: str, index: int) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "interpolated" / "C" / f"interp_C_{case}_f{index:05d}.npz"
+def _interpolated_path(paths: ProjectPaths, case: str, index: int) -> Path:
+    return paths.interpolated_dir / "C" / f"interp_C_{case}_f{index:05d}.npz"
 
 
-def _velocity_interpolated_path(config: dict, case: str, index: int) -> Path:
+def _velocity_interpolated_path(paths: ProjectPaths, case: str, index: int) -> Path:
     return (
-        Path(config["paths"]["postproc_root"])
-        / "interpolated"
+        paths.interpolated_dir
         / "velocity"
         / f"interp_velocity_{case}_f{index:05d}.npz"
     )
 
 
-def _pressure_interpolated_path(config: dict, case: str, index: int) -> Path:
+def _pressure_interpolated_path(paths: ProjectPaths, case: str, index: int) -> Path:
     return (
-        Path(config["paths"]["postproc_root"])
-        / "interpolated"
+        paths.interpolated_dir
         / "pressure"
         / f"interp_pressure_{case}_f{index:05d}.npz"
     )
@@ -87,32 +86,32 @@ def _comparison_label(case_indices: dict[str, int], use_case_indices: bool) -> s
     return "cases_" + "_".join(parts)
 
 
-def _error_table_path(config: dict, label: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"concentration_error_{label}.csv"
+def _error_table_path(paths: ProjectPaths, label: str) -> Path:
+    return paths.tables_dir / f"concentration_error_{label}.csv"
 
 
-def _front_table_path(config: dict, label: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"front_position_{label}.csv"
+def _front_table_path(paths: ProjectPaths, label: str) -> Path:
+    return paths.tables_dir / f"front_position_{label}.csv"
 
 
-def _velocity_error_table_path(config: dict, label: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"velocity_error_{label}.csv"
+def _velocity_error_table_path(paths: ProjectPaths, label: str) -> Path:
+    return paths.tables_dir / f"velocity_error_{label}.csv"
 
 
-def _pressure_error_table_path(config: dict, label: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"pressure_error_{label}.csv"
+def _pressure_error_table_path(paths: ProjectPaths, label: str) -> Path:
+    return paths.tables_dir / f"pressure_error_{label}.csv"
 
 
-def _metadata_path(config: dict, comparison_set_name: str) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / f"comparison_set_{comparison_set_name}_metadata.txt"
+def _metadata_path(paths: ProjectPaths, comparison_set_name: str) -> Path:
+    return paths.tables_dir / f"comparison_set_{comparison_set_name}_metadata.txt"
 
 
-def _log_path(config: dict) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "logs" / "compare_poly_orders.log"
+def _log_path(paths: ProjectPaths) -> Path:
+    return paths.logs_dir / "compare_poly_orders.log"
 
 
-def _append_log(config: dict, text: str) -> None:
-    path = _log_path(config)
+def _append_log(paths: ProjectPaths, text: str) -> None:
+    path = _log_path(paths)
     path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().isoformat(timespec="seconds")
     with path.open("a", encoding="utf-8") as handle:
@@ -180,8 +179,8 @@ def _build_comparison_selection(
     return {case: index for case in cases}, config["cases"]["reference_case"], None, None, False
 
 
-def _check_slice_files(config: dict, case_indices: dict[str, int]) -> dict[str, Path]:
-    paths = {case: _slice_path(config, case, index) for case, index in case_indices.items()}
+def _check_slice_files(project_paths: ProjectPaths, case_indices: dict[str, int]) -> dict[str, Path]:
+    paths = {case: _slice_path(project_paths, case, index) for case, index in case_indices.items()}
     missing = {case: path for case, path in paths.items() if not path.exists()}
     if missing:
         lines = ["Missing required slice files:"]
@@ -553,6 +552,7 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     try:
         cases = list(config["cases"]["orders"].keys())
@@ -568,7 +568,7 @@ def main() -> None:
         nz = int(config["cases"]["grid"]["nz"])
         duplicate_decimals = int(config["cases"].get("slice", {}).get("y_round_decimals", 10))
 
-        slice_paths = _check_slice_files(config, case_indices)
+        slice_paths = _check_slice_files(paths, case_indices)
         slice_data_by_case = {case: _load_slice_file(path) for case, path in slice_paths.items()}
         case_times = {case: _slice_time(slice_data_by_case[case]) for case in cases}
         reference_time = case_times[reference_case]
@@ -587,7 +587,7 @@ def main() -> None:
         if warnings and args.strict_time:
             summary = "\n".join(["Strict time alignment failed:", *warnings])
             print(summary, file=sys.stderr)
-            _append_log(config, summary)
+            _append_log(paths, summary)
             raise SystemExit(1)
 
         Xi, Zi, _, _, grid_metadata = create_common_xz_grid(slice_data_by_case, nx, nz)
@@ -631,7 +631,7 @@ def main() -> None:
                     "speed": speed_grid,
                 }
 
-                interp_path = _velocity_interpolated_path(config, case, case_indices[case])
+                interp_path = _velocity_interpolated_path(paths, case, case_indices[case])
                 if interp_path.exists() and not args.overwrite:
                     continue
                 _save_velocity_interpolated(
@@ -719,7 +719,7 @@ def main() -> None:
                 error_rows.append(row)
 
             output_label = comparison_set_name or _comparison_label(case_indices, use_case_indices)
-            error_table = _velocity_error_table_path(config, output_label)
+            error_table = _velocity_error_table_path(paths, output_label)
             _write_velocity_error_table(error_table, error_rows)
 
             summary = _build_velocity_summary(
@@ -732,7 +732,7 @@ def main() -> None:
                 error_rows,
             )
             print(summary)
-            _append_log(config, summary)
+            _append_log(paths, summary)
             return
 
         if args.field == "pressure":
@@ -758,7 +758,7 @@ def main() -> None:
 
             for case in cases:
                 pressure_grids[case]["p_prime"] = _pressure_fluctuation(pressure_grids[case]["p"], common_mask)
-                interp_path = _pressure_interpolated_path(config, case, case_indices[case])
+                interp_path = _pressure_interpolated_path(paths, case, case_indices[case])
                 if interp_path.exists() and not args.overwrite:
                     continue
                 _save_pressure_interpolated(
@@ -811,7 +811,7 @@ def main() -> None:
                 error_rows.append(row)
 
             output_label = comparison_set_name or _comparison_label(case_indices, use_case_indices)
-            error_table = _pressure_error_table_path(config, output_label)
+            error_table = _pressure_error_table_path(paths, output_label)
             _write_pressure_error_table(error_table, error_rows)
 
             summary = _build_pressure_summary(
@@ -824,7 +824,7 @@ def main() -> None:
                 error_rows,
             )
             print(summary)
-            _append_log(config, summary)
+            _append_log(paths, summary)
             return
 
         c_grids: dict[str, np.ndarray] = {}
@@ -841,7 +841,7 @@ def main() -> None:
             )
             c_grids[case] = C_grid
 
-            interp_path = _interpolated_path(config, case, case_indices[case])
+            interp_path = _interpolated_path(paths, case, case_indices[case])
             if interp_path.exists() and not args.overwrite:
                 continue
             _save_interpolated(interp_path, Xi, Zi, C_grid, case, case_indices[case], slice_paths[case], args.method)
@@ -888,13 +888,13 @@ def main() -> None:
             )
 
         output_label = comparison_set_name or _comparison_label(case_indices, use_case_indices)
-        error_table = _error_table_path(config, output_label)
-        front_table = _front_table_path(config, output_label)
+        error_table = _error_table_path(paths, output_label)
+        front_table = _front_table_path(paths, output_label)
         _write_error_table(error_table, error_rows)
         _write_front_table(front_table, front_rows)
         if comparison_set_name:
             _write_comparison_set_metadata(
-                _metadata_path(config, comparison_set_name),
+                _metadata_path(paths, comparison_set_name),
                 comparison_set_name,
                 target_time,
                 reference_case,
@@ -918,12 +918,12 @@ def main() -> None:
             warnings,
         )
         print(summary)
-        _append_log(config, summary)
+        _append_log(paths, summary)
     except Exception as exc:
         message = f"ERROR: {exc}"
         print(message, file=sys.stderr)
         try:
-            _append_log(config, message)
+            _append_log(paths, message)
         except OSError as log_exc:
             print(f"ERROR: Failed to write log file: {log_exc}", file=sys.stderr)
         raise SystemExit(1) from exc

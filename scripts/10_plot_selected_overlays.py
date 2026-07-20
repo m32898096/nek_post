@@ -14,6 +14,7 @@ SRC_DIR = REPO_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from nek_post.config import load_project_config  # noqa: E402
+from nek_post.paths import ProjectPaths  # noqa: E402
 
 FIELD_ORDER = ("concentration", "velocity", "pressure")
 FIELD_CONFIG = {
@@ -118,10 +119,10 @@ def _comparison_set_names(config: dict, raw: str | None) -> list[str]:
     return names
 
 
-def _output_root(config: dict, raw: str | None) -> Path:
+def _output_root(paths: ProjectPaths, raw: str | None) -> Path:
     if raw:
         return Path(raw)
-    return Path(config["paths"]["results_root"]) / "figures" / "overlays"
+    return paths.figures_dir / "overlays"
 
 
 def _format_value(value: float) -> str:
@@ -155,11 +156,10 @@ def _requested_cases(config: dict, orders: list[int], comparison_set: dict) -> l
     return cases
 
 
-def _expected_interpolated_path(config: dict, field: str, case: str, index: int) -> Path:
+def _expected_interpolated_path(paths: ProjectPaths, field: str, case: str, index: int) -> Path:
     field_config = FIELD_CONFIG[field]
     return (
-        Path(config["paths"]["postproc_root"])
-        / "interpolated"
+        paths.interpolated_dir
         / str(field_config["directory"])
         / f"{field_config['prefix']}_{case}_f{index:05d}.npz"
     )
@@ -193,13 +193,13 @@ def _metadata_matches(path: Path, case: str, index: int, comparison_set: str) ->
     return file_set in (None, "", comparison_set)
 
 
-def _find_interpolated_path(config: dict, field: str, comparison_set: str, case: str, index: int) -> Path:
-    expected = _expected_interpolated_path(config, field, case, index)
+def _find_interpolated_path(paths: ProjectPaths, field: str, comparison_set: str, case: str, index: int) -> Path:
+    expected = _expected_interpolated_path(paths, field, case, index)
     if expected.exists():
         return expected
 
     field_config = FIELD_CONFIG[field]
-    directory = Path(config["paths"]["postproc_root"]) / "interpolated" / str(field_config["directory"])
+    directory = paths.interpolated_dir / str(field_config["directory"])
     for candidate in sorted(directory.glob("*.npz")):
         if _metadata_matches(candidate, case, index, comparison_set):
             return candidate
@@ -238,7 +238,7 @@ def _load_grid(path: Path, field: str) -> dict[str, np.ndarray]:
 
 
 def _load_field_grids(
-    config: dict,
+    paths: ProjectPaths,
     comparison_set_name: str,
     comparison_set: dict,
     field: str,
@@ -247,7 +247,7 @@ def _load_field_grids(
     grids: dict[str, dict[str, np.ndarray]] = {}
     for case in cases:
         index = int(comparison_set["case_indices"][case])
-        path = _find_interpolated_path(config, field, comparison_set_name, case, index)
+        path = _find_interpolated_path(paths, field, comparison_set_name, case, index)
         grids[case] = _load_grid(path, field)
     return grids
 
@@ -358,6 +358,7 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     try:
         comparison_set_names = _comparison_set_names(config, args.comparison_sets)
@@ -369,7 +370,7 @@ def main() -> None:
             args.concentration_thresholds,
             option_name="--concentration-thresholds",
         )
-        output_root = _output_root(config, args.output_dir)
+        output_root = _output_root(paths, args.output_dir)
         comparison_sets = config["cases"]["comparison_sets"]
 
         saved_paths: list[Path] = []
@@ -380,7 +381,7 @@ def main() -> None:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             for field in fields:
-                grids = _load_field_grids(config, comparison_set_name, comparison_set, field, cases)
+                grids = _load_field_grids(paths, comparison_set_name, comparison_set, field, cases)
                 if field == "concentration":
                     for threshold in concentration_thresholds:
                         saved_paths.append(

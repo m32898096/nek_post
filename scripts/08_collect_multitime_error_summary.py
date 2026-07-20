@@ -12,6 +12,7 @@ SRC_DIR = REPO_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from nek_post.config import load_project_config  # noqa: E402
+from nek_post.paths import ProjectPaths  # noqa: E402
 
 FIELD_ORDER = ("concentration", "velocity", "pressure")
 FIELD_MAPPINGS = {
@@ -130,13 +131,13 @@ def _fields(raw: str) -> list[str]:
     return fields
 
 
-def _default_output_path(config: dict) -> Path:
-    return Path(config["paths"]["results_root"]) / "tables" / "multitime_error_summary.csv"
+def _default_output_path(paths: ProjectPaths) -> Path:
+    return paths.tables_dir / "multitime_error_summary.csv"
 
 
-def _input_path(config: dict, comparison_set: str, field: str) -> Path:
+def _input_path(paths: ProjectPaths, comparison_set: str, field: str) -> Path:
     prefix = FIELD_MAPPINGS[field]["file_prefix"]
-    return Path(config["paths"]["results_root"]) / "tables" / f"{prefix}_{comparison_set}.csv"
+    return paths.tables_dir / f"{prefix}_{comparison_set}.csv"
 
 
 def _require_columns(path: Path, fieldnames: list[str] | None, required_columns: list[str]) -> None:
@@ -211,11 +212,12 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     try:
         comparison_sets = _comparison_set_names(config, args.comparison_sets)
         fields = _fields(args.fields)
-        output_path = Path(args.output) if args.output else _default_output_path(config)
+        output_path = Path(args.output) if args.output else _default_output_path(paths)
         comparison_configs = config["cases"].get("comparison_sets", {})
 
         rows: list[dict[str, str]] = []
@@ -225,7 +227,7 @@ def main() -> None:
             if not comparison_config.get("reference_case"):
                 comparison_config = {**comparison_config, "reference_case": config["cases"].get("reference_case", "")}
             for field in fields:
-                path = _input_path(config, comparison_set, field)
+                path = _input_path(paths, comparison_set, field)
                 if not path.exists():
                     message = f"Missing input CSV: {path}"
                     if args.allow_missing:

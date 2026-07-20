@@ -5,6 +5,7 @@ This script only checks paths. It does not read Nek5000 binary contents.
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import sys
 
@@ -13,6 +14,12 @@ SRC_DIR = REPO_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from nek_post.config import load_project_config  # noqa: E402
+from nek_post.paths import ProjectPaths  # noqa: E402
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Check that the configured Nek5000 input files exist.")
+    return parser.parse_args()
 
 
 def _format_row(case: str, order: int | str, index: int | str, file_path: Path | str, status: str) -> str:
@@ -20,12 +27,8 @@ def _format_row(case: str, order: int | str, index: int | str, file_path: Path |
     return f"{case:<6} {str(order):<6} {str(index):<7} {str(file_path):<64} {status}"
 
 
-def _build_report(config: dict) -> tuple[str, int]:
+def _build_report(paths: ProjectPaths, cases: dict) -> tuple[str, int]:
     """Build the file existence report and return the matching process exit code."""
-    paths = config["paths"]
-    cases = config["cases"]
-
-    case_dirs = paths["case_dirs"]
     orders = cases["orders"]
     file_prefix = cases["file_prefix"]
     file_indices = cases["file_indices"]
@@ -41,7 +44,7 @@ def _build_report(config: dict) -> tuple[str, int]:
     existing_count = 0
     missing_count = 0
 
-    for case, case_dir in case_dirs.items():
+    for case, case_dir in paths.case_dirs.items():
         order = orders.get(case, "UNKNOWN")
         for idx in file_indices:
             total_count += 1
@@ -67,15 +70,17 @@ def _build_report(config: dict) -> tuple[str, int]:
 
 def main() -> None:
     """Load configuration, check expected files, print and log the report."""
+    _parse_args()
     config = load_project_config(
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
-    report, exit_code = _build_report(config)
+    report, exit_code = _build_report(paths, config["cases"])
     print(report)
 
-    log_dir = Path(config["paths"]["postproc_root"]) / "logs"
+    log_dir = paths.logs_dir
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "check_files.log"
     log_path.write_text(report + "\n", encoding="utf-8")
