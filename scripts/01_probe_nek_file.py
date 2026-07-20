@@ -13,6 +13,7 @@ sys.path.insert(0, str(SRC_DIR))
 from nek_post.config import load_project_config  # noqa: E402
 from nek_post.fields import summarize_element_fields  # noqa: E402
 from nek_post.io_nek import describe_nek_data, get_first_element, read_nek_file  # noqa: E402
+from nek_post.paths import ProjectPaths  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
@@ -22,14 +23,9 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _target_file(config: dict, case: str, index: int) -> Path:
-    case_dirs = config["paths"]["case_dirs"]
-    if case not in case_dirs:
-        available = ", ".join(sorted(case_dirs))
-        raise ValueError(f"Unknown case {case!r}. Available cases: {available}")
-
-    file_prefix = config["cases"]["file_prefix"]
-    return Path(case_dirs[case]) / f"{file_prefix}.f{index:05d}"
+def _target_file(paths: ProjectPaths, cases: dict, case: str, index: int) -> Path:
+    file_prefix = cases["file_prefix"]
+    return paths.case_dir(case) / f"{file_prefix}.f{index:05d}"
 
 
 def _format_mapping(mapping: dict, indent: str = "  ") -> list[str]:
@@ -59,8 +55,8 @@ def _build_report(target_path: Path, data) -> str:
     return "\n".join(lines)
 
 
-def _write_log(config: dict, text: str) -> None:
-    log_dir = Path(config["paths"]["postproc_root"]) / "logs"
+def _write_log(paths: ProjectPaths, text: str) -> None:
+    log_dir = paths.logs_dir
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "probe_nek_file.log"
     log_path.write_text(text + "\n", encoding="utf-8")
@@ -73,22 +69,23 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     case = args.case or config["cases"]["reference_case"]
     file_indices = config["cases"]["file_indices"]
     index = args.index if args.index is not None else file_indices[-1]
 
     try:
-        target_path = _target_file(config, case, index)
+        target_path = _target_file(paths, config["cases"], case, index)
         data = read_nek_file(target_path)
         report = _build_report(target_path, data)
         print(report)
-        _write_log(config, report)
+        _write_log(paths, report)
     except (FileNotFoundError, ValueError) as exc:
         message = f"ERROR: {exc}"
         print(message, file=sys.stderr)
         try:
-            _write_log(config, message)
+            _write_log(paths, message)
         except OSError as log_exc:
             print(f"ERROR: Failed to write log file: {log_exc}", file=sys.stderr)
         raise SystemExit(1) from exc
@@ -96,7 +93,7 @@ def main() -> None:
         message = f"ERROR: Failed to read Nek5000 file: {exc}"
         print(message, file=sys.stderr)
         try:
-            _write_log(config, message)
+            _write_log(paths, message)
         except OSError as log_exc:
             print(f"ERROR: Failed to write log file: {log_exc}", file=sys.stderr)
         raise SystemExit(1) from exc

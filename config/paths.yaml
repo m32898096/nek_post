@@ -8,3 +8,6 @@ case_dirs:
 
 postproc_root: /data/Nek5000_data/postproc/poly_order_compare
 results_root: /data/Nek5000_data/results/poly_order_compare
+
+paper_data:
+  cantero_fig5a_re3450_csv: /data/Nek5000_data/cantero/cantero_fig5a_3D_Re3450.csv

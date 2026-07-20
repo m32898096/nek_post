@@ -13,8 +13,12 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-nek-post")
 import matplotlib.pyplot as plt
 import numpy as np
 
-DEFAULT_DATA_ROOT = Path("/data/Nek5000_data")
-DEFAULT_OUTPUT_DIR = Path("/data/Nek5000_data/results/poly_order_compare/energy_budget_closure")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+sys.path.insert(0, str(SRC_DIR))
+
+from nek_post.paths import ProjectPaths, load_project_paths  # noqa: E402
+
 TIMESERIES_COLUMNS = (
     "time",
     "E_k",
@@ -54,13 +58,18 @@ SUMMARY_COLUMNS = (
 )
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(paths: ProjectPaths) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check Re3450 energy-budget closure from energy_budget.dat files.")
     parser.add_argument("--cases", default="N5,N7,N9", help="Comma-separated cases. Default: N5,N7,N9.")
-    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT, help=f"Data root. Default: {DEFAULT_DATA_ROOT}")
+    parser.add_argument("--data-root", type=Path, default=paths.data_root, help=f"Data root. Default: {paths.data_root}")
     parser.add_argument("--filename", default="energy_budget.dat", help="Energy budget filename. Default: energy_budget.dat.")
     parser.add_argument("--target", type=float, default=12.0, help="Nominal conserved energy target. Default: 12.0.")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help=f"Output directory. Default: {DEFAULT_OUTPUT_DIR}")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=paths.energy_budget_closure_dir,
+        help=f"Output directory. Default: {paths.energy_budget_closure_dir}",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Allow overwriting existing output files.")
     parser.add_argument("--no-plots", action="store_true", help="Skip figure generation.")
     return parser.parse_args()
@@ -347,7 +356,8 @@ def _print_summary_table(rows: list[dict[str, str]]) -> None:
 
 
 def main() -> None:
-    args = _parse_args()
+    paths = load_project_paths(REPO_ROOT / "config" / "paths.yaml")
+    args = _parse_args(paths)
     cases = _parse_cases(args.cases)
     data_root = args.data_root.expanduser()
     output_dir = args.output_dir.expanduser()

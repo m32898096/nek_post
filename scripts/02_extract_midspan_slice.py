@@ -15,6 +15,7 @@ sys.path.insert(0, str(SRC_DIR))
 
 from nek_post.config import load_project_config  # noqa: E402
 from nek_post.io_nek import get_nek_time, read_nek_file  # noqa: E402
+from nek_post.paths import ProjectPaths  # noqa: E402
 from nek_post.slicing import extract_y_slice, save_slice_npz  # noqa: E402
 
 
@@ -37,26 +38,21 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _input_file(config: dict, case: str, index: int) -> Path:
-    case_dirs = config["paths"]["case_dirs"]
-    if case not in case_dirs:
-        available = ", ".join(sorted(case_dirs))
-        raise ValueError(f"Unknown case {case!r}. Available cases: {available}")
-
-    file_prefix = config["cases"]["file_prefix"]
-    return Path(case_dirs[case]) / f"{file_prefix}.f{index:05d}"
+def _input_file(paths: ProjectPaths, cases: dict, case: str, index: int) -> Path:
+    file_prefix = cases["file_prefix"]
+    return paths.case_dir(case) / f"{file_prefix}.f{index:05d}"
 
 
-def _output_file(config: dict, case: str, index: int) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "slices" / case / f"slice_{case}_f{index:05d}.npz"
+def _output_file(paths: ProjectPaths, case: str, index: int) -> Path:
+    return paths.slices_dir / case / f"slice_{case}_f{index:05d}.npz"
 
 
-def _log_path(config: dict) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "logs" / "extract_midspan_slice.log"
+def _log_path(paths: ProjectPaths) -> Path:
+    return paths.logs_dir / "extract_midspan_slice.log"
 
 
-def _append_log(config: dict, text: str) -> None:
-    path = _log_path(config)
+def _append_log(paths: ProjectPaths, text: str) -> None:
+    path = _log_path(paths)
     path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().isoformat(timespec="seconds")
     with path.open("a", encoding="utf-8") as handle:
@@ -119,6 +115,7 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     case = args.case or config["cases"]["reference_case"]
     file_indices = config["cases"]["file_indices"]
@@ -133,13 +130,13 @@ def main() -> None:
     )
 
     try:
-        input_path = _input_file(config, case, index)
-        output_path = _output_file(config, case, index)
+        input_path = _input_file(paths, config["cases"], case, index)
+        output_path = _output_file(paths, case, index)
 
         if output_path.exists() and not args.overwrite:
             message = f"Output file already exists, skipping: {output_path}\nUse --overwrite to regenerate it."
             print(message)
-            _append_log(config, message)
+            _append_log(paths, message)
             raise SystemExit(0)
 
         data = read_nek_file(input_path)
@@ -167,12 +164,12 @@ def main() -> None:
 
         summary = _build_summary(input_path, output_path, case, index, time, slice_data)
         print(summary)
-        _append_log(config, summary)
+        _append_log(paths, summary)
     except Exception as exc:
         message = f"ERROR: {exc}"
         print(message, file=sys.stderr)
         try:
-            _append_log(config, message)
+            _append_log(paths, message)
         except OSError as log_exc:
             print(f"ERROR: Failed to write log file: {log_exc}", file=sys.stderr)
         raise SystemExit(1) from exc

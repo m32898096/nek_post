@@ -32,10 +32,8 @@ from nek_post.front_io import (  # noqa: E402
     read_digitized_paper_csv,
     read_front_simple_dat,
 )
+from nek_post.paths import ProjectPaths, load_project_paths  # noqa: E402
 
-DEFAULT_DATA_ROOT = Path("/data/Nek5000_data")
-DEFAULT_PAPER_CSV = Path("/data/Nek5000_data/cantero/cantero_fig5a_3D_Re3450.csv")
-DEFAULT_OUTPUT_DIR = Path("/data/Nek5000_data/results/poly_order_compare/fig5a_paper_overlay")
 SLUMP_TMIN = 3.0
 SLUMP_TMAX = 12.0
 COMPARISON_COLUMNS = (
@@ -68,13 +66,23 @@ SUMMARY_COLUMNS = (
 )
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(paths: ProjectPaths) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Overlay digitized Cantero Fig. 5a Re3450 data with simulation fronts.")
     parser.add_argument("--cases", default="N5,N7,N9", help="Comma-separated cases. Default: N5,N7,N9.")
-    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT, help=f"Data root. Default: {DEFAULT_DATA_ROOT}")
+    parser.add_argument("--data-root", type=Path, default=paths.data_root, help=f"Data root. Default: {paths.data_root}")
     parser.add_argument("--front-filename", default="front_simple.dat", help="Front-position filename. Default: front_simple.dat.")
-    parser.add_argument("--paper-csv", type=Path, default=DEFAULT_PAPER_CSV, help=f"Paper CSV path. Default: {DEFAULT_PAPER_CSV}")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help=f"Output directory. Default: {DEFAULT_OUTPUT_DIR}")
+    parser.add_argument(
+        "--paper-csv",
+        type=Path,
+        default=paths.cantero_fig5a_re3450_csv,
+        help=f"Paper CSV path. Default: {paths.cantero_fig5a_re3450_csv}",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=paths.fig5a_paper_overlay_dir,
+        help=f"Output directory. Default: {paths.fig5a_paper_overlay_dir}",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Allow overwriting existing outputs.")
     parser.add_argument("--no-plots", action="store_true", help="Skip figure generation.")
     return parser.parse_args()
@@ -255,7 +263,8 @@ def _print_summary(rows: list[dict[str, str]]) -> None:
 
 
 def main() -> None:
-    args = _parse_args()
+    paths = load_project_paths(REPO_ROOT / "config" / "paths.yaml")
+    args = _parse_args(paths)
     cases = parse_case_labels(args.cases)
     data_root = args.data_root.expanduser()
     output_dir = args.output_dir.expanduser()

@@ -13,6 +13,7 @@ SRC_DIR = REPO_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from nek_post.config import load_project_config  # noqa: E402
+from nek_post.paths import ProjectPaths  # noqa: E402
 
 ALLOWED_FIELDS = ("concentration", "velocity", "pressure")
 
@@ -40,12 +41,12 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _log_path(config: dict) -> Path:
-    return Path(config["paths"]["postproc_root"]) / "logs" / "run_multitime_pipeline.log"
+def _log_path(paths: ProjectPaths) -> Path:
+    return paths.logs_dir / "run_multitime_pipeline.log"
 
 
-def _append_log(config: dict, text: str) -> None:
-    path = _log_path(config)
+def _append_log(paths: ProjectPaths, text: str) -> None:
+    path = _log_path(paths)
     path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().isoformat(timespec="seconds")
     with path.open("a", encoding="utf-8") as handle:
@@ -88,17 +89,17 @@ def _fields(raw: str) -> list[str]:
     return fields
 
 
-def _run_command(command: list[str], config: dict, *, dry_run: bool) -> None:
+def _run_command(command: list[str], paths: ProjectPaths, *, dry_run: bool) -> None:
     command_text = " ".join(command)
     prefix = "Dry run" if dry_run else "Running"
     print(f"{prefix}: {command_text}", flush=True)
-    _append_log(config, f"{prefix}: {command_text}")
+    _append_log(paths, f"{prefix}: {command_text}")
     if dry_run:
-        _append_log(config, f"Skipped: {command_text}")
+        _append_log(paths, f"Skipped: {command_text}")
         return
 
     subprocess.run(command, cwd=REPO_ROOT, check=True)
-    _append_log(config, f"Success: {command_text}")
+    _append_log(paths, f"Success: {command_text}")
 
 
 def _slice_commands(config: dict, comparison_set_names: list[str], overwrite: bool) -> list[list[str]]:
@@ -158,6 +159,7 @@ def main() -> None:
         REPO_ROOT / "config" / "paths.yaml",
         REPO_ROOT / "config" / "cases.yaml",
     )
+    paths = ProjectPaths.from_mapping(config["paths"])
 
     start_time = datetime.now().isoformat(timespec="seconds")
     try:
@@ -178,21 +180,21 @@ def main() -> None:
         ]
         header = "\n".join(header_lines)
         print(header)
-        _append_log(config, header)
+        _append_log(paths, header)
 
         if not args.skip_slices:
             for command in _slice_commands(config, comparison_sets, args.overwrite):
-                _run_command(command, config, dry_run=args.dry_run)
+                _run_command(command, paths, dry_run=args.dry_run)
 
         for comparison_set in comparison_sets:
             for field in fields:
                 _run_command(
                     _comparison_command(comparison_set, field, args.overwrite),
-                    config,
+                    paths,
                     dry_run=args.dry_run,
                 )
                 if not args.skip_plots:
-                    _run_command(_plot_command(comparison_set, field), config, dry_run=args.dry_run)
+                    _run_command(_plot_command(comparison_set, field), paths, dry_run=args.dry_run)
 
         end_time = datetime.now().isoformat(timespec="seconds")
         summary = "\n".join(
@@ -200,11 +202,11 @@ def main() -> None:
                 "Multi-time pipeline completed.",
                 f"start_time: {start_time}",
                 f"end_time: {end_time}",
-                f"log_file: {_log_path(config)}",
+                f"log_file: {_log_path(paths)}",
             ]
         )
         print(summary)
-        _append_log(config, summary)
+        _append_log(paths, summary)
     except subprocess.CalledProcessError as exc:
         end_time = datetime.now().isoformat(timespec="seconds")
         message = "\n".join(
@@ -215,14 +217,14 @@ def main() -> None:
             ]
         )
         print(message, file=sys.stderr)
-        _append_log(config, message)
+        _append_log(paths, message)
         raise SystemExit(exc.returncode) from exc
     except Exception as exc:
         end_time = datetime.now().isoformat(timespec="seconds")
         message = "\n".join([f"ERROR: {exc}", f"start_time: {start_time}", f"end_time: {end_time}"])
         print(message, file=sys.stderr)
         try:
-            _append_log(config, message)
+            _append_log(paths, message)
         except OSError as log_exc:
             print(f"ERROR: Failed to write log file: {log_exc}", file=sys.stderr)
         raise SystemExit(1) from exc
