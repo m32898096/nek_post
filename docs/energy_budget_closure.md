@@ -42,3 +42,20 @@ Outputs are written under:
 ```text
 /data/Nek5000_data/results/poly_order_compare/energy_budget_closure
 ```
+
+## Teacher-focused N7 figures
+
+Generate the requested N7-only figures with:
+
+```bash
+PYENV_VERSION=research312 python scripts/12_check_energy_budget_closure.py \
+  --cases N7 \
+  --target 12 \
+  --overwrite
+```
+
+`energy_budget_components_N7.png` shows `E_k`, `E_p`, `E_total`, `epsilon`,
+`energy_closure`, and `target 12` on one shared y axis spanning `0–15`.
+
+`energy_closure_vs_time.png` uses the y range `10–13`. When the command is run
+with `--cases N7`, its only case curve is N7, alongside the `target 12` line.

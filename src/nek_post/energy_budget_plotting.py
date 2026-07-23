@@ -37,14 +37,46 @@ def plot_energy_components(
     path: Path,
     case: str,
     diagnostics: EnergyBudgetDiagnostics,
+    target: float,
     overwrite: bool,
 ) -> None:
-    """Write one case's kinetic, potential, and total energy figure."""
+    """Write one case's energy-budget components and closure figure."""
     fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(diagnostics.time, diagnostics.E_k, label="E_k")
-    ax.plot(diagnostics.time, diagnostics.E_p, label="E_p")
-    ax.plot(diagnostics.time, diagnostics.E_total, label="E_total")
-    ax.set_title(f"Energy budget components: {case}")
+    sample = slice(None, None, 2)
+    component_specs = (
+        (diagnostics.E_k, "E_k", "black"),
+        (diagnostics.E_p, "E_p", "red"),
+        (diagnostics.E_total, "E_total", "blue"),
+        (diagnostics.epsilon, "epsilon", "purple"),
+    )
+    for values, label, color in component_specs:
+        ax.plot(
+            diagnostics.time[sample],
+            values[sample],
+            linestyle="none",
+            marker="o",
+            markersize=4,
+            color=color,
+            label=label,
+        )
+    ax.plot(
+        diagnostics.time,
+        diagnostics.energy_closure,
+        color="green",
+        label="energy closure",
+    )
+    ax.axhline(
+        target,
+        color="gray",
+        linestyle="--",
+        linewidth=1.0,
+        label=f"target {target:g}",
+    )
+    ax.set_xlim(0.0, 20.0)
+    ax.set_ylim(0.0, 15.0)
+    ax.set_xticks([0, 5, 10, 15, 20])
+    ax.set_yticks(range(16))
+    ax.set_title(f"Energy budget and closure: {case}")
     ax.set_xlabel("time")
     ax.set_ylabel("energy")
     ax.grid(True, alpha=0.3)
@@ -74,6 +106,11 @@ def plot_energy_overlay(
         "differential_closure_residual",
     }:
         ax.axhline(0.0, linewidth=1.0)
+    if y_key == "energy_closure":
+        ax.set_xlim(0.0, 20.0)
+        ax.set_ylim(10.0, 13.0)
+        ax.set_xticks([0, 5, 10, 15, 20])
+        ax.set_yticks([10.0, 10.5, 11.0, 11.5, 12.0, 12.5, 13.0])
     ax.set_title(title)
     ax.set_xlabel("time")
     ax.set_ylabel(ylabel)
@@ -92,7 +129,7 @@ def write_energy_budget_plots(
     figure_paths: list[Path] = []
     for case, diagnostics in diagnostics_by_case.items():
         path = component_figure_path(output_dir, case)
-        plot_energy_components(path, case, diagnostics, overwrite)
+        plot_energy_components(path, case, diagnostics, target, overwrite)
         figure_paths.append(path)
 
     plot_specs = [
