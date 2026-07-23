@@ -114,6 +114,10 @@ class ProjectPaths:
         return self.results_root / "front_kinematics"
 
     @property
+    def front_detection_dir(self) -> Path:
+        return self.results_root / "front_detection"
+
+    @property
     def fig5a_paper_overlay_dir(self) -> Path:
         return self.results_root / "fig5a_paper_overlay"
 
