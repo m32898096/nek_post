@@ -131,5 +131,115 @@ plotting
 comparison with front_simple.dat
 ```
 
-Phase 2 will provide N7 file processing and validation against the relevant
-research outputs.
+## Phase 2: N7 processing and reference-comparison workflow
+
+Phase 2 connects the numerical core to Nek5000 snapshots. N7 is the current
+primary case. The workflow:
+
+1. discovers exact `GC0.fNNNNN` files and sorts their five-digit indices;
+2. extracts the nearest-plane y-midspan concentration slice from each file;
+3. creates one fixed x-z grid from the first selected snapshot;
+4. interpolates every concentration slice to that same grid;
+5. calls the unchanged Phase 1 tracker;
+6. compares successful detections with `front_simple.dat`;
+7. writes diagnostic CSV files and reference-comparison figures.
+
+The default fixed grid is 500 by 200 points, and concentration interpolation
+is linear. Interpolation NaNs remain NaN and are excluded by the Phase 1
+finite mask. No intermediate slice or grid files are written.
+
+The automatic front is the primary result. `front_simple.dat` is used only as
+an external reference for post-hoc comparison and is not treated as ground
+truth. It is read after automatic detection and never guides threshold
+selection, component labeling, filtering, temporal prediction, candidate
+ranking, front selection, or success/failure decisions. Automatic and
+teacher-provided front workflows therefore coexist.
+
+At overlapping successful times, the reported method-to-method difference is:
+
+```text
+difference = x_auto - x_front_simple
+```
+
+Agreement or disagreement describes a trend comparison between independently
+defined curves; it is not an automatic-front accuracy score.
+
+### Provisional defaults
+
+The CLI exposes these current detection defaults:
+
+```text
+case: N7
+threshold: 0.01
+min_component_pixels: 50
+bottom_rows: 3
+max_front_jump: 0.5
+connectivity: 8
+grid: 500 x 200
+slice_mode: nearest_plane
+interpolation_method: linear
+```
+
+These are provisional starting values, not validated final research
+parameters. In particular, `max_front_jump` is a distance around the predicted
+x position, not a velocity.
+
+For a small smoke test, restrict the file range and grid:
+
+```bash
+PYENV_VERSION=research312 python scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --start-index 1 \
+  --end-index 2 \
+  --nx 100 \
+  --nz 40 \
+  --overwrite
+```
+
+Run the full configured N7 sequence with:
+
+```bash
+PYENV_VERSION=research312 python scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --overwrite
+```
+
+By default, outputs are written to
+`results_root/front_detection/N7` using these exact names:
+
+```text
+N7_detected_front_timeseries.csv
+N7_front_detection_comparison.csv
+N7_front_detection_summary.csv
+N7_front_detection_overlay.png
+N7_front_detection_difference.png
+```
+
+The timeseries retains failed frames as NaN detections. Status meanings are:
+
+- `selected_initial`: first spatially valid component selected;
+- `selected_tracked`: component accepted using temporal prediction and ranking;
+- `no_threshold_component`: no finite cell exceeded the fixed threshold;
+- `no_valid_spatial_candidate`: components existed, but all failed minimum-size
+  or bottom-contact filtering;
+- `no_valid_temporal_candidate`: spatial candidates existed, but all were
+  farther than `max_front_jump` from the prediction.
+
+### Parameter tuning
+
+Inspect the timeseries status counts, finite interpolation fraction,
+method-to-method differences, and both plots before changing parameters.
+Adjust `threshold` for the absolute concentration level of the coherent
+current, and `min_component_pixels` to reject isolated fragments at the chosen
+grid resolution. Use `bottom_rows` to accommodate the interpolated
+bottom-contact band without admitting detached objects. Tune `max_front_jump`
+last, using an x-distance large enough for plausible prediction uncertainty
+while still rejecting downstream jumps. Reassess parameters if the grid
+resolution, time sampling, slice mode, or interpolation method changes.
+
+Threshold, component-size, bottom-contact, temporal-jump, and grid sensitivity
+must be assessed from physical consistency and robustness, not by minimizing
+the difference from `front_simple.dat`. The automatic method is more
+explicitly defined, reproducible, spatially filtered, and temporally
+consistent; agreement with the external reference alone does not establish
+greater accuracy.

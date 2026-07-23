@@ -52,6 +52,7 @@ def test_derives_established_output_directories(tmp_path: Path) -> None:
     assert paths.reports_dir == Path("/tmp/nek-results/reports")
     assert paths.energy_budget_closure_dir == Path("/tmp/nek-results/energy_budget_closure")
     assert paths.front_kinematics_dir == Path("/tmp/nek-results/front_kinematics")
+    assert paths.front_detection_dir == Path("/tmp/nek-results/front_detection")
     assert paths.fig5a_paper_overlay_dir == Path("/tmp/nek-results/fig5a_paper_overlay")
     assert paths.combined_xt_overlay_dir == Path("/tmp/nek-results/combined_xt_overlay")
 
