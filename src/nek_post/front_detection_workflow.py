@@ -18,6 +18,10 @@ from nek_post.fixed_grid_interpolation import (
     build_fixed_grid_interpolation_plan,
 )
 from nek_post.front_detection_io import NekFramePath
+from nek_post.front_detection_parallel import (
+    preprocess_front_detection_frames_parallel,
+    validate_preprocessing_workers,
+)
 from nek_post.interpolation import create_common_xz_grid, interpolate_to_grid
 from nek_post.io_nek import get_nek_time, read_nek_file
 from nek_post.slicing import extract_y_slice
@@ -72,6 +76,7 @@ def build_concentration_sequence(
     y_round_decimals: int,
     interpolation_method: str = "linear",
     reuse_interpolation_geometry: bool = True,
+    workers: int = 1,
 ) -> ConcentrationSequence:
     """Build a fixed-grid sequence, reusing interpolation geometry by default."""
     frames = tuple(sorted(frame_paths, key=lambda frame: frame.index))
@@ -86,6 +91,12 @@ def build_concentration_sequence(
         raise ValueError(
             "interpolation_method must be exactly 'linear' or 'nearest'."
         )
+    worker_count = validate_preprocessing_workers(workers)
+    if worker_count > 1 and not reuse_interpolation_geometry:
+        raise ValueError(
+            "workers greater than 1 require reusable interpolation geometry; "
+            "remove --per-frame-griddata or use workers=1."
+        )
 
     Xi: NDArray[np.float64] | None = None
     Zi: NDArray[np.float64] | None = None
@@ -98,7 +109,8 @@ def build_concentration_sequence(
     concentration_maxes: list[float] = []
     selected_y_values: list[float] = []
 
-    for frame in frames:
+    serial_frames = frames if worker_count == 1 else frames[:1]
+    for frame in serial_frames:
         source_path = Path(frame.path)
         try:
             data = read_nek_file(source_path)
@@ -199,6 +211,38 @@ def build_concentration_sequence(
             selected_y_values.append(float(slice_data.get("selected_y", np.nan)))
         else:
             selected_y_values.append(float("nan"))
+
+    if worker_count > 1 and len(frames) > 1:
+        assert interpolation_plan is not None
+        parallel_results = preprocess_front_detection_frames_parallel(
+            frames[1:],
+            interpolation_plan,
+            slice_mode=slice_mode,
+            slab_ratio=slab_ratio,
+            y_round_decimals=y_round_decimals,
+            workers=worker_count,
+        )
+        expected_indices = tuple(frame.index for frame in frames[1:])
+        actual_indices = tuple(result.file_index for result in parallel_results)
+        if actual_indices != expected_indices:
+            raise RuntimeError(
+                "Parallel preprocessing returned unexpected file-index order: "
+                f"expected {expected_indices}, got {actual_indices}."
+            )
+        expected_paths = tuple(Path(frame.path) for frame in frames[1:])
+        actual_paths = tuple(result.source_path for result in parallel_results)
+        if actual_paths != expected_paths:
+            raise RuntimeError(
+                "Parallel preprocessing returned unexpected source-file order: "
+                f"expected {expected_paths}, got {actual_paths}."
+            )
+        for result in parallel_results:
+            times.append(result.time)
+            concentration_frames.append(result.concentration)
+            finite_fractions.append(result.finite_fraction)
+            concentration_mins.append(result.concentration_min)
+            concentration_maxes.append(result.concentration_max)
+            selected_y_values.append(result.selected_y)
 
     time_arr = np.asarray(times, dtype=float)
     bad_steps = np.flatnonzero(np.diff(time_arr) <= 0.0)
