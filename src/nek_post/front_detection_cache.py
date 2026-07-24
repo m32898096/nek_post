@@ -21,7 +21,7 @@ from nek_post.front_detection_io import NekFramePath
 from nek_post.front_detection_workflow import ConcentrationSequence
 
 
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2
 MANIFEST_FILENAME = "manifest.json"
 ARRAY_FILENAMES = MappingProxyType(
     {
@@ -87,6 +87,7 @@ class FrontDetectionCacheSpec:
     slab_ratio: float
     y_round_decimals: int
     interpolation_method: str
+    interpolation_engine: str
 
 
 @dataclass(frozen=True)
@@ -154,6 +155,15 @@ def _validated_preprocessing(
     )
 
 
+def _validated_interpolation_engine(value: str) -> str:
+    if value not in {"precomputed_geometry", "per_frame_griddata"}:
+        raise ValueError(
+            "interpolation_engine must be exactly 'precomputed_geometry' or "
+            "'per_frame_griddata'."
+        )
+    return value
+
+
 def build_front_detection_cache_spec(
     *,
     case: str,
@@ -165,6 +175,7 @@ def build_front_detection_cache_spec(
     slab_ratio: float,
     y_round_decimals: int,
     interpolation_method: str,
+    interpolation_engine: str,
 ) -> FrontDetectionCacheSpec:
     """Build a preprocessing-only specification with ordered source signatures."""
     case_value = _nonempty_text(case, "case")
@@ -186,6 +197,9 @@ def build_front_detection_cache_spec(
         slab_ratio=slab_ratio,
         y_round_decimals=y_round_decimals,
         interpolation_method=interpolation_method,
+    )
+    interpolation_engine_value = _validated_interpolation_engine(
+        interpolation_engine
     )
 
     indices: list[int] = []
@@ -228,6 +242,7 @@ def build_front_detection_cache_spec(
         slab_ratio=slab_value,
         y_round_decimals=decimals,
         interpolation_method=interpolation_value,
+        interpolation_engine=interpolation_engine_value,
     )
 
 
@@ -247,6 +262,7 @@ def default_front_detection_cache_path(
     nz: int,
     slice_mode: str,
     interpolation_method: str,
+    interpolation_engine: str,
 ) -> Path:
     """Return a readable cache directory derived from selected preprocessing."""
     frames = tuple(frame_paths)
@@ -267,10 +283,16 @@ def default_front_detection_cache_path(
     interpolation_name = _sanitize_path_component(
         _nonempty_text(interpolation_method, "interpolation_method")
     )
+    engine_value = _validated_interpolation_engine(interpolation_engine)
+    engine_name = (
+        "precomputed"
+        if engine_value == "precomputed_geometry"
+        else "griddata"
+    )
     directory_name = (
         f"{prefix_name}_f{indices[0]:05d}-f{indices[-1]:05d}_"
         f"n{len(indices)}_{nx_value}x{nz_value}_{slice_name}_"
-        f"{interpolation_name}"
+        f"{interpolation_name}_{engine_name}"
     )
     return Path(cache_root) / case_name / directory_name
 
@@ -397,6 +419,10 @@ def cache_spec_from_dict(payload: Mapping[str, Any]) -> FrontDetectionCacheSpec:
             _required_key(payload, "interpolation_method", "spec"),
             "spec.interpolation_method",
         ),
+        interpolation_engine=_manifest_text(
+            _required_key(payload, "interpolation_engine", "spec"),
+            "spec.interpolation_engine",
+        ),
     )
     if not spec.file_indices:
         raise FrontDetectionCacheCorruptionError(
@@ -425,6 +451,7 @@ def cache_spec_from_dict(payload: Mapping[str, Any]) -> FrontDetectionCacheSpec:
             y_round_decimals=spec.y_round_decimals,
             interpolation_method=spec.interpolation_method,
         )
+        _validated_interpolation_engine(spec.interpolation_engine)
         for index in spec.file_indices:
             _nonnegative_integer(index, "Nek frame index")
         for source in spec.source_files:
@@ -521,6 +548,10 @@ def _validate_sequence(
         raise ValueError(
             "Sequence interpolation method must match the cache specification."
         )
+    if sequence.interpolation_engine != spec.interpolation_engine:
+        raise ValueError(
+            "Sequence interpolation engine must match the cache specification."
+        )
     missing_grid_metadata = sorted(
         REQUIRED_GRID_METADATA - set(sequence.grid_metadata)
     )
@@ -556,6 +587,7 @@ def _manifest_payload(
         "source_file_order": [source.path for source in spec.source_files],
         "grid_metadata": _json_grid_metadata(sequence.grid_metadata),
         "interpolation_method": sequence.interpolation_method,
+        "interpolation_engine": sequence.interpolation_engine,
         "arrays": _array_manifest(arrays),
     }
 
@@ -653,7 +685,8 @@ def load_cache_manifest(cache_dir: str | Path) -> dict[str, Any]:
     if schema_version != CACHE_SCHEMA_VERSION:
         raise FrontDetectionCacheCorruptionError(
             f"Unsupported cache schema version {schema_version}; "
-            f"expected {CACHE_SCHEMA_VERSION}."
+            f"expected {CACHE_SCHEMA_VERSION}. Use --rebuild-cache to replace "
+            "this cache."
         )
     spec_payload = _required_key(payload, "spec", "manifest")
     spec = cache_spec_from_dict(spec_payload)
@@ -725,6 +758,10 @@ def load_cache_manifest(cache_dir: str | Path) -> dict[str, Any]:
         _required_key(payload, "interpolation_method", "manifest"),
         "manifest.interpolation_method",
     )
+    _manifest_text(
+        _required_key(payload, "interpolation_engine", "manifest"),
+        "manifest.interpolation_engine",
+    )
     source_order = _required_key(payload, "source_file_order", "manifest")
     if not isinstance(source_order, list) or any(
         not isinstance(value, str) for value in source_order
@@ -751,6 +788,7 @@ def _spec_mismatches(
         "slab_ratio",
         "y_round_decimals",
         "interpolation_method",
+        "interpolation_engine",
     ):
         if getattr(stored, name) != getattr(expected, name):
             mismatches.append(name)
@@ -821,6 +859,10 @@ def load_concentration_sequence_cache(
         raise FrontDetectionCacheCorruptionError(
             "Cache interpolation_method disagrees with its specification."
         )
+    if manifest["interpolation_engine"] != expected_spec.interpolation_engine:
+        raise FrontDetectionCacheCorruptionError(
+            "Cache interpolation_engine disagrees with its specification."
+        )
     expected_order = [source.path for source in expected_spec.source_files]
     if manifest["source_file_order"] != expected_order:
         raise FrontDetectionCacheCorruptionError(
@@ -848,6 +890,7 @@ def load_concentration_sequence_cache(
         grid_metadata=MappingProxyType(grid_metadata),
         selected_y=arrays["selected_y"],
         interpolation_method=manifest["interpolation_method"],
+        interpolation_engine=manifest["interpolation_engine"],
     )
     try:
         _validate_sequence(sequence, expected_spec)

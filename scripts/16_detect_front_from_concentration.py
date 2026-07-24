@@ -151,6 +151,14 @@ def _parse_args(
         help="Concentration interpolation method.",
     )
     parser.add_argument(
+        "--per-frame-griddata",
+        action="store_true",
+        help=(
+            "Rebuild griddata interpolation geometry for every frame, mainly "
+            "for regression comparison and benchmarking."
+        ),
+    )
+    parser.add_argument(
         "--reference-file",
         type=Path,
         default=argparse.SUPPRESS,
@@ -241,6 +249,11 @@ def main() -> None:
             if output_dir_arg is not None
             else paths.front_detection_dir / case
         )
+        interpolation_engine = (
+            "per_frame_griddata"
+            if args.per_frame_griddata
+            else "precomputed_geometry"
+        )
 
         csv_paths = [
             detected_front_timeseries_path(output_dir, case),
@@ -292,6 +305,7 @@ def main() -> None:
                 nz=args.nz,
                 slice_mode=args.slice_mode,
                 interpolation_method=args.interpolation_method,
+                interpolation_engine=interpolation_engine,
             )
         )
         cache_spec = build_front_detection_cache_spec(
@@ -304,6 +318,7 @@ def main() -> None:
             slab_ratio=args.slab_ratio,
             y_round_decimals=args.y_round_decimals,
             interpolation_method=args.interpolation_method,
+            interpolation_engine=interpolation_engine,
         )
         acquisition = acquire_concentration_sequence(
             cache_dir=cache_dir,
@@ -316,12 +331,14 @@ def main() -> None:
                 slab_ratio=args.slab_ratio,
                 y_round_decimals=args.y_round_decimals,
                 interpolation_method=args.interpolation_method,
+                reuse_interpolation_geometry=not args.per_frame_griddata,
             ),
             use_cache=not args.no_cache,
             rebuild_cache=args.rebuild_cache,
         )
         sequence = acquisition.sequence
         print(f"Concentration sequence source: {acquisition.mode}")
+        print(f"Interpolation engine: {sequence.interpolation_engine}")
         print(
             "Concentration cache: "
             + ("disabled" if acquisition.cache_dir is None else str(cache_dir))
