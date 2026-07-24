@@ -11,6 +11,12 @@ from typing import Mapping
 import numpy as np
 from numpy.typing import NDArray
 
+from nek_post.fixed_grid_interpolation import (
+    FixedGridGeometryMismatchError,
+    FixedGridInterpolationPlan,
+    apply_fixed_grid_interpolation_plan,
+    build_fixed_grid_interpolation_plan,
+)
 from nek_post.front_detection_io import NekFramePath
 from nek_post.interpolation import create_common_xz_grid, interpolate_to_grid
 from nek_post.io_nek import get_nek_time, read_nek_file
@@ -33,6 +39,7 @@ class ConcentrationSequence:
     grid_metadata: Mapping[str, float | int]
     selected_y: NDArray[np.float64]
     interpolation_method: str = "linear"
+    interpolation_engine: str = "precomputed_geometry"
 
 
 def _grid_size(value: int, name: str) -> int:
@@ -64,8 +71,9 @@ def build_concentration_sequence(
     slab_ratio: float,
     y_round_decimals: int,
     interpolation_method: str = "linear",
+    reuse_interpolation_geometry: bool = True,
 ) -> ConcentrationSequence:
-    """Read ordered Nek frames and interpolate concentration to one fixed grid."""
+    """Build a fixed-grid sequence, reusing interpolation geometry by default."""
     frames = tuple(sorted(frame_paths, key=lambda frame: frame.index))
     if not frames:
         raise ValueError("At least one Nek frame path is required.")
@@ -82,6 +90,7 @@ def build_concentration_sequence(
     Xi: NDArray[np.float64] | None = None
     Zi: NDArray[np.float64] | None = None
     grid_metadata: Mapping[str, float | int] | None = None
+    interpolation_plan: FixedGridInterpolationPlan | None = None
     times: list[float] = []
     concentration_frames: list[NDArray[np.float64]] = []
     finite_fractions: list[float] = []
@@ -127,17 +136,44 @@ def build_concentration_sequence(
                     "two-dimensional Xi and Zi arrays."
                 )
             grid_metadata = MappingProxyType(dict(metadata))
+            if reuse_interpolation_geometry:
+                try:
+                    interpolation_plan = build_fixed_grid_interpolation_plan(
+                        slice_data["x"],
+                        slice_data["z"],
+                        Xi,
+                        Zi,
+                        method=interpolation_method,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(
+                        "Failed to build reusable interpolation geometry from "
+                        f"{source_path}: {exc}"
+                    ) from exc
 
         try:
-            concentration = interpolate_to_grid(
-                slice_data["x"],
-                slice_data["z"],
-                slice_data["C"],
-                Xi,
-                Zi,
-                method=interpolation_method,
-                deduplicate=True,
-            )
+            if reuse_interpolation_geometry:
+                assert interpolation_plan is not None
+                concentration = apply_fixed_grid_interpolation_plan(
+                    interpolation_plan,
+                    slice_data["x"],
+                    slice_data["z"],
+                    slice_data["C"],
+                )
+            else:
+                concentration = interpolate_to_grid(
+                    slice_data["x"],
+                    slice_data["z"],
+                    slice_data["C"],
+                    Xi,
+                    Zi,
+                    method=interpolation_method,
+                    deduplicate=True,
+                )
+        except FixedGridGeometryMismatchError as exc:
+            raise FixedGridGeometryMismatchError(
+                f"Source geometry mismatch for {source_path}: {exc}"
+            ) from exc
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to interpolate concentration from {source_path}: {exc}"
@@ -191,4 +227,9 @@ def build_concentration_sequence(
         grid_metadata=grid_metadata,
         selected_y=np.asarray(selected_y_values, dtype=float),
         interpolation_method=interpolation_method,
+        interpolation_engine=(
+            "precomputed_geometry"
+            if reuse_interpolation_geometry
+            else "per_frame_griddata"
+        ),
     )
