@@ -11,6 +11,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 from nek_post.config import load_yaml
 from nek_post.front_detection import track_concentration_front
+from nek_post.front_detection_cache import (
+    acquire_concentration_sequence,
+    build_front_detection_cache_spec,
+    default_front_detection_cache_path,
+)
 from nek_post.front_detection_compare import (
     build_front_detection_summary,
     compare_detected_front_to_reference,
@@ -165,6 +170,33 @@ def _parse_args(
         ),
     )
     parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help=(
+            "Directory containing the fixed-grid concentration-sequence cache. "
+            "Dynamic default is derived from the case, selected frame range, "
+            "grid and preprocessing settings."
+        ),
+    )
+    cache_mode = parser.add_mutually_exclusive_group()
+    cache_mode.add_argument(
+        "--rebuild-cache",
+        action="store_true",
+        help=(
+            "Force reconstruction and replacement of the "
+            "concentration-sequence cache."
+        ),
+    )
+    cache_mode.add_argument(
+        "--no-cache",
+        action="store_true",
+        help=(
+            "Bypass cache loading and writing and rebuild the concentration "
+            "sequence in memory."
+        ),
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Allow replacement of all requested outputs.",
@@ -210,6 +242,32 @@ def main() -> None:
             else paths.front_detection_dir / case
         )
 
+        csv_paths = [
+            detected_front_timeseries_path(output_dir, case),
+            front_detection_comparison_path(output_dir, case),
+            front_detection_summary_path(output_dir, case),
+        ]
+        figure_paths = (
+            []
+            if args.no_plots
+            else [
+                front_detection_overlay_path(output_dir, case),
+                front_detection_difference_path(output_dir, case),
+            ]
+        )
+        diagnostic_paths = (
+            []
+            if diagnostic_indices is None or args.no_plots
+            else [
+                front_detection_diagnostic_path(output_dir, case, file_index)
+                for file_index in diagnostic_indices
+            ]
+        )
+        preflight_output_paths(
+            [*csv_paths, *figure_paths, *diagnostic_paths],
+            args.overwrite,
+        )
+
         frame_paths = discover_nek_frame_paths(
             case_dir,
             file_prefix=args.file_prefix,
@@ -221,14 +279,52 @@ def main() -> None:
             f"indices {frame_paths[0].index}–{frame_paths[-1].index}"
         )
 
-        sequence = build_concentration_sequence(
-            frame_paths,
+        cache_dir_arg = getattr(args, "cache_dir", None)
+        cache_dir = (
+            cache_dir_arg.expanduser()
+            if cache_dir_arg is not None
+            else default_front_detection_cache_path(
+                paths.front_detection_cache_dir,
+                case=case,
+                file_prefix=args.file_prefix,
+                frame_paths=frame_paths,
+                nx=args.nx,
+                nz=args.nz,
+                slice_mode=args.slice_mode,
+                interpolation_method=args.interpolation_method,
+            )
+        )
+        cache_spec = build_front_detection_cache_spec(
+            case=case,
+            file_prefix=args.file_prefix,
+            frame_paths=frame_paths,
             nx=args.nx,
             nz=args.nz,
             slice_mode=args.slice_mode,
             slab_ratio=args.slab_ratio,
             y_round_decimals=args.y_round_decimals,
             interpolation_method=args.interpolation_method,
+        )
+        acquisition = acquire_concentration_sequence(
+            cache_dir=cache_dir,
+            spec=cache_spec,
+            builder=lambda: build_concentration_sequence(
+                frame_paths,
+                nx=args.nx,
+                nz=args.nz,
+                slice_mode=args.slice_mode,
+                slab_ratio=args.slab_ratio,
+                y_round_decimals=args.y_round_decimals,
+                interpolation_method=args.interpolation_method,
+            ),
+            use_cache=not args.no_cache,
+            rebuild_cache=args.rebuild_cache,
+        )
+        sequence = acquisition.sequence
+        print(f"Concentration sequence source: {acquisition.mode}")
+        print(
+            "Concentration cache: "
+            + ("disabled" if acquisition.cache_dir is None else str(cache_dir))
         )
         print(
             "Fixed grid: "
@@ -277,31 +373,6 @@ def main() -> None:
             )
         )
 
-        csv_paths = [
-            detected_front_timeseries_path(output_dir, case),
-            front_detection_comparison_path(output_dir, case),
-            front_detection_summary_path(output_dir, case),
-        ]
-        figure_paths = (
-            []
-            if args.no_plots
-            else [
-                front_detection_overlay_path(output_dir, case),
-                front_detection_difference_path(output_dir, case),
-            ]
-        )
-        diagnostic_paths = [
-            front_detection_diagnostic_path(
-                output_dir,
-                case,
-                diagnostic.file_index,
-            )
-            for diagnostic in diagnostics
-        ]
-        preflight_output_paths(
-            [*csv_paths, *figure_paths, *diagnostic_paths],
-            args.overwrite,
-        )
         written_csv_paths = write_front_detection_csvs(
             output_dir,
             case,

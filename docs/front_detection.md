@@ -204,6 +204,97 @@ PYENV_VERSION=research312 python scripts/16_detect_front_from_concentration.py \
   --overwrite
 ```
 
+## Concentration-sequence cache
+
+Reading every Nek frame, extracting the midspan slice, and interpolating it
+onto the common fixed grid is the expensive preprocessing stage. The CLI
+caches that stage as an uncompressed directory under
+`postproc_root/front_detection_cache/CASE` by default. A typical directory is:
+
+```text
+front_detection_cache/
+└── N7/
+    └── GC0_f00001-f00081_n81_500x200_nearest_plane_linear/
+        ├── manifest.json
+        ├── time.npy
+        ├── file_indices.npy
+        ├── Xi.npy
+        ├── Zi.npy
+        ├── C_frames.npy
+        ├── finite_fraction.npy
+        ├── concentration_min.npy
+        ├── concentration_max.npy
+        └── selected_y.npy
+```
+
+The first execution performs full Nek reading, slicing, and interpolation,
+then creates the cache. Later executions load the fixed-grid sequence and run
+tracking directly. `Xi`, `Zi`, and especially the uncompressed float64
+`C_frames` array are loaded read-only with NumPy memory mapping, so the main
+concentration array is not copied into memory merely to load the cache.
+
+The manifest records the full ordered file-index list, normalized source
+paths, source sizes and nanosecond modification times, preprocessing settings,
+grid metadata, interpolation method, and every array's filename, shape, and
+dtype. These values are validated on every cache hit. A source or
+preprocessing mismatch is rejected with instructions to rebuild or bypass the
+cache; a corrupt or incomplete cache is also rejected and is never silently
+rebuilt.
+
+Only preprocessing is cached. Threshold, minimum component size, bottom rows,
+maximum front jump, connectivity, reference data, diagnostic indices,
+plotting choices, and output paths are not part of the cache. Thus a threshold
+or diagnostic run can reuse the same sequence. Cache validity establishes
+that preprocessing inputs match; it does not establish the physical validity
+of the chosen front-detection parameters.
+
+Create the cache on the first full run:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --threshold 0.01 \
+  --overwrite
+```
+
+Reuse it with a different threshold and result directory:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --threshold 0.02 \
+  --output-dir \
+  /data/Nek5000_data/results/poly_order_compare/front_detection/N7_threshold_0p02 \
+  --overwrite
+```
+
+Force preprocessing and atomically replace the selected cache with
+`--rebuild-cache`:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --rebuild-cache \
+  --overwrite
+```
+
+Bypass all cache reads and writes with `--no-cache`:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --no-cache \
+  --overwrite
+```
+
+Use `--cache-dir PATH` to select an exact alternative cache directory.
+`--rebuild-cache` controls cache replacement independently of `--overwrite`,
+which controls only result CSV and figure replacement.
+
 By default, outputs are written to
 `results_root/front_detection/N7` using these exact names:
 
