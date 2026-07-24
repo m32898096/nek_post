@@ -40,6 +40,7 @@ from nek_post.front_detection_io import (
     write_front_detection_csvs,
 )
 from nek_post.front_detection_plotting import write_front_detection_plots
+from nek_post.front_detection_parallel import validate_preprocessing_workers
 from nek_post.front_detection_workflow import build_concentration_sequence
 from nek_post.front_io import read_front_simple_dat
 from nek_post.paths import ProjectPaths, load_project_paths
@@ -50,6 +51,19 @@ def _mapping_value(mapping: Mapping[str, Any], key: str, context: str) -> Any:
         return mapping[key]
     except KeyError as exc:
         raise ValueError(f"Missing required cases.yaml key {context}.{key}.") from exc
+
+
+def _parse_preprocessing_workers(value: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "--workers must be an integer greater than or equal to 1."
+        ) from exc
+    try:
+        return validate_preprocessing_workers(parsed)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _parse_args(
@@ -156,6 +170,15 @@ def _parse_args(
         help=(
             "Rebuild griddata interpolation geometry for every frame, mainly "
             "for regression comparison and benchmarking."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=_parse_preprocessing_workers,
+        default=1,
+        help=(
+            "Processes used only when building a concentration sequence; "
+            "cache hits do not start a process pool."
         ),
     )
     parser.add_argument(
@@ -332,12 +355,14 @@ def main() -> None:
                 y_round_decimals=args.y_round_decimals,
                 interpolation_method=args.interpolation_method,
                 reuse_interpolation_geometry=not args.per_frame_griddata,
+                workers=args.workers,
             ),
             use_cache=not args.no_cache,
             rebuild_cache=args.rebuild_cache,
         )
         sequence = acquisition.sequence
         print(f"Concentration sequence source: {acquisition.mode}")
+        print(f"Preprocessing workers: {args.workers}")
         print(f"Interpolation engine: {sequence.interpolation_engine}")
         print(
             "Concentration cache: "
