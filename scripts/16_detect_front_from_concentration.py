@@ -15,11 +15,19 @@ from nek_post.front_detection_compare import (
     build_front_detection_summary,
     compare_detected_front_to_reference,
 )
+from nek_post.front_detection_diagnostic_plotting import (
+    write_front_frame_diagnostic_plots,
+)
+from nek_post.front_detection_diagnostics import (
+    build_front_frame_diagnostics,
+    parse_diagnostic_indices,
+)
 from nek_post.front_detection_io import (
     detected_front_timeseries_path,
     discover_nek_frame_paths,
     format_front_detection_summary_table,
     front_detection_comparison_path,
+    front_detection_diagnostic_path,
     front_detection_difference_path,
     front_detection_overlay_path,
     front_detection_summary_path,
@@ -166,6 +174,13 @@ def _parse_args(
         action="store_true",
         help="Write CSV outputs without reference-comparison figures.",
     )
+    parser.add_argument(
+        "--diagnostic-indices",
+        help=(
+            "Comma-separated Nek file indices for concentration-field diagnostic "
+            "figures."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -176,6 +191,11 @@ def main() -> None:
 
     try:
         case = args.case.strip().upper()
+        diagnostic_indices = (
+            None
+            if args.diagnostic_indices is None
+            else parse_diagnostic_indices(args.diagnostic_indices)
+        )
         case_dir = paths.case_dir(case)
         reference_file_arg = getattr(args, "reference_file", None)
         output_dir_arg = getattr(args, "output_dir", None)
@@ -246,6 +266,16 @@ def main() -> None:
             comparison=comparison,
             reference_path=reference_path,
         )
+        diagnostics = (
+            ()
+            if diagnostic_indices is None or args.no_plots
+            else build_front_frame_diagnostics(
+                sequence,
+                tracking_result,
+                diagnostic_indices,
+                reference_front=reference_front,
+            )
+        )
 
         csv_paths = [
             detected_front_timeseries_path(output_dir, case),
@@ -260,7 +290,18 @@ def main() -> None:
                 front_detection_difference_path(output_dir, case),
             ]
         )
-        preflight_output_paths([*csv_paths, *figure_paths], args.overwrite)
+        diagnostic_paths = [
+            front_detection_diagnostic_path(
+                output_dir,
+                case,
+                diagnostic.file_index,
+            )
+            for diagnostic in diagnostics
+        ]
+        preflight_output_paths(
+            [*csv_paths, *figure_paths, *diagnostic_paths],
+            args.overwrite,
+        )
         written_csv_paths = write_front_detection_csvs(
             output_dir,
             case,
@@ -282,6 +323,17 @@ def main() -> None:
                 overwrite=True,
             )
         )
+        written_diagnostic_paths = (
+            []
+            if not diagnostics
+            else write_front_frame_diagnostic_plots(
+                output_dir,
+                case,
+                sequence,
+                diagnostics,
+                overwrite=True,
+            )
+        )
 
         print(format_front_detection_summary_table(summary))
         print(f"Output directory: {output_dir}")
@@ -289,11 +341,18 @@ def main() -> None:
         for path in written_csv_paths:
             print(f"  {path}")
         if args.no_plots:
-            print("Figures: skipped (--no-plots)")
+            if diagnostic_indices is None:
+                print("Figures: skipped (--no-plots)")
+            else:
+                print("Figures and diagnostics: skipped (--no-plots)")
         else:
             print("Figure files:")
             for path in written_figure_paths:
                 print(f"  {path}")
+            if written_diagnostic_paths:
+                print("Diagnostic figure files:")
+                for path in written_diagnostic_paths:
+                    print(f"  {path}")
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

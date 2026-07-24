@@ -243,3 +243,53 @@ the difference from `front_simple.dat`. The automatic method is more
 explicitly defined, reproducible, spatially filtered, and temporally
 consistent; agreement with the external reference alone does not establish
 greater accuracy.
+
+## Concentration-field diagnostic figures
+
+Diagnostic figures provide physical inspection of the segmentation and
+tracking behavior behind selected automatic-front results. Generate the
+recommended N7 snapshots with:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --threshold 0.01 \
+  --min-component-pixels 50 \
+  --bottom-rows 3 \
+  --max-front-jump 0.5 \
+  --connectivity 8 \
+  --diagnostic-indices 1,9,21,41,61,81 \
+  --overwrite
+```
+
+For the current 81-frame N7 dataset, these indices approximately sample
+`t = 0, 2, 5, 10, 15, 20`. The actual simulation time is always read from
+each Nek file rather than inferred from its index.
+
+Each figure contains:
+
+- the fixed-grid concentration field and scalar `C = threshold` contour;
+- thin neutral boundaries for rejected threshold components;
+- dashed boundaries for other spatially valid, bottom-contacting components;
+- one prominent boundary for the component recorded by the tracker;
+- the automatic front as a solid vertical line;
+- the predicted front as a dashed vertical line;
+- `front_simple.dat`, when available in time, as a dotted external-reference
+  line;
+- tracker status, counts, selected-label metadata, and tracking difference.
+
+The selected component comes from the existing tracking result:
+diagnostics resolve it strictly through `selected_component_label`. Diagnostic
+plotting does not select, replace, optimize, or correct the front, and it does
+not rerun interpolation or tracking. A failed frame remains failed and never
+receives a substitute component.
+
+In the annotation, tracking difference means:
+
+```text
+x_auto - x_predicted
+```
+
+It is not a difference from `front_simple.dat`. The latter remains an external
+visual reference only, and visual agreement with it does not prove accuracy.

@@ -14,6 +14,8 @@ from nek_post.front_detection_io import (
     discover_nek_frame_paths,
     format_csv_value,
     front_detection_comparison_path,
+    front_detection_diagnostic_path,
+    front_detection_diagnostics_dir,
     front_detection_difference_path,
     front_detection_overlay_path,
     front_detection_summary_path,
@@ -152,6 +154,15 @@ def test_exact_output_filenames(tmp_path: Path) -> None:
         front_detection_difference_path(tmp_path, "N7").name
         == "N7_front_detection_difference.png"
     )
+    assert front_detection_diagnostics_dir(tmp_path) == tmp_path / "diagnostics"
+    assert front_detection_diagnostic_path(
+        tmp_path, "N7", 9
+    ) == tmp_path / "diagnostics/N7_front_diagnostic_f00009.png"
+
+
+def test_diagnostic_path_rejects_negative_file_index(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="greater than or equal to 0"):
+        front_detection_diagnostic_path(tmp_path, "N7", -1)
 
 
 def test_csv_headers_formatting_status_boolean_and_row_order(tmp_path: Path) -> None:

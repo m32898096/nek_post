@@ -180,6 +180,28 @@ def front_detection_difference_path(output_dir: str | Path, case: str) -> Path:
     return Path(output_dir) / f"{case}_front_detection_difference.png"
 
 
+def front_detection_diagnostics_dir(output_dir: str | Path) -> Path:
+    return Path(output_dir) / "diagnostics"
+
+
+def front_detection_diagnostic_path(
+    output_dir: str | Path,
+    case: str,
+    file_index: int,
+) -> Path:
+    if not isinstance(file_index, Integral) or isinstance(
+        file_index, (bool, np.bool_)
+    ):
+        raise ValueError("file_index must be a non-negative integer.")
+    parsed_index = int(file_index)
+    if parsed_index < 0:
+        raise ValueError("file_index must be greater than or equal to 0.")
+    return (
+        front_detection_diagnostics_dir(output_dir)
+        / f"{case}_front_diagnostic_f{parsed_index:05d}.png"
+    )
+
+
 def ensure_writable_output(path: str | Path, overwrite: bool) -> None:
     """Reject an existing output unless replacement was explicitly enabled."""
     output_path = Path(path)
