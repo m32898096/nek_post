@@ -178,6 +178,7 @@ connectivity: 8
 grid: 500 x 200
 slice_mode: nearest_plane
 interpolation_method: linear
+interpolation_engine: precomputed_geometry
 ```
 
 These are provisional starting values, not validated final research
@@ -204,6 +205,33 @@ PYENV_VERSION=research312 python scripts/16_detect_front_from_concentration.py \
   --overwrite
 ```
 
+## Reusable fixed-grid interpolation geometry
+
+The default workflow assumes the selected Nek mesh and extracted source-point
+order are stationary. It validates that assumption for every frame before
+reusing any interpolation geometry. The first frame establishes the fixed
+`Xi`/`Zi` grid, rounded duplicate-point groups, and either:
+
+- one Delaunay triangulation plus target simplex vertices and barycentric
+  weights for linear interpolation; or
+- one nearest-neighbor lookup from target points to deduplicated source
+  points.
+
+Later frames validate the raw source-point count, finite-coordinate pattern,
+and rounded x-z key at every source-array position. Only concentration values
+change: finite values are averaged within the established duplicate groups
+and then applied through the stored NumPy weight or index arrays. Linear
+targets outside the original convex hull remain NaN. A duplicate group with
+no finite concentration value also remains NaN.
+
+Changed geometry fails with the source file and first mismatching position
+rather than silently applying invalid weights or falling back to `griddata`.
+Use `--per-frame-griddata` only for regression comparison or benchmarking; it
+restores independent `scipy.interpolate.griddata` processing for every frame.
+The CLI prints either `precomputed_geometry` or `per_frame_griddata` as the
+selected interpolation engine. No performance factor is assumed without a
+separate benchmark.
+
 ## Concentration-sequence cache
 
 Reading every Nek frame, extracting the midspan slice, and interpolating it
@@ -214,7 +242,7 @@ caches that stage as an uncompressed directory under
 ```text
 front_detection_cache/
 └── N7/
-    └── GC0_f00001-f00081_n81_500x200_nearest_plane_linear/
+    └── GC0_f00001-f00081_n81_500x200_nearest_plane_linear_precomputed/
         ├── manifest.json
         ├── time.npy
         ├── file_indices.npy
@@ -235,11 +263,16 @@ concentration array is not copied into memory merely to load the cache.
 
 The manifest records the full ordered file-index list, normalized source
 paths, source sizes and nanosecond modification times, preprocessing settings,
-grid metadata, interpolation method, and every array's filename, shape, and
-dtype. These values are validated on every cache hit. A source or
-preprocessing mismatch is rejected with instructions to rebuild or bypass the
-cache; a corrupt or incomplete cache is also rejected and is never silently
-rebuilt.
+grid metadata, interpolation method, interpolation engine, and every array's
+filename, shape, and dtype. These values are validated on every cache hit. A
+source or preprocessing mismatch is rejected with instructions to rebuild or
+bypass the cache; a corrupt or incomplete cache is also rejected and is never
+silently rebuilt.
+
+Cache schema 2 distinguishes reusable geometry from per-frame `griddata`.
+Their default directory names end in `_precomputed` and `_griddata`,
+respectively. Schema-1 caches predate this distinction and are rejected; run
+once with `--rebuild-cache` to replace an explicitly selected old cache.
 
 Only preprocessing is cached. Threshold, minimum component size, bottom rows,
 maximum front jump, connectivity, reference data, diagnostic indices,

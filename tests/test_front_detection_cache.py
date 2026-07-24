@@ -52,6 +52,7 @@ def _spec(
         "slab_ratio": 0.05,
         "y_round_decimals": 10,
         "interpolation_method": "linear",
+        "interpolation_engine": "precomputed_geometry",
     }
     values.update(overrides)
     return build_front_detection_cache_spec(**values)
@@ -89,6 +90,7 @@ def _sequence(spec: FrontDetectionCacheSpec, *, offset: float = 0.0) -> Concentr
         ),
         selected_y=np.arange(n_frames, dtype=np.float64) + 0.5,
         interpolation_method=spec.interpolation_method,
+        interpolation_engine=spec.interpolation_engine,
     )
 
 
@@ -163,6 +165,7 @@ def test_spec_rejects_missing_duplicate_sources_and_indices(tmp_path: Path) -> N
         ("slab_ratio", np.nan, "slab_ratio"),
         ("y_round_decimals", -1, "y_round_decimals"),
         ("interpolation_method", "cubic", "interpolation_method"),
+        ("interpolation_engine", "unknown", "interpolation_engine"),
     ],
 )
 def test_spec_rejects_invalid_preprocessing(
@@ -187,6 +190,7 @@ def test_spec_contains_preprocessing_but_no_tracking_settings(tmp_path: Path) ->
         "slab_ratio",
         "y_round_decimals",
         "interpolation_method",
+        "interpolation_engine",
     } <= names
     assert names.isdisjoint(
         {
@@ -217,6 +221,7 @@ def test_default_cache_path_is_readable_deterministic_and_sanitized(
         nz=200,
         slice_mode="nearest_plane",
         interpolation_method="linear",
+        interpolation_engine="precomputed_geometry",
     )
     full_path = default_front_detection_cache_path(
         tmp_path / "cache-root",
@@ -227,6 +232,7 @@ def test_default_cache_path_is_readable_deterministic_and_sanitized(
         nz=200,
         slice_mode="nearest_plane",
         interpolation_method="linear",
+        interpolation_engine="precomputed_geometry",
     )
     unsafe_path = default_front_detection_cache_path(
         tmp_path / "cache-root",
@@ -237,19 +243,33 @@ def test_default_cache_path_is_readable_deterministic_and_sanitized(
         nz=200,
         slice_mode="nearest/plane",
         interpolation_method="linear",
+        interpolation_engine="precomputed_geometry",
+    )
+    legacy_path = default_front_detection_cache_path(
+        tmp_path / "cache-root",
+        case="N7",
+        file_prefix="GC0",
+        frame_paths=subset,
+        nx=500,
+        nz=200,
+        slice_mode="nearest_plane",
+        interpolation_method="linear",
+        interpolation_engine="per_frame_griddata",
     )
 
     assert subset_path.parent.name == "N7"
     assert subset_path.name == (
-        "GC0_f00001-f00009_n9_500x200_nearest_plane_linear"
+        "GC0_f00001-f00009_n9_500x200_nearest_plane_linear_precomputed"
     )
     assert full_path.name == (
-        "GC0_f00001-f00081_n81_500x200_nearest_plane_linear"
+        "GC0_f00001-f00081_n81_500x200_nearest_plane_linear_precomputed"
     )
     assert unsafe_path.parent.name == "N_7_unsafe"
     assert unsafe_path.name == (
-        "GC_0_f00001-f00009_n9_500x200_nearest_plane_linear"
+        "GC_0_f00001-f00009_n9_500x200_nearest_plane_linear_precomputed"
     )
+    assert legacy_path.name.endswith("_linear_griddata")
+    assert legacy_path != subset_path
     assert subset_path != full_path
 
 
@@ -267,10 +287,14 @@ def test_round_trip_preserves_all_fields_and_memory_maps_large_arrays(
     assert loaded.source_files == original.source_files
     assert dict(loaded.grid_metadata) == dict(original.grid_metadata)
     assert loaded.interpolation_method == original.interpolation_method
+    assert loaded.interpolation_engine == original.interpolation_engine
     assert isinstance(loaded.Xi, np.memmap)
     assert isinstance(loaded.Zi, np.memmap)
     assert isinstance(loaded.C_frames, np.memmap)
     assert isinstance(loaded.grid_metadata, MappingProxyType)
+    manifest = _manifest(cache_dir)
+    assert manifest["interpolation_engine"] == "precomputed_geometry"
+    assert manifest["spec"]["interpolation_engine"] == "precomputed_geometry"
 
 
 @pytest.mark.parametrize(
@@ -286,6 +310,7 @@ def test_round_trip_preserves_all_fields_and_memory_maps_large_arrays(
         ("slab_ratio", "slab_ratio"),
         ("y_round_decimals", "y_round_decimals"),
         ("interpolation_method", "interpolation_method"),
+        ("interpolation_engine", "interpolation_engine"),
     ],
 )
 def test_load_lists_spec_mismatches_with_recovery_guidance(
@@ -326,6 +351,7 @@ def test_load_lists_spec_mismatches_with_recovery_guidance(
             "slab_ratio": spec.slab_ratio + 0.1,
             "y_round_decimals": spec.y_round_decimals + 1,
             "interpolation_method": "nearest",
+            "interpolation_engine": "per_frame_griddata",
         }
         expected = replace(spec, **{field: values[field]})
 
@@ -366,6 +392,7 @@ def test_missing_invalid_and_unsupported_manifest_fail(tmp_path: Path) -> None:
                 0.05,
                 10,
                 "linear",
+                "precomputed_geometry",
             ),
         )
 
@@ -377,6 +404,23 @@ def test_missing_invalid_and_unsupported_manifest_fail(tmp_path: Path) -> None:
         json.dumps({"schema_version": 999}), encoding="utf-8"
     )
     with pytest.raises(FrontDetectionCacheCorruptionError, match="Unsupported"):
+        cache_module.load_cache_manifest(cache_dir)
+
+
+def test_schema_one_cache_requires_explicit_rebuild(tmp_path: Path) -> None:
+    assert CACHE_SCHEMA_VERSION == 2
+    cache_dir, _, _ = _save(tmp_path)
+    payload = _manifest(cache_dir)
+    payload["schema_version"] = 1
+    payload["spec"]["schema_version"] = 1
+    del payload["interpolation_engine"]
+    del payload["spec"]["interpolation_engine"]
+    _write_manifest(cache_dir, payload)
+
+    with pytest.raises(
+        FrontDetectionCacheCorruptionError,
+        match=r"schema version 1.*--rebuild-cache",
+    ):
         cache_module.load_cache_manifest(cache_dir)
 
 
