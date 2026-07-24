@@ -179,6 +179,7 @@ grid: 500 x 200
 slice_mode: nearest_plane
 interpolation_method: linear
 interpolation_engine: precomputed_geometry
+preprocessing_workers: 1
 ```
 
 These are provisional starting values, not validated final research
@@ -231,6 +232,60 @@ restores independent `scipy.interpolate.griddata` processing for every frame.
 The CLI prints either `precomputed_geometry` or `per_frame_griddata` as the
 selected interpolation engine. No performance factor is assumed without a
 separate benchmark.
+
+## Optional parallel preprocessing
+
+Use `--workers N` to process later Nek frames with a
+`ProcessPoolExecutor` when a concentration sequence must be built. The first
+selected frame always remains serial because it defines `Xi`/`Zi`, the
+midspan geometry, duplicate groups, and reusable interpolation plan. Each
+worker receives that plan once during process initialization, then reads,
+slices, validates, and interpolates its assigned frames. The parent limits
+in-flight tasks and restores exact numeric file-index order.
+
+The default remains serial:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --workers 1 \
+  --rebuild-cache \
+  --overwrite
+```
+
+For data on a hard disk, two workers are the recommended first parallel
+benchmark:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --workers 2 \
+  --rebuild-cache \
+  --overwrite
+```
+
+Four workers provide another comparison point:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --workers 4 \
+  --rebuild-cache \
+  --overwrite
+```
+
+Benchmark 1, 2, and 4 workers on the actual storage system. HDD workloads can
+slow down when too many processes compete for seeks and bandwidth, so the CLI
+does not automatically select all CPU cores. Parallelism applies only to live
+cache construction, forced cache rebuilding, or `--no-cache` processing.
+Cache-hit runs do not start a process pool and receive no benefit from a
+larger worker count. Worker count is not part of the cache specification
+because it does not change numerical results. Parallel workers require the
+default reusable interpolation geometry; use `--workers 1` with
+`--per-frame-griddata`.
 
 ## Concentration-sequence cache
 
