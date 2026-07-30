@@ -19,6 +19,7 @@ from nek_post.front_detection_cache import (
 from nek_post.front_detection_compare import (
     build_front_detection_summary,
     compare_detected_front_to_reference,
+    empty_front_detection_comparison,
 )
 from nek_post.front_detection_diagnostic_plotting import (
     write_front_frame_diagnostic_plots,
@@ -212,6 +213,14 @@ def _parse_args(
         ),
     )
     parser.add_argument(
+        "--no-reference-comparison",
+        action="store_true",
+        help=(
+            "Disable only the optional front_simple comparison. Automatic front "
+            "detection, CSV output, and requested diagnostics still run."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=argparse.SUPPRESS,
@@ -326,14 +335,6 @@ def main() -> None:
             front_detection_comparison_path(output_dir, case),
             front_detection_summary_path(output_dir, case),
         ]
-        figure_paths = (
-            []
-            if args.no_plots
-            else [
-                front_detection_overlay_path(output_dir, case),
-                front_detection_difference_path(output_dir, case),
-            ]
-        )
         diagnostic_paths = (
             []
             if diagnostic_indices is None or args.no_plots
@@ -343,7 +344,7 @@ def main() -> None:
             ]
         )
         preflight_output_paths(
-            [*csv_paths, *figure_paths, *diagnostic_paths],
+            [*csv_paths, *diagnostic_paths],
             args.overwrite,
         )
 
@@ -454,18 +455,33 @@ def main() -> None:
             max_front_jump=args.max_front_jump,
             connectivity=args.connectivity,
         )
-        reference_front = read_front_simple_dat(reference_path)
-        comparison = compare_detected_front_to_reference(
-            tracking_result,
-            sequence.file_indices,
-            reference_front,
-        )
+        if args.no_reference_comparison:
+            reference_front = None
+            comparison = empty_front_detection_comparison()
+            comparison_status = "disabled"
+            message = "Reference comparison: disabled (--no-reference-comparison)"
+            if reference_file_arg is not None:
+                message += "; --reference-file ignored"
+            print(message)
+        else:
+            reference_front = read_front_simple_dat(reference_path)
+            comparison = compare_detected_front_to_reference(
+                tracking_result,
+                sequence.file_indices,
+                reference_front,
+            )
+            comparison_status = (
+                "available"
+                if comparison.time.size > 0
+                else "no_time_overlap"
+            )
         summary = build_front_detection_summary(
             case=case,
             sequence=sequence,
             tracking_result=tracking_result,
             comparison=comparison,
             reference_path=reference_path,
+            comparison_status=comparison_status,
         )
         diagnostics = (
             ()
@@ -477,6 +493,14 @@ def main() -> None:
                 reference_front=reference_front,
             )
         )
+        if not args.no_plots and comparison.time.size > 0:
+            preflight_output_paths(
+                [
+                    front_detection_overlay_path(output_dir, case),
+                    front_detection_difference_path(output_dir, case),
+                ],
+                args.overwrite,
+            )
 
         written_csv_paths = write_front_detection_csvs(
             output_dir,
@@ -489,7 +513,7 @@ def main() -> None:
         )
         written_figure_paths = (
             []
-            if args.no_plots
+            if args.no_plots or comparison.time.size == 0
             else write_front_detection_plots(
                 output_dir,
                 case,
@@ -522,9 +546,20 @@ def main() -> None:
             else:
                 print("Figures and diagnostics: skipped (--no-plots)")
         else:
-            print("Figure files:")
-            for path in written_figure_paths:
-                print(f"  {path}")
+            if comparison_status == "no_time_overlap":
+                print(
+                    "Comparison figures: skipped "
+                    "(no overlapping reference times)"
+                )
+            elif comparison_status == "disabled":
+                print(
+                    "Comparison figures: skipped "
+                    "(reference comparison disabled)"
+                )
+            else:
+                print("Comparison figure files:")
+                for path in written_figure_paths:
+                    print(f"  {path}")
             if written_diagnostic_paths:
                 print("Diagnostic figure files:")
                 for path in written_diagnostic_paths:

@@ -55,6 +55,7 @@ SUMMARY_COLUMNS = (
     "case",
     "reference_file",
     "reference_role",
+    "comparison_status",
     "n_input_frames",
     "n_successful_detections",
     "success_fraction",

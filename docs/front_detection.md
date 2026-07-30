@@ -168,6 +168,29 @@ difference = x_auto - x_front_simple
 Agreement or disagreement describes a trend comparison between independently
 defined curves; it is not an automatic-front accuracy score.
 
+### Optional reference comparison
+
+`front_simple.dat` is an optional external post-hoc comparison only. A valid
+automatic-front sequence remains successful when its times do not overlap the
+reference range. In that case:
+
+- the automatic timeseries and summary CSVs are written normally;
+- the comparison CSV is written with its normal header and zero data rows;
+- `comparison_status` is `no_time_overlap`;
+- `n_comparison_points` is zero and comparison-dependent metrics are NaN;
+- the overlay and difference figures are skipped;
+- requested diagnostic figures remain available.
+
+No reference extrapolation is performed. A missing or malformed reference
+still fails clearly when comparison is enabled.
+
+Use `--no-reference-comparison` to disable only this optional comparison. The
+reference file is not read or required, `comparison_status` is `disabled`,
+`reference_role` is `not_requested`, and `reference_file` is empty in the
+summary. Automatic detection, all CSV outputs, and requested diagnostics still
+run. The comparison CSV remains header-only and comparison figures are
+skipped.
+
 ### Provisional defaults
 
 The CLI exposes these current detection defaults:
@@ -224,6 +247,27 @@ PYENV_VERSION=research312 python \
   --no-cache \
   --diagnostic-indices 1 \
   --output-dir /tmp/n7-spectral-probe \
+  --overwrite
+```
+
+This single-frame probe should finish successfully even when its `t = 0`
+automatic result does not overlap the reference time range. The comparison
+CSV will then be header-only and the comparison figures will be skipped.
+
+Disable the optional reference comparison explicitly:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --start-index 1 \
+  --end-index 1 \
+  --interpolation-engine spectral_element \
+  --workers 1 \
+  --no-cache \
+  --no-reference-comparison \
+  --diagnostic-indices 1 \
+  --output-dir /tmp/n7-spectral-no-reference \
   --overwrite
 ```
 

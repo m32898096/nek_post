@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import warnings
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -16,6 +17,7 @@ from nek_post.front_detection_compare import (
     FrontDetectionComparison,
     build_front_detection_summary,
     compare_detected_front_to_reference,
+    empty_front_detection_comparison,
 )
 
 
@@ -74,17 +76,58 @@ def test_comparison_excludes_failures_and_extrapolation_and_aligns_indices() -> 
     assert_allclose(comparison.absolute_difference, [0.0, 1.0])
 
 
-def test_comparison_fails_when_no_successful_detection_overlaps() -> None:
+def test_comparison_returns_typed_empty_result_when_no_detection_overlaps() -> None:
     tracking = _tracking([0.0, 1.0], [np.nan, 2.0])
     reference = {
         "time": np.array([2.0, 3.0]),
         "x_front": np.array([1.0, 2.0]),
     }
 
-    with pytest.raises(ValueError, match="No successful automatic.*overlap"):
+    comparison = compare_detected_front_to_reference(
+        tracking,
+        np.array([1, 2]),
+        reference,
+    )
+
+    for name in (
+        "time",
+        "x_front_auto",
+        "x_front_reference",
+        "difference",
+        "absolute_difference",
+    ):
+        array = getattr(comparison, name)
+        assert array.shape == (0,)
+        assert array.dtype == np.dtype("float64")
+    assert comparison.file_indices.shape == (0,)
+    assert comparison.file_indices.dtype == np.dtype("int64")
+
+
+@pytest.mark.parametrize(
+    "reference",
+    (
+        {"time": np.array([0.0]), "x_front": np.array([1.0])},
+        {
+            "time": np.array([0.0, 1.0]),
+            "x_front": np.array([1.0]),
+        },
+        {
+            "time": np.array([0.0, np.nan]),
+            "x_front": np.array([1.0, 2.0]),
+        },
+        {
+            "time": np.array([1.0, 0.0]),
+            "x_front": np.array([1.0, 2.0]),
+        },
+    ),
+)
+def test_comparison_still_rejects_malformed_reference_arrays(
+    reference: dict[str, np.ndarray],
+) -> None:
+    with pytest.raises(ValueError, match="Reference front"):
         compare_detected_front_to_reference(
-            tracking,
-            np.array([1, 2]),
+            _tracking([0.0], [1.0]),
+            np.array([1]),
             reference,
         )
 
@@ -134,6 +177,7 @@ def test_summary_metrics_status_counts_success_fraction_and_slumping_velocity() 
     assert summary["n_no_valid_spatial_candidate"] == 0
     assert summary["n_no_valid_temporal_candidate"] == 1
     assert summary["reference_role"] == "external_comparison_only"
+    assert summary["comparison_status"] == "available"
     assert summary["interpolation_engine"] == "scattered_linear"
     assert summary["spectral_element_shape"] == ""
     assert summary["spectral_polynomial_order"] == ""
@@ -218,3 +262,52 @@ def test_summary_records_spectral_preprocessing_metadata() -> None:
     assert summary["spectral_element_shape"] == "8 x 8 x 8"
     assert summary["spectral_polynomial_order"] == "7 x 7 x 7"
     assert summary["spectral_slice_y"] == 0.75
+
+
+@pytest.mark.parametrize(
+    ("comparison_status", "reference_role", "reference_file"),
+    (
+        ("no_time_overlap", "external_comparison_only", "front_simple.dat"),
+        ("disabled", "not_requested", ""),
+    ),
+)
+def test_empty_summary_has_explicit_nan_metrics_without_runtime_warnings(
+    comparison_status: str,
+    reference_role: str,
+    reference_file: str,
+) -> None:
+    tracking = _tracking([0.0], [1.0], (STATUS_SELECTED_INITIAL,))
+    sequence = SimpleNamespace(
+        time=np.array([0.0]),
+        file_indices=np.array([1]),
+        Xi=np.zeros((2, 3)),
+        interpolation_method="spectral",
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        summary = build_front_detection_summary(
+            case="N7",
+            sequence=sequence,
+            tracking_result=tracking,
+            comparison=empty_front_detection_comparison(),
+            reference_path="front_simple.dat",
+            comparison_status=comparison_status,
+        )
+
+    assert summary["comparison_status"] == comparison_status
+    assert summary["reference_role"] == reference_role
+    assert summary["reference_file"] == reference_file
+    assert summary["n_comparison_points"] == 0
+    assert summary["n_slumping_points"] == 0
+    for name in (
+        "mean_signed_difference",
+        "mean_absolute_difference",
+        "rms_difference",
+        "max_absolute_difference",
+        "auto_slumping_velocity",
+        "reference_slumping_velocity",
+        "slumping_velocity_difference",
+        "slumping_velocity_relative_difference",
+    ):
+        assert np.isnan(summary[name])

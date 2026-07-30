@@ -95,6 +95,8 @@ def write_front_detection_plots(
     overwrite: bool,
 ) -> list[Path]:
     """Preflight and write overlay then difference figures."""
+    if comparison.time.size == 0:
+        return []
     paths = [
         front_detection_overlay_path(output_dir, case),
         front_detection_difference_path(output_dir, case),
