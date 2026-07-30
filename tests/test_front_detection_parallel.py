@@ -125,6 +125,8 @@ def test_script_argparse_workers_default_remains_one(
 
     assert args.workers == 1
     assert type(args.workers) is int
+    assert args.interpolation_engine == "spectral_element"
+    assert args.slice_y is None
 
 
 @pytest.mark.parametrize("text", ["0", "-1", "1.5", "abc", ""])
@@ -277,6 +279,45 @@ def test_worker_returns_only_reduced_immutable_frame_result(
     assert result.selected_y == 0.25
     assert result.concentration.dtype == np.dtype("float64")
     assert not result.concentration.flags.writeable
+
+
+def test_spectral_worker_never_extracts_a_scattered_slice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = SimpleNamespace(target_shape=(2, 3), y_target=0.75)
+    concentration = np.arange(6, dtype=np.float64).reshape(2, 3)
+    monkeypatch.setattr(
+        parallel_module,
+        "read_nek_file",
+        lambda path: {"time": 0.5},
+    )
+    monkeypatch.setattr(
+        parallel_module,
+        "get_nek_time",
+        lambda data: data["time"],
+    )
+    monkeypatch.setattr(
+        parallel_module,
+        "extract_y_slice",
+        lambda *args, **kwargs: pytest.fail("spectral worker extracted a slice"),
+    )
+    monkeypatch.setattr(
+        parallel_module,
+        "apply_spectral_slice_interpolation_plan",
+        lambda received_plan, data, **kwargs: concentration.copy(),
+    )
+
+    result = preprocess_front_detection_frame(
+        _frame(2),
+        plan,
+        interpolation_engine="spectral_element",
+        slice_mode="nearest_plane",
+        slab_ratio=0.01,
+        y_round_decimals=10,
+    )
+
+    np.testing.assert_array_equal(result.concentration, concentration)
+    assert result.selected_y == 0.75
 
 
 class _FakeExecutor:

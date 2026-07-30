@@ -52,7 +52,7 @@ def _spec(
         "slab_ratio": 0.05,
         "y_round_decimals": 10,
         "interpolation_method": "linear",
-        "interpolation_engine": "precomputed_geometry",
+        "interpolation_engine": "scattered_linear",
     }
     values.update(overrides)
     return build_front_detection_cache_spec(**values)
@@ -91,6 +91,25 @@ def _sequence(spec: FrontDetectionCacheSpec, *, offset: float = 0.0) -> Concentr
         selected_y=np.arange(n_frames, dtype=np.float64) + 0.5,
         interpolation_method=spec.interpolation_method,
         interpolation_engine=spec.interpolation_engine,
+        spectral_element_shape=(
+            (4, 4, 4)
+            if spec.interpolation_engine == "spectral_element"
+            else None
+        ),
+        spectral_polynomial_order=(
+            (3, 3, 3)
+            if spec.interpolation_engine == "spectral_element"
+            else None
+        ),
+        spectral_slice_y=(
+            (
+                spec.slice_y_value
+                if spec.slice_y_value is not None
+                else 0.75
+            )
+            if spec.interpolation_engine == "spectral_element"
+            else None
+        ),
     )
 
 
@@ -191,6 +210,10 @@ def test_spec_contains_preprocessing_but_no_tracking_settings(tmp_path: Path) ->
         "y_round_decimals",
         "interpolation_method",
         "interpolation_engine",
+        "spectral_algorithm_version",
+        "slice_y_mode",
+        "slice_y_value",
+        "per_frame_griddata",
     } <= names
     assert names.isdisjoint(
         {
@@ -221,7 +244,7 @@ def test_default_cache_path_is_readable_deterministic_and_sanitized(
         nz=200,
         slice_mode="nearest_plane",
         interpolation_method="linear",
-        interpolation_engine="precomputed_geometry",
+        interpolation_engine="scattered_linear",
     )
     full_path = default_front_detection_cache_path(
         tmp_path / "cache-root",
@@ -232,7 +255,7 @@ def test_default_cache_path_is_readable_deterministic_and_sanitized(
         nz=200,
         slice_mode="nearest_plane",
         interpolation_method="linear",
-        interpolation_engine="precomputed_geometry",
+        interpolation_engine="scattered_linear",
     )
     unsafe_path = default_front_detection_cache_path(
         tmp_path / "cache-root",
@@ -243,9 +266,9 @@ def test_default_cache_path_is_readable_deterministic_and_sanitized(
         nz=200,
         slice_mode="nearest/plane",
         interpolation_method="linear",
-        interpolation_engine="precomputed_geometry",
+        interpolation_engine="scattered_linear",
     )
-    legacy_path = default_front_detection_cache_path(
+    nearest_path = default_front_detection_cache_path(
         tmp_path / "cache-root",
         case="N7",
         file_prefix="GC0",
@@ -253,23 +276,38 @@ def test_default_cache_path_is_readable_deterministic_and_sanitized(
         nx=500,
         nz=200,
         slice_mode="nearest_plane",
-        interpolation_method="linear",
-        interpolation_engine="per_frame_griddata",
+        interpolation_method="nearest",
+        interpolation_engine="scattered_nearest",
+    )
+    spectral_path = default_front_detection_cache_path(
+        tmp_path / "cache-root",
+        case="N7",
+        file_prefix="GC0",
+        frame_paths=subset,
+        nx=500,
+        nz=200,
+        slice_mode="nearest_plane",
+        interpolation_method="spectral",
+        interpolation_engine="spectral_element",
     )
 
     assert subset_path.parent.name == "N7"
     assert subset_path.name == (
-        "GC0_f00001-f00009_n9_500x200_nearest_plane_linear_precomputed"
+        "GC0_f00001-f00009_n9_500x200_nearest_plane_linear_scattered_linear"
     )
     assert full_path.name == (
-        "GC0_f00001-f00081_n81_500x200_nearest_plane_linear_precomputed"
+        "GC0_f00001-f00081_n81_500x200_nearest_plane_linear_scattered_linear"
     )
     assert unsafe_path.parent.name == "N_7_unsafe"
     assert unsafe_path.name == (
-        "GC_0_f00001-f00009_n9_500x200_nearest_plane_linear_precomputed"
+        "GC_0_f00001-f00009_n9_500x200_nearest_plane_linear_scattered_linear"
     )
-    assert legacy_path.name.endswith("_linear_griddata")
-    assert legacy_path != subset_path
+    assert nearest_path.name.endswith("_nearest_scattered_nearest")
+    assert spectral_path.name.endswith(
+        "_spectral_spectral_element_ydomain_midpoint"
+    )
+    assert nearest_path != subset_path
+    assert spectral_path != subset_path
     assert subset_path != full_path
 
 
@@ -293,8 +331,34 @@ def test_round_trip_preserves_all_fields_and_memory_maps_large_arrays(
     assert isinstance(loaded.C_frames, np.memmap)
     assert isinstance(loaded.grid_metadata, MappingProxyType)
     manifest = _manifest(cache_dir)
-    assert manifest["interpolation_engine"] == "precomputed_geometry"
-    assert manifest["spec"]["interpolation_engine"] == "precomputed_geometry"
+    assert manifest["interpolation_engine"] == "scattered_linear"
+    assert manifest["spec"]["interpolation_engine"] == "scattered_linear"
+
+
+def test_spectral_metadata_and_polynomial_order_round_trip(tmp_path: Path) -> None:
+    spec = _spec(
+        tmp_path / "sources",
+        interpolation_method="spectral",
+        interpolation_engine="spectral_element",
+        slice_y=0.75,
+    )
+    sequence = _sequence(spec)
+    cache_dir = tmp_path / "spectral-cache"
+
+    save_concentration_sequence_cache(
+        cache_dir, sequence, spec, overwrite=False
+    )
+    loaded = load_concentration_sequence_cache(cache_dir, spec)
+    manifest = _manifest(cache_dir)
+
+    assert spec.slice_y_mode == "explicit"
+    assert spec.spectral_algorithm_version is not None
+    assert loaded.spectral_element_shape == (4, 4, 4)
+    assert loaded.spectral_polynomial_order == (3, 3, 3)
+    assert loaded.spectral_slice_y == 0.75
+    assert manifest["spectral_element_shape"] == [4, 4, 4]
+    assert manifest["spectral_polynomial_order"] == [3, 3, 3]
+    assert manifest["resolved_slice_y"] == 0.75
 
 
 @pytest.mark.parametrize(
@@ -351,7 +415,7 @@ def test_load_lists_spec_mismatches_with_recovery_guidance(
             "slab_ratio": spec.slab_ratio + 0.1,
             "y_round_decimals": spec.y_round_decimals + 1,
             "interpolation_method": "nearest",
-            "interpolation_engine": "per_frame_griddata",
+            "interpolation_engine": "scattered_nearest",
         }
         expected = replace(spec, **{field: values[field]})
 
@@ -392,7 +456,11 @@ def test_missing_invalid_and_unsupported_manifest_fail(tmp_path: Path) -> None:
                 0.05,
                 10,
                 "linear",
-                "precomputed_geometry",
+                "scattered_linear",
+                None,
+                "not_applicable",
+                None,
+                False,
             ),
         )
 
@@ -407,19 +475,17 @@ def test_missing_invalid_and_unsupported_manifest_fail(tmp_path: Path) -> None:
         cache_module.load_cache_manifest(cache_dir)
 
 
-def test_schema_one_cache_requires_explicit_rebuild(tmp_path: Path) -> None:
-    assert CACHE_SCHEMA_VERSION == 2
+def test_old_schema_cache_requires_explicit_rebuild(tmp_path: Path) -> None:
+    assert CACHE_SCHEMA_VERSION == 3
     cache_dir, _, _ = _save(tmp_path)
     payload = _manifest(cache_dir)
-    payload["schema_version"] = 1
-    payload["spec"]["schema_version"] = 1
-    del payload["interpolation_engine"]
-    del payload["spec"]["interpolation_engine"]
+    payload["schema_version"] = 2
+    payload["spec"]["schema_version"] = 2
     _write_manifest(cache_dir, payload)
 
     with pytest.raises(
         FrontDetectionCacheCorruptionError,
-        match=r"schema version 1.*--rebuild-cache",
+        match=r"schema version 2.*--rebuild-cache",
     ):
         cache_module.load_cache_manifest(cache_dir)
 

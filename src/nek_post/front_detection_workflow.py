@@ -25,6 +25,18 @@ from nek_post.front_detection_parallel import (
 from nek_post.interpolation import create_common_xz_grid, interpolate_to_grid
 from nek_post.io_nek import get_nek_time, read_nek_file
 from nek_post.slicing import extract_y_slice
+from nek_post.spectral_interpolation import (
+    SpectralGeometryMismatchError,
+    SpectralSliceInterpolationPlan,
+    apply_spectral_slice_interpolation_plan,
+    build_spectral_slice_interpolation_plan,
+    spectral_plan_metadata,
+)
+
+
+INTERPOLATION_ENGINES = frozenset(
+    {"spectral_element", "scattered_linear", "scattered_nearest"}
+)
 
 
 @dataclass(frozen=True)
@@ -43,7 +55,10 @@ class ConcentrationSequence:
     grid_metadata: Mapping[str, float | int]
     selected_y: NDArray[np.float64]
     interpolation_method: str = "linear"
-    interpolation_engine: str = "precomputed_geometry"
+    interpolation_engine: str = "scattered_linear"
+    spectral_element_shape: tuple[int, int, int] | None = None
+    spectral_polynomial_order: tuple[int, int, int] | None = None
+    spectral_slice_y: float | None = None
 
 
 def _grid_size(value: int, name: str) -> int:
@@ -74,11 +89,13 @@ def build_concentration_sequence(
     slice_mode: str,
     slab_ratio: float,
     y_round_decimals: int,
-    interpolation_method: str = "linear",
+    interpolation_engine: str = "spectral_element",
+    slice_y: float | None = None,
+    interpolation_method: str | None = None,
     reuse_interpolation_geometry: bool = True,
     workers: int = 1,
 ) -> ConcentrationSequence:
-    """Build a fixed-grid sequence, reusing interpolation geometry by default."""
+    """Build a fixed-grid sequence using spectral elements or a scattered baseline."""
     frames = tuple(sorted(frame_paths, key=lambda frame: frame.index))
     if not frames:
         raise ValueError("At least one Nek frame path is required.")
@@ -87,10 +104,40 @@ def build_concentration_sequence(
         raise ValueError("Nek frame paths must have unique file indices.")
     nx_value = _grid_size(nx, "nx")
     nz_value = _grid_size(nz, "nz")
-    if interpolation_method not in {"linear", "nearest"}:
+    if interpolation_engine not in INTERPOLATION_ENGINES:
         raise ValueError(
-            "interpolation_method must be exactly 'linear' or 'nearest'."
+            "interpolation_engine must be one of: "
+            + ", ".join(sorted(INTERPOLATION_ENGINES))
+            + "."
         )
+    spectral = interpolation_engine == "spectral_element"
+    if spectral:
+        if interpolation_method is not None:
+            raise ValueError(
+                "interpolation_method applies only to scattered interpolation; "
+                "omit it for interpolation_engine='spectral_element'."
+            )
+        if not reuse_interpolation_geometry:
+            raise ValueError(
+                "per-frame griddata applies only to scattered interpolation."
+            )
+        method_value = "spectral"
+    else:
+        expected_method = (
+            "linear"
+            if interpolation_engine == "scattered_linear"
+            else "nearest"
+        )
+        if interpolation_method is not None and interpolation_method != expected_method:
+            raise ValueError(
+                f"interpolation_engine={interpolation_engine!r} requires "
+                f"interpolation_method={expected_method!r}."
+            )
+        if slice_y is not None:
+            raise ValueError(
+                "slice_y applies only to interpolation_engine='spectral_element'."
+            )
+        method_value = expected_method
     worker_count = validate_preprocessing_workers(workers)
     if worker_count > 1 and not reuse_interpolation_geometry:
         raise ValueError(
@@ -101,7 +148,9 @@ def build_concentration_sequence(
     Xi: NDArray[np.float64] | None = None
     Zi: NDArray[np.float64] | None = None
     grid_metadata: Mapping[str, float | int] | None = None
-    interpolation_plan: FixedGridInterpolationPlan | None = None
+    interpolation_plan: (
+        FixedGridInterpolationPlan | SpectralSliceInterpolationPlan | None
+    ) = None
     times: list[float] = []
     concentration_frames: list[NDArray[np.float64]] = []
     finite_fractions: list[float] = []
@@ -117,73 +166,103 @@ def build_concentration_sequence(
         except Exception as exc:
             raise RuntimeError(f"Failed to read Nek frame {source_path}: {exc}") from exc
         frame_time = _frame_time(data, source_path)
-        try:
-            slice_data = extract_y_slice(
-                data,
-                slab_ratio=slab_ratio,
-                mode=slice_mode,
-                y_round_decimals=y_round_decimals,
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"Failed to extract concentration slice from {source_path}: {exc}"
-            ) from exc
-
-        if Xi is None or Zi is None:
-            try:
-                Xi_raw, Zi_raw, _xi, _zi, metadata = create_common_xz_grid(
-                    {"current_case": slice_data},
-                    nx=nx_value,
-                    nz=nz_value,
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to create fixed x-z grid from {source_path}: {exc}"
-                ) from exc
-            Xi = np.asarray(Xi_raw, dtype=float)
-            Zi = np.asarray(Zi_raw, dtype=float)
-            if Xi.ndim != 2 or Zi.ndim != 2 or Xi.shape != Zi.shape:
-                raise ValueError(
-                    f"Fixed grid created from {source_path} must contain matching "
-                    "two-dimensional Xi and Zi arrays."
-                )
-            grid_metadata = MappingProxyType(dict(metadata))
-            if reuse_interpolation_geometry:
+        slice_data: Mapping[str, object] | None = None
+        if spectral:
+            if interpolation_plan is None:
                 try:
-                    interpolation_plan = build_fixed_grid_interpolation_plan(
-                        slice_data["x"],
-                        slice_data["z"],
-                        Xi,
-                        Zi,
-                        method=interpolation_method,
+                    spectral_plan = build_spectral_slice_interpolation_plan(
+                        data,
+                        nx=nx_value,
+                        nz=nz_value,
+                        y_target=slice_y,
                     )
                 except Exception as exc:
                     raise RuntimeError(
-                        "Failed to build reusable interpolation geometry from "
+                        "Failed to build spectral-element interpolation plan from "
                         f"{source_path}: {exc}"
                     ) from exc
+                interpolation_plan = spectral_plan
+                Xi = spectral_plan.Xi
+                Zi = spectral_plan.Zi
+                grid_metadata = spectral_plan_metadata(spectral_plan)
+        else:
+            try:
+                slice_data = extract_y_slice(
+                    data,
+                    slab_ratio=slab_ratio,
+                    mode=slice_mode,
+                    y_round_decimals=y_round_decimals,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to extract concentration slice from {source_path}: {exc}"
+                ) from exc
+            if Xi is None or Zi is None:
+                try:
+                    Xi_raw, Zi_raw, _xi, _zi, metadata = create_common_xz_grid(
+                        {"current_case": slice_data},
+                        nx=nx_value,
+                        nz=nz_value,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Failed to create fixed x-z grid from {source_path}: {exc}"
+                    ) from exc
+                Xi = np.asarray(Xi_raw, dtype=float)
+                Zi = np.asarray(Zi_raw, dtype=float)
+                if Xi.ndim != 2 or Zi.ndim != 2 or Xi.shape != Zi.shape:
+                    raise ValueError(
+                        f"Fixed grid created from {source_path} must contain matching "
+                        "two-dimensional Xi and Zi arrays."
+                    )
+                grid_metadata = MappingProxyType(dict(metadata))
+                if reuse_interpolation_geometry:
+                    try:
+                        interpolation_plan = build_fixed_grid_interpolation_plan(
+                            slice_data["x"],
+                            slice_data["z"],
+                            Xi,
+                            Zi,
+                            method=method_value,
+                        )
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "Failed to build reusable interpolation geometry from "
+                            f"{source_path}: {exc}"
+                        ) from exc
 
+        assert Xi is not None
+        assert Zi is not None
         try:
-            if reuse_interpolation_geometry:
+            if spectral:
                 assert interpolation_plan is not None
+                concentration = apply_spectral_slice_interpolation_plan(
+                    interpolation_plan,  # type: ignore[arg-type]
+                    data,
+                    source_file=source_path,
+                )
+            elif reuse_interpolation_geometry:
+                assert interpolation_plan is not None
+                assert slice_data is not None
                 concentration = apply_fixed_grid_interpolation_plan(
-                    interpolation_plan,
+                    interpolation_plan,  # type: ignore[arg-type]
                     slice_data["x"],
                     slice_data["z"],
                     slice_data["C"],
                 )
             else:
+                assert slice_data is not None
                 concentration = interpolate_to_grid(
                     slice_data["x"],
                     slice_data["z"],
                     slice_data["C"],
                     Xi,
                     Zi,
-                    method=interpolation_method,
+                    method=method_value,
                     deduplicate=True,
                 )
-        except FixedGridGeometryMismatchError as exc:
-            raise FixedGridGeometryMismatchError(
+        except (FixedGridGeometryMismatchError, SpectralGeometryMismatchError) as exc:
+            raise type(exc)(
                 f"Source geometry mismatch for {source_path}: {exc}"
             ) from exc
         except Exception as exc:
@@ -207,7 +286,11 @@ def build_concentration_sequence(
         finite_fractions.append(float(np.count_nonzero(finite) / finite.size))
         concentration_mins.append(float(np.nanmin(concentration_arr)))
         concentration_maxes.append(float(np.nanmax(concentration_arr)))
-        if slice_mode == "nearest_plane":
+        if spectral:
+            assert interpolation_plan is not None
+            selected_y_values.append(float(interpolation_plan.y_target))
+        elif slice_mode == "nearest_plane":
+            assert slice_data is not None
             selected_y_values.append(float(slice_data.get("selected_y", np.nan)))
         else:
             selected_y_values.append(float("nan"))
@@ -217,6 +300,7 @@ def build_concentration_sequence(
         parallel_results = preprocess_front_detection_frames_parallel(
             frames[1:],
             interpolation_plan,
+            interpolation_engine=interpolation_engine,
             slice_mode=slice_mode,
             slab_ratio=slab_ratio,
             y_round_decimals=y_round_decimals,
@@ -258,6 +342,11 @@ def build_concentration_sequence(
     assert Xi is not None
     assert Zi is not None
     assert grid_metadata is not None
+    spectral_plan = (
+        interpolation_plan
+        if isinstance(interpolation_plan, SpectralSliceInterpolationPlan)
+        else None
+    )
     return ConcentrationSequence(
         time=time_arr,
         file_indices=np.asarray(indices, dtype=np.int64),
@@ -270,10 +359,15 @@ def build_concentration_sequence(
         concentration_max=np.asarray(concentration_maxes, dtype=float),
         grid_metadata=grid_metadata,
         selected_y=np.asarray(selected_y_values, dtype=float),
-        interpolation_method=interpolation_method,
-        interpolation_engine=(
-            "precomputed_geometry"
-            if reuse_interpolation_geometry
-            else "per_frame_griddata"
+        interpolation_method=method_value,
+        interpolation_engine=interpolation_engine,
+        spectral_element_shape=(
+            None if spectral_plan is None else spectral_plan.element_shape
+        ),
+        spectral_polynomial_order=(
+            None if spectral_plan is None else spectral_plan.polynomial_order
+        ),
+        spectral_slice_y=(
+            None if spectral_plan is None else spectral_plan.y_target
         ),
     )
