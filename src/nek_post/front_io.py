@@ -7,6 +7,16 @@ from pathlib import Path
 
 import numpy as np
 
+from nek_post.front_detection import (
+    STATUS_SELECTED_INITIAL,
+    STATUS_SELECTED_TRACKED,
+)
+
+
+SUCCESSFUL_AUTOMATIC_FRONT_STATUSES = frozenset(
+    {STATUS_SELECTED_INITIAL, STATUS_SELECTED_TRACKED}
+)
+
 
 def parse_case_labels(raw: str) -> list[str]:
     """Parse comma-separated case labels such as ``N5,N7,N9``."""
@@ -117,6 +127,74 @@ def read_digitized_paper_csv(path: Path, *, require_positive: bool = True) -> di
     if require_positive and not np.any(positive):
         raise ValueError(f"{path} has no finite positive rows for log-log plotting.")
     return {"time": time, "x": x_value, "paper_x": x_value, "positive_mask": positive}
+
+
+def read_detected_front_timeseries_csv(path: Path) -> dict[str, np.ndarray]:
+    """Read successful automatic detections from a front timeseries CSV."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Detected-front CSV not found: {path}")
+
+    retained: list[tuple[float, float, str]] = []
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        required = {"time", "x_front_auto", "status"}
+        available = set(reader.fieldnames or [])
+        missing = sorted(required - available)
+        if missing:
+            raise ValueError(
+                f"{path} is missing required column(s): {', '.join(missing)}"
+            )
+
+        for line_number, row in enumerate(reader, start=2):
+            status = (row["status"] or "").strip()
+            if status not in SUCCESSFUL_AUTOMATIC_FRONT_STATUSES:
+                continue
+            try:
+                time = float(row["time"])
+                x_front_auto = float(row["x_front_auto"])
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"{path}:{line_number} has non-numeric time or x_front_auto."
+                ) from None
+
+            if not np.isfinite(time) or not np.isfinite(x_front_auto):
+                raise ValueError(
+                    f"{path}:{line_number} has non-finite time or x_front_auto "
+                    f"for successful status {status!r}."
+                )
+            retained.append((time, x_front_auto, status))
+
+    if len(retained) < 2:
+        raise ValueError(
+            f"{path} must contain at least two successful automatic-front points."
+        )
+
+    time = np.asarray([row[0] for row in retained], dtype=np.float64)
+    x_front_auto = np.asarray([row[1] for row in retained], dtype=np.float64)
+    status = np.asarray([row[2] for row in retained], dtype=str)
+    order = np.argsort(time, kind="stable")
+    time = time[order]
+    x_front_auto = x_front_auto[order]
+    status = status[order]
+    if np.any(np.diff(time) <= 0.0):
+        duplicate_times = time[
+            np.concatenate(([False], np.diff(time) == 0.0))
+        ]
+        if duplicate_times.size:
+            duplicates = ", ".join(
+                f"{value:.16g}" for value in np.unique(duplicate_times)
+            )
+            raise ValueError(
+                f"{path} contains duplicate retained time value(s): {duplicates}."
+            )
+        raise ValueError(f"{path} contains non-increasing retained time values.")
+
+    return {
+        "time": time,
+        "x_front_auto": x_front_auto,
+        "status": status,
+    }
 
 
 def read_processed_front_kinematics_csv(path: Path) -> dict[str, np.ndarray]:
