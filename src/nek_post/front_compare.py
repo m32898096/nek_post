@@ -96,7 +96,13 @@ def interpolate_to_paper_times(
     paper_x_overlap = paper_x_arr[overlap]
     source_interp = np.interp(time, source_time_arr, source_x_arr)
     error = source_interp - paper_x_overlap
-    relative_error = error / paper_x_overlap
+    relative_error = np.full_like(error, np.nan, dtype=float)
+    np.divide(
+        error,
+        paper_x_overlap,
+        out=relative_error,
+        where=paper_x_overlap != 0.0,
+    )
     positive = (source_interp > 0.0) & (paper_x_overlap > 0.0)
     log_error = np.full_like(error, np.nan, dtype=float)
     log_error[positive] = np.log(source_interp[positive]) - np.log(paper_x_overlap[positive])
@@ -133,6 +139,31 @@ def compare_front_to_paper(
         if str(exc) == "Simulation and paper time ranges do not overlap.":
             raise ValueError(no_overlap_message) from exc
         raise
+
+
+def compare_automatic_front_to_paper(
+    automatic_front: dict[str, np.ndarray],
+    paper: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    """Compare relative automatic-front positions at overlapping paper times."""
+    comparison = compare_front_to_paper(
+        automatic_front,
+        paper,
+        front_x_key="x_relative",
+        interpolated_key="automatic_x_interp",
+        error_key="difference",
+        no_overlap_message="Automatic-front and paper time ranges do not overlap.",
+    )
+    difference = comparison["difference"]
+    return {
+        "time": comparison["time"],
+        "paper_x": comparison["paper_x"],
+        "automatic_x_interp": comparison["automatic_x_interp"],
+        "difference": difference,
+        "absolute_difference": np.abs(difference),
+        "relative_difference": comparison["relative_error"],
+        "log_difference": comparison["log_error"],
+    }
 
 
 def slumping_velocity_metrics(
