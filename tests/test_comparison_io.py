@@ -41,6 +41,7 @@ def _paths(tmp_path: Path) -> ProjectPaths:
         postproc_root=tmp_path / "postproc",
         results_root=tmp_path / "results",
         cantero_fig5a_re3450_csv=tmp_path / "paper.csv",
+        cantero_fig5a_re8950_csv=tmp_path / "paper-re8950.csv",
     )
 
 

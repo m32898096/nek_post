@@ -12,12 +12,16 @@ def _write_paths_yaml(tmp_path: Path, *, include_results_root: bool = True) -> P
         """data_root: /tmp/nek-data
 case_dirs:
   N5: /tmp/nek-data/case_N5
+  N7: /tmp/nek-data/case_N7
+  N9: /tmp/nek-data/case_N9
   N11: /tmp/nek-data/case_N11
+  GC8950_N7: /tmp/nek-data/GC8950_N7
 postproc_root: /tmp/nek-postproc
 """
         + results_root
         + """paper_data:
   cantero_fig5a_re3450_csv: /tmp/paper/cantero_fig5a_re3450.csv
+  cantero_fig5a_re8950_csv: /tmp/paper/cantero_fig5a_re8950.csv
 """,
         encoding="utf-8",
     )
@@ -37,8 +41,13 @@ def test_known_and_unknown_case_lookup(tmp_path: Path) -> None:
     paths = ProjectPaths.from_yaml(_write_paths_yaml(tmp_path))
 
     assert paths.case_dir("N5") == Path("/tmp/nek-data/case_N5")
-    with pytest.raises(ValueError, match="Unknown case 'N7'.*N11, N5"):
-        paths.case_dir("N7")
+    assert paths.case_dir("GC3450_N5") == Path("/tmp/nek-data/case_N5")
+    assert paths.case_dir("GC3450_N7") == Path("/tmp/nek-data/case_N7")
+    assert paths.case_dir("GC3450_N9") == Path("/tmp/nek-data/case_N9")
+    assert paths.case_dir("GC3450_N11") == Path("/tmp/nek-data/case_N11")
+    assert paths.case_dir("GC8950_N7") == Path("/tmp/nek-data/GC8950_N7")
+    with pytest.raises(ValueError, match="Unknown case 'missing'"):
+        paths.case_dir("missing")
 
 
 def test_derives_established_output_directories(tmp_path: Path) -> None:
@@ -60,10 +69,29 @@ def test_derives_established_output_directories(tmp_path: Path) -> None:
     assert paths.combined_xt_overlay_dir == Path("/tmp/nek-results/combined_xt_overlay")
 
 
-def test_loads_cantero_figure_5a_csv_path(tmp_path: Path) -> None:
+def test_loads_cantero_figure_5a_csv_paths(tmp_path: Path) -> None:
     paths = ProjectPaths.from_yaml(_write_paths_yaml(tmp_path))
 
     assert paths.cantero_fig5a_re3450_csv == Path("/tmp/paper/cantero_fig5a_re3450.csv")
+    assert paths.cantero_fig5a_re8950_csv == Path("/tmp/paper/cantero_fig5a_re8950.csv")
+
+
+def test_repository_configuration_exposes_all_paper_and_case_datasets() -> None:
+    paths = ProjectPaths.from_yaml()
+
+    assert paths.cantero_fig5a_re3450_csv == Path(
+        "/data/Nek5000_data/cantero/cantero_fig5a_3D_Re3450.csv"
+    )
+    assert paths.cantero_fig5a_re8950_csv == Path(
+        "/data/Nek5000_data/cantero/cantero_fig5a_3D_Re8950.csv"
+    )
+    assert paths.case_dir("GC3450_N5") == Path("/data/Nek5000_data/case_N5")
+    assert paths.case_dir("GC3450_N7") == Path("/data/Nek5000_data/case_N7")
+    assert paths.case_dir("GC3450_N9") == Path("/data/Nek5000_data/case_N9")
+    assert paths.case_dir("GC3450_N11") == Path("/data/Nek5000_data/case_N11")
+    assert paths.case_dir("GC8950_N7") == Path(
+        "/data/Nek5000_data/GC8950_N7"
+    )
 
 
 def test_missing_required_key_fails_clearly(tmp_path: Path) -> None:

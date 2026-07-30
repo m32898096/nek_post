@@ -6,10 +6,16 @@ This repository now includes a working `t19p5` polynomial-order comparison workf
 
 Raw simulation data is stored outside the repository under `/data/Nek5000_data`:
 
-- `/data/Nek5000_data/case_N5`
-- `/data/Nek5000_data/case_N7`
-- `/data/Nek5000_data/case_N9`
-- `/data/Nek5000_data/case_N11`
+- `N5` (`GC3450_N5`): `/data/Nek5000_data/case_N5`
+- `N7` (`GC3450_N7`): `/data/Nek5000_data/case_N7`
+- `N9` (`GC3450_N9`): `/data/Nek5000_data/case_N9`
+- `N11` (`GC3450_N11`): `/data/Nek5000_data/case_N11`
+- `GC8950_N7`: `/data/Nek5000_data/GC8950_N7`
+
+Configured digitized paper datasets are:
+
+- Re3450: `/data/Nek5000_data/cantero/cantero_fig5a_3D_Re3450.csv`
+- Re8950: `/data/Nek5000_data/cantero/cantero_fig5a_3D_Re8950.csv`
 
 Intermediate processed data is stored under:
 

@@ -11,6 +11,14 @@ from nek_post.config import load_yaml
 
 
 DEFAULT_PATHS_FILE = Path(__file__).resolve().parents[2] / "config" / "paths.yaml"
+CASE_LABEL_ALIASES = MappingProxyType(
+    {
+        "GC3450_N5": "N5",
+        "GC3450_N7": "N7",
+        "GC3450_N9": "N9",
+        "GC3450_N11": "N11",
+    }
+)
 
 
 class ProjectPathsConfigError(ValueError):
@@ -36,6 +44,7 @@ class ProjectPaths:
     postproc_root: Path
     results_root: Path
     cantero_fig5a_re3450_csv: Path
+    cantero_fig5a_re8950_csv: Path
 
     def __post_init__(self) -> None:
         converted_case_dirs = MappingProxyType(
@@ -46,6 +55,7 @@ class ProjectPaths:
         object.__setattr__(self, "postproc_root", Path(self.postproc_root))
         object.__setattr__(self, "results_root", Path(self.results_root))
         object.__setattr__(self, "cantero_fig5a_re3450_csv", Path(self.cantero_fig5a_re3450_csv))
+        object.__setattr__(self, "cantero_fig5a_re8950_csv", Path(self.cantero_fig5a_re8950_csv))
 
     @classmethod
     def from_mapping(cls, config: Mapping[str, Any]) -> ProjectPaths:
@@ -66,6 +76,9 @@ class ProjectPaths:
             cantero_fig5a_re3450_csv=Path(
                 _required(paper_data, "cantero_fig5a_re3450_csv", "paper_data")
             ),
+            cantero_fig5a_re8950_csv=Path(
+                _required(paper_data, "cantero_fig5a_re8950_csv", "paper_data")
+            ),
         )
 
     @classmethod
@@ -75,8 +88,9 @@ class ProjectPaths:
 
     def case_dir(self, label: str) -> Path:
         """Return a configured case directory, rejecting unknown case labels."""
+        resolved_label = CASE_LABEL_ALIASES.get(label, label)
         try:
-            return self.case_dirs[label]
+            return self.case_dirs[resolved_label]
         except KeyError as exc:
             available = ", ".join(sorted(self.case_dirs))
             raise ValueError(f"Unknown case {label!r}. Available cases: {available}") from exc

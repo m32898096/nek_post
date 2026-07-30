@@ -5,9 +5,11 @@ case_dirs:
   N7: /data/Nek5000_data/case_N7
   N9: /data/Nek5000_data/case_N9
   N11: /data/Nek5000_data/case_N11
+  GC8950_N7: /data/Nek5000_data/GC8950_N7
 
 postproc_root: /data/Nek5000_data/postproc/poly_order_compare
 results_root: /data/Nek5000_data/results/poly_order_compare
 
 paper_data:
   cantero_fig5a_re3450_csv: /data/Nek5000_data/cantero/cantero_fig5a_3D_Re3450.csv
+  cantero_fig5a_re8950_csv: /data/Nek5000_data/cantero/cantero_fig5a_3D_Re8950.csv
