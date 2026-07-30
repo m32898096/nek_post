@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from nek_post.front_detection import track_concentration_front
+from nek_post.front_detection_compare import empty_front_detection_comparison
 from nek_post.front_detection_io import (
     COMPARISON_COLUMNS,
     SUMMARY_COLUMNS,
@@ -60,6 +61,7 @@ def _outputs():
             "case": "N7",
             "reference_file": "front_simple.dat",
             "reference_role": "external_comparison_only",
+            "comparison_status": "available",
             "interpolation_method": "linear",
         }
     )
@@ -206,6 +208,31 @@ def test_csv_headers_formatting_status_boolean_and_row_order(tmp_path: Path) -> 
     )
     assert format_csv_value(7) == "7"
     assert format_csv_value(False) == "False"
+
+
+def test_empty_comparison_csv_contains_header_and_zero_data_rows(
+    tmp_path: Path,
+) -> None:
+    sequence, tracking, _comparison, summary = _outputs()
+    summary.update(
+        {
+            "comparison_status": "no_time_overlap",
+            "n_comparison_points": 0,
+        }
+    )
+
+    paths = write_front_detection_csvs(
+        tmp_path,
+        "N7",
+        sequence,
+        tracking,
+        empty_front_detection_comparison(),
+        summary,
+        overwrite=False,
+    )
+
+    rows = list(csv.reader(paths[1].open(encoding="utf-8")))
+    assert rows == [list(COMPARISON_COLUMNS)]
 
 
 def test_preflight_conflict_rejects_before_writing_any_csv(tmp_path: Path) -> None:

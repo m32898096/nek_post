@@ -24,6 +24,11 @@ from nek_post.fixed_grid_interpolation import (
 from nek_post.front_detection_io import NekFramePath
 from nek_post.io_nek import get_nek_time, read_nek_file
 from nek_post.slicing import extract_y_slice
+from nek_post.spectral_interpolation import (
+    SpectralGeometryMismatchError,
+    SpectralSliceInterpolationPlan,
+    apply_spectral_slice_interpolation_plan,
+)
 
 
 class ParallelFramePreprocessingError(RuntimeError):
@@ -46,7 +51,8 @@ class FrontDetectionFrameResult:
 
 @dataclass(frozen=True)
 class _WorkerContext:
-    interpolation_plan: FixedGridInterpolationPlan
+    interpolation_plan: FixedGridInterpolationPlan | SpectralSliceInterpolationPlan
+    interpolation_engine: str
     slice_mode: str
     slab_ratio: float
     y_round_decimals: int
@@ -82,13 +88,14 @@ def _finite_frame_time(data: object, source_path: Path) -> float:
 
 def preprocess_front_detection_frame(
     frame: NekFramePath,
-    interpolation_plan: FixedGridInterpolationPlan,
+    interpolation_plan: FixedGridInterpolationPlan | SpectralSliceInterpolationPlan,
     *,
+    interpolation_engine: str = "scattered_linear",
     slice_mode: str,
     slab_ratio: float,
     y_round_decimals: int,
 ) -> FrontDetectionFrameResult:
-    """Read, slice, validate, interpolate, and reduce one later frame."""
+    """Read, validate, interpolate, and reduce one later frame."""
     source_path = Path(frame.path)
     try:
         data = read_nek_file(source_path)
@@ -97,34 +104,58 @@ def preprocess_front_detection_frame(
             f"Failed to read Nek frame {source_path}: {exc}"
         ) from exc
     frame_time = _finite_frame_time(data, source_path)
+    slice_data: dict[str, object] | None = None
+    if interpolation_engine == "spectral_element":
+        try:
+            concentration = apply_spectral_slice_interpolation_plan(
+                interpolation_plan,  # type: ignore[arg-type]
+                data,
+                source_file=source_path,
+            )
+        except SpectralGeometryMismatchError as exc:
+            raise SpectralGeometryMismatchError(
+                f"Source geometry mismatch for {source_path}: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to interpolate concentration from {source_path}: {exc}"
+            ) from exc
+    elif interpolation_engine in {"scattered_linear", "scattered_nearest"}:
+        try:
+            slice_data = extract_y_slice(
+                data,
+                slab_ratio=slab_ratio,
+                mode=slice_mode,
+                y_round_decimals=y_round_decimals,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to extract concentration slice from {source_path}: {exc}"
+            ) from exc
+        try:
+            concentration = apply_fixed_grid_interpolation_plan(
+                interpolation_plan,  # type: ignore[arg-type]
+                slice_data["x"],
+                slice_data["z"],
+                slice_data["C"],
+            )
+        except FixedGridGeometryMismatchError as exc:
+            raise FixedGridGeometryMismatchError(
+                f"Source geometry mismatch for {source_path}: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to interpolate concentration from {source_path}: {exc}"
+            ) from exc
+    else:
+        raise ValueError(f"Unknown interpolation engine {interpolation_engine!r}.")
     try:
-        slice_data = extract_y_slice(
-            data,
-            slab_ratio=slab_ratio,
-            mode=slice_mode,
-            y_round_decimals=y_round_decimals,
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            f"Failed to extract concentration slice from {source_path}: {exc}"
-        ) from exc
-    try:
-        concentration = apply_fixed_grid_interpolation_plan(
-            interpolation_plan,
-            slice_data["x"],
-            slice_data["z"],
-            slice_data["C"],
-        )
-    except FixedGridGeometryMismatchError as exc:
-        raise FixedGridGeometryMismatchError(
-            f"Source geometry mismatch for {source_path}: {exc}"
-        ) from exc
+        concentration_arr = np.asarray(concentration, dtype=np.float64)
     except Exception as exc:
         raise RuntimeError(
             f"Failed to interpolate concentration from {source_path}: {exc}"
         ) from exc
 
-    concentration_arr = np.asarray(concentration, dtype=np.float64)
     if concentration_arr.shape != interpolation_plan.target_shape:
         raise ValueError(
             f"Interpolated concentration from {source_path} has shape "
@@ -138,9 +169,13 @@ def preprocess_front_detection_frame(
         )
     concentration_arr.setflags(write=False)
     selected_y = (
-        float(slice_data.get("selected_y", np.nan))
-        if slice_mode == "nearest_plane"
-        else float("nan")
+        float(interpolation_plan.y_target)
+        if interpolation_engine == "spectral_element"
+        else (
+            float(slice_data.get("selected_y", np.nan))
+            if slice_mode == "nearest_plane" and slice_data is not None
+            else float("nan")
+        )
     )
     return FrontDetectionFrameResult(
         file_index=int(frame.index),
@@ -155,7 +190,8 @@ def preprocess_front_detection_frame(
 
 
 def _initialize_worker(
-    interpolation_plan: FixedGridInterpolationPlan,
+    interpolation_plan: FixedGridInterpolationPlan | SpectralSliceInterpolationPlan,
+    interpolation_engine: str,
     slice_mode: str,
     slab_ratio: float,
     y_round_decimals: int,
@@ -163,6 +199,7 @@ def _initialize_worker(
     global _WORKER_CONTEXT
     _WORKER_CONTEXT = _WorkerContext(
         interpolation_plan=interpolation_plan,
+        interpolation_engine=interpolation_engine,
         slice_mode=slice_mode,
         slab_ratio=slab_ratio,
         y_round_decimals=y_round_decimals,
@@ -178,6 +215,7 @@ def _preprocess_worker_frame(
     return preprocess_front_detection_frame(
         frame,
         context.interpolation_plan,
+        interpolation_engine=context.interpolation_engine,
         slice_mode=context.slice_mode,
         slab_ratio=context.slab_ratio,
         y_round_decimals=context.y_round_decimals,
@@ -186,8 +224,9 @@ def _preprocess_worker_frame(
 
 def preprocess_front_detection_frames_parallel(
     frame_paths: Sequence[NekFramePath],
-    interpolation_plan: FixedGridInterpolationPlan,
+    interpolation_plan: FixedGridInterpolationPlan | SpectralSliceInterpolationPlan,
     *,
+    interpolation_engine: str = "scattered_linear",
     slice_mode: str,
     slab_ratio: float,
     y_round_decimals: int,
@@ -209,6 +248,7 @@ def preprocess_front_detection_frames_parallel(
         initializer=_initialize_worker,
         initargs=(
             interpolation_plan,
+            interpolation_engine,
             slice_mode,
             slab_ratio,
             y_round_decimals,

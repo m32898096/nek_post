@@ -137,16 +137,20 @@ Phase 2 connects the numerical core to Nek5000 snapshots. N7 is the current
 primary case. The workflow:
 
 1. discovers exact `GC0.fNNNNN` files and sorts their five-digit indices;
-2. extracts the nearest-plane y-midspan concentration slice from each file;
-3. creates one fixed x-z grid from the first selected snapshot;
-4. interpolates every concentration slice to that same grid;
+2. resolves an exact physical y target from `--slice-y` or the first
+   snapshot's y-domain midpoint;
+3. creates one fixed x-z grid from the first selected snapshot's intersecting
+   spectral elements;
+4. evaluates every element-local concentration field directly on that grid;
 5. calls the unchanged Phase 1 tracker;
 6. compares successful detections with `front_simple.dat`;
 7. writes diagnostic CSV files and reference-comparison figures.
 
-The default fixed grid is 500 by 200 points, and concentration interpolation
-is linear. Interpolation NaNs remain NaN and are excluded by the Phase 1
-finite mask. No intermediate slice or grid files are written.
+The default fixed grid is 500 by 200 points. The default preprocessing engine
+is `spectral_element`; the previous scattered-linear interpolation remains
+available as the `scattered_linear` regression baseline. Interpolation NaNs
+remain NaN and are excluded by the Phase 1 finite mask. No intermediate slice
+or grid files are written.
 
 The automatic front is the primary result. `front_simple.dat` is used only as
 an external reference for post-hoc comparison and is not treated as ground
@@ -164,6 +168,29 @@ difference = x_auto - x_front_simple
 Agreement or disagreement describes a trend comparison between independently
 defined curves; it is not an automatic-front accuracy score.
 
+### Optional reference comparison
+
+`front_simple.dat` is an optional external post-hoc comparison only. A valid
+automatic-front sequence remains successful when its times do not overlap the
+reference range. In that case:
+
+- the automatic timeseries and summary CSVs are written normally;
+- the comparison CSV is written with its normal header and zero data rows;
+- `comparison_status` is `no_time_overlap`;
+- `n_comparison_points` is zero and comparison-dependent metrics are NaN;
+- the overlay and difference figures are skipped;
+- requested diagnostic figures remain available.
+
+No reference extrapolation is performed. A missing or malformed reference
+still fails clearly when comparison is enabled.
+
+Use `--no-reference-comparison` to disable only this optional comparison. The
+reference file is not read or required, `comparison_status` is `disabled`,
+`reference_role` is `not_requested`, and `reference_file` is empty in the
+summary. Automatic detection, all CSV outputs, and requested diagnostics still
+run. The comparison CSV remains header-only and comparison figures are
+skipped.
+
 ### Provisional defaults
 
 The CLI exposes these current detection defaults:
@@ -176,9 +203,8 @@ bottom_rows: 3
 max_front_jump: 0.5
 connectivity: 8
 grid: 500 x 200
-slice_mode: nearest_plane
-interpolation_method: linear
-interpolation_engine: precomputed_geometry
+interpolation_engine: spectral_element
+spectral_slice_y: first-file domain midpoint
 preprocessing_workers: 1
 ```
 
@@ -206,42 +232,157 @@ PYENV_VERSION=research312 python scripts/16_detect_front_from_concentration.py \
   --overwrite
 ```
 
-## Reusable fixed-grid interpolation geometry
+### Spectral and baseline commands
 
-The default workflow assumes the selected Nek mesh and extracted source-point
-order are stationary. It validates that assumption for every frame before
-reusing any interpolation geometry. The first frame establishes the fixed
-`Xi`/`Zi` grid, rounded duplicate-point groups, and either:
+Probe one N7 frame with the spectral engine:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --start-index 1 \
+  --end-index 1 \
+  --interpolation-engine spectral_element \
+  --workers 1 \
+  --no-cache \
+  --diagnostic-indices 1 \
+  --output-dir /tmp/n7-spectral-probe \
+  --overwrite
+```
+
+This single-frame probe should finish successfully even when its `t = 0`
+automatic result does not overlap the reference time range. The comparison
+CSV will then be header-only and the comparison figures will be skipped.
+
+Disable the optional reference comparison explicitly:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --start-index 1 \
+  --end-index 1 \
+  --interpolation-engine spectral_element \
+  --workers 1 \
+  --no-cache \
+  --no-reference-comparison \
+  --diagnostic-indices 1 \
+  --output-dir /tmp/n7-spectral-no-reference \
+  --overwrite
+```
+
+Build the full spectral cache with the recommended two workers:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --interpolation-engine spectral_element \
+  --workers 2 \
+  --rebuild-cache \
+  --diagnostic-indices 1,9,21,41,61,81 \
+  --output-dir \
+  /data/Nek5000_data/results/poly_order_compare/front_detection/N7_spectral \
+  --overwrite
+```
+
+Run the retained scattered-linear baseline:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/16_detect_front_from_concentration.py \
+  --case N7 \
+  --interpolation-engine scattered_linear \
+  --workers 2 \
+  --output-dir \
+  /data/Nek5000_data/results/poly_order_compare/front_detection/N7_linear \
+  --overwrite
+```
+
+## Spectral-element interpolation
+
+Formal N7 processing uses eight GLL nodes and degree-seven interpolation in
+each reference direction. The code does not hardcode N7. It reads the element
+shape from the native PyMech arrays and represents polynomial order as:
+
+```python
+tuple(size - 1 for size in element_shape)
+```
+
+PyMech stores each component before three native element axes, normally
+reported as `(lz, ly, lx)`. Those array axes are treated only as reference
+directions `q0`, `q1`, and `q2`; no NumPy axis is assumed to be physical x, y,
+or z. The tensor mapping determines the physical coordinates.
+
+The first frame builds an immutable `SpectralSliceInterpolationPlan`.
+Per-element physical AABBs select elements whose y range intersects the
+requested slice and populate a regular x-z bin index. Each target checks only
+candidates in its spatial bin. Physical coordinates are inverted to
+`(q0, q1, q2)` with an analytic-Jacobian Newton iteration, initialized from
+the nearest physical GLL node. Backtracking damps a step when the full Newton
+update increases residual. An element is accepted only when both its
+element-size-scaled physical residual and its reference-coordinate
+containment test pass.
+
+At a conforming boundary, every successful candidate is considered.
+Ownership is chosen by smallest physical residual and then lowest element
+index; the ambiguity count is retained in plan diagnostics. Targets not
+contained in any physical element remain NaN. There is no extrapolation or
+gap filling.
+
+GLL fields use tensor-product barycentric Lagrange interpolation. To avoid a
+large full tensor-weight matrix, the plan stores one basis row per reference
+direction:
+
+```text
+basis_q0: valid_target_count x n0
+basis_q1: valid_target_count x n1
+basis_q2: valid_target_count x n2
+```
+
+Frame application loops over used elements and evaluates all targets owned by
+each element with a vectorized tensor contraction.
+
+The exact target is `(Xi, spectral_slice_y, Zi)`, not a nearby GLL y plane.
+For the current N7 domain, midpoint resolution is expected to be approximately
+`y = 0.75`; the CLI prints the value actually resolved from the first file.
+Concentration remains float64 and is not smoothed, clipped, or corrected;
+spectral overshoots, undershoots, and NaNs are preserved. High-order
+interpolation is not automatically more accurate for a chosen threshold:
+threshold and target-grid sensitivity still require explicit checks.
+
+The plan stores a BLAKE2b signature over every element's shape and canonical
+float64 x, y, and z arrays. Later frames must have identical element counts,
+shapes, and signatures. A mismatch names the source file and element index;
+spectral processing never silently falls back to a scattered method.
+
+## Scattered regression baselines
+
+The `scattered_linear` and `scattered_nearest` engines retain the prior
+nearest-plane/slab workflow. The first frame establishes the fixed `Xi`/`Zi`
+grid, rounded duplicate-point groups, and either:
 
 - one Delaunay triangulation plus target simplex vertices and barycentric
   weights for linear interpolation; or
 - one nearest-neighbor lookup from target points to deduplicated source
   points.
 
-Later frames validate the raw source-point count, finite-coordinate pattern,
-and rounded x-z key at every source-array position. Only concentration values
-change: finite values are averaged within the established duplicate groups
-and then applied through the stored NumPy weight or index arrays. Linear
-targets outside the original convex hull remain NaN. A duplicate group with
-no finite concentration value also remains NaN.
-
-Changed geometry fails with the source file and first mismatching position
-rather than silently applying invalid weights or falling back to `griddata`.
-Use `--per-frame-griddata` only for regression comparison or benchmarking; it
-restores independent `scipy.interpolate.griddata` processing for every frame.
-The CLI prints either `precomputed_geometry` or `per_frame_griddata` as the
-selected interpolation engine. No performance factor is assumed without a
-separate benchmark.
+Later frames validate the source-point count, finite-coordinate pattern, and
+rounded x-z keys before reusing the plan. Changed geometry fails rather than
+falling back to `griddata`. `--per-frame-griddata` restores independent
+`scipy.interpolate.griddata` processing for every scattered frame and is
+rejected with `spectral_element`.
 
 ## Optional parallel preprocessing
 
 Use `--workers N` to process later Nek frames with a
 `ProcessPoolExecutor` when a concentration sequence must be built. The first
 selected frame always remains serial because it defines `Xi`/`Zi`, the
-midspan geometry, duplicate groups, and reusable interpolation plan. Each
-worker receives that plan once during process initialization, then reads,
-slices, validates, and interpolates its assigned frames. The parent limits
-in-flight tasks and restores exact numeric file-index order.
+midspan geometry, and reusable interpolation plan. Each worker receives that
+plan once during process initialization, then reads, validates, and
+interpolates its assigned frames. Scattered workers additionally extract the
+configured slice. The parent limits in-flight tasks and restores exact numeric
+file-index order.
 
 The default remains serial:
 
@@ -254,8 +395,8 @@ PYENV_VERSION=research312 python \
   --overwrite
 ```
 
-For data on a hard disk, two workers are the recommended first parallel
-benchmark:
+Two workers remain the recommended first parallel setting for the measured
+environment:
 
 ```bash
 PYENV_VERSION=research312 python \
@@ -289,15 +430,15 @@ default reusable interpolation geometry; use `--workers 1` with
 
 ## Concentration-sequence cache
 
-Reading every Nek frame, extracting the midspan slice, and interpolating it
-onto the common fixed grid is the expensive preprocessing stage. The CLI
+Reading every Nek frame and interpolating it onto the common fixed grid is the
+expensive preprocessing stage. The CLI
 caches that stage as an uncompressed directory under
 `postproc_root/front_detection_cache/CASE` by default. A typical directory is:
 
 ```text
 front_detection_cache/
 └── N7/
-    └── GC0_f00001-f00081_n81_500x200_nearest_plane_linear_precomputed/
+    └── GC0_f00001-f00081_n81_500x200_nearest_plane_spectral_spectral_element_ydomain_midpoint/
         ├── manifest.json
         ├── time.npy
         ├── file_indices.npy
@@ -310,24 +451,28 @@ front_detection_cache/
         └── selected_y.npy
 ```
 
-The first execution performs full Nek reading, slicing, and interpolation,
-then creates the cache. Later executions load the fixed-grid sequence and run
-tracking directly. `Xi`, `Zi`, and especially the uncompressed float64
+The first execution performs full Nek reading and interpolation, then creates
+the cache. Scattered engines also perform the configured slice extraction.
+Later executions load the fixed-grid sequence and run tracking directly.
+`Xi`, `Zi`, and especially the uncompressed float64
 `C_frames` array are loaded read-only with NumPy memory mapping, so the main
 concentration array is not copied into memory merely to load the cache.
 
 The manifest records the full ordered file-index list, normalized source
 paths, source sizes and nanosecond modification times, preprocessing settings,
 grid metadata, interpolation method, interpolation engine, and every array's
-filename, shape, and dtype. These values are validated on every cache hit. A
+filename, shape, and dtype. Spectral manifests also record the spectral
+algorithm version, whether y was explicit or the domain midpoint, resolved
+slice y, element shape, and polynomial order. These values are validated on
+every cache hit. A
 source or preprocessing mismatch is rejected with instructions to rebuild or
 bypass the cache; a corrupt or incomplete cache is also rejected and is never
 silently rebuilt.
 
-Cache schema 2 distinguishes reusable geometry from per-frame `griddata`.
-Their default directory names end in `_precomputed` and `_griddata`,
-respectively. Schema-1 caches predate this distinction and are rejected; run
-once with `--rebuild-cache` to replace an explicitly selected old cache.
+Cache schema 3 separates `spectral_element`, `scattered_linear`, and
+`scattered_nearest` directories. Per-frame scattered griddata receives a
+distinct suffix. Older schemas are rejected with guidance to use
+`--rebuild-cache`; old caches are not deleted automatically.
 
 Only preprocessing is cached. Threshold, minimum component size, bottom rows,
 maximum front jump, connectivity, reference data, diagnostic indices,

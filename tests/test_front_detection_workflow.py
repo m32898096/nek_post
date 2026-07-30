@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -10,10 +11,22 @@ from nek_post.front_detection_io import NekFramePath
 from nek_post.front_detection_parallel import FrontDetectionFrameResult
 from nek_post import front_detection_workflow
 from nek_post.front_detection_workflow import build_concentration_sequence
+from nek_post.gll import gll_nodes
 
 
 def _frame(index: int) -> NekFramePath:
     return NekFramePath(index=index, path=Path(f"GC0.f{index:05d}"))
+
+
+def _spectral_data(index: int) -> SimpleNamespace:
+    nodes = gll_nodes(4)
+    q0, q1, q2 = np.meshgrid(nodes, nodes, nodes, indexing="ij")
+    element = SimpleNamespace(
+        pos=np.stack((q0, 0.75 + 0.75 * q1, q2)),
+        temp=np.asarray([float(index) + q0 - 0.25 * q2]),
+        scal=None,
+    )
+    return SimpleNamespace(elem=[element], time=0.25 * index)
 
 
 def _install_pipeline_fakes(
@@ -83,6 +96,7 @@ def _install_pipeline_fakes(
         frame_paths,
         received_plan,
         *,
+        interpolation_engine,
         slice_mode,
         slab_ratio,
         y_round_decimals,
@@ -156,6 +170,7 @@ def test_first_slice_defines_fixed_grid_and_collects_diagnostics(
         slice_mode="nearest_plane",
         slab_ratio=0.01,
         y_round_decimals=10,
+        interpolation_engine="scattered_linear",
     )
 
     assert len(calls["grid"]) == 1
@@ -180,7 +195,7 @@ def test_first_slice_defines_fixed_grid_and_collects_diagnostics(
     assert_allclose(sequence.concentration_max, [6.0, 7.0])
     assert_allclose(sequence.selected_y, [0.1, 0.2])
     assert sequence.interpolation_method == "linear"
-    assert sequence.interpolation_engine == "precomputed_geometry"
+    assert sequence.interpolation_engine == "scattered_linear"
     assert dict(sequence.grid_metadata) == {
         "xmin": 0.0,
         "xmax": 2.0,
@@ -189,6 +204,170 @@ def test_first_slice_defines_fixed_grid_and_collects_diagnostics(
         "nx": 3,
         "nz": 2,
     }
+
+
+def test_default_spectral_engine_skips_slice_and_griddata_and_reuses_one_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan_calls = 0
+    apply_calls = 0
+    original_build = (
+        front_detection_workflow.build_spectral_slice_interpolation_plan
+    )
+    original_apply = (
+        front_detection_workflow.apply_spectral_slice_interpolation_plan
+    )
+
+    def read(path: Path) -> SimpleNamespace:
+        return _spectral_data(int(Path(path).name[-5:]))
+
+    def build_plan(*args: object, **kwargs: object):
+        nonlocal plan_calls
+        plan_calls += 1
+        return original_build(*args, **kwargs)
+
+    def apply_plan(*args: object, **kwargs: object):
+        nonlocal apply_calls
+        apply_calls += 1
+        return original_apply(*args, **kwargs)
+
+    monkeypatch.setattr(front_detection_workflow, "read_nek_file", read)
+    monkeypatch.setattr(
+        front_detection_workflow, "get_nek_time", lambda data: data.time
+    )
+    monkeypatch.setattr(
+        front_detection_workflow,
+        "build_spectral_slice_interpolation_plan",
+        build_plan,
+    )
+    monkeypatch.setattr(
+        front_detection_workflow,
+        "apply_spectral_slice_interpolation_plan",
+        apply_plan,
+    )
+    monkeypatch.setattr(
+        front_detection_workflow,
+        "extract_y_slice",
+        lambda *args, **kwargs: pytest.fail("spectral mode called extract_y_slice"),
+    )
+    monkeypatch.setattr(
+        front_detection_workflow,
+        "interpolate_to_grid",
+        lambda *args, **kwargs: pytest.fail("spectral mode called griddata"),
+    )
+
+    sequence = build_concentration_sequence(
+        [_frame(1), _frame(2)],
+        nx=5,
+        nz=3,
+        slice_mode="nearest_plane",
+        slab_ratio=0.01,
+        y_round_decimals=10,
+    )
+
+    assert plan_calls == 1
+    assert apply_calls == 2
+    assert sequence.interpolation_engine == "spectral_element"
+    assert sequence.C_frames.shape == (2, 3, 5)
+    assert sequence.spectral_element_shape == (4, 4, 4)
+    assert sequence.spectral_polynomial_order == (3, 3, 3)
+    assert sequence.spectral_slice_y == pytest.approx(0.75)
+    assert_allclose(sequence.selected_y, [0.75, 0.75])
+
+
+def test_spectral_workers_one_and_two_have_identical_values_and_fronts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def data_for_index(index: int) -> SimpleNamespace:
+        data = _spectral_data(index)
+        q0 = data.elem[0].pos[0]
+        data.elem[0].temp[0] = (-0.5 + 0.4 * index) - q0
+        return data
+
+    monkeypatch.setattr(
+        front_detection_workflow,
+        "read_nek_file",
+        lambda path: data_for_index(int(Path(path).name[-5:])),
+    )
+    monkeypatch.setattr(
+        front_detection_workflow, "get_nek_time", lambda data: data.time
+    )
+
+    def parallel_frames(
+        frame_paths,
+        plan,
+        *,
+        interpolation_engine,
+        slice_mode,
+        slab_ratio,
+        y_round_decimals,
+        workers,
+    ):
+        del slice_mode, slab_ratio, y_round_decimals, workers
+        assert interpolation_engine == "spectral_element"
+        results = []
+        for frame in frame_paths:
+            concentration = (
+                front_detection_workflow.apply_spectral_slice_interpolation_plan(
+                    plan,
+                    data_for_index(frame.index),
+                    source_file=frame.path,
+                )
+            )
+            finite = np.isfinite(concentration)
+            results.append(
+                FrontDetectionFrameResult(
+                    file_index=frame.index,
+                    source_path=frame.path,
+                    time=0.25 * frame.index,
+                    concentration=concentration,
+                    finite_fraction=float(np.count_nonzero(finite) / finite.size),
+                    concentration_min=float(np.nanmin(concentration)),
+                    concentration_max=float(np.nanmax(concentration)),
+                    selected_y=plan.y_target,
+                )
+            )
+        return tuple(results)
+
+    monkeypatch.setattr(
+        front_detection_workflow,
+        "preprocess_front_detection_frames_parallel",
+        parallel_frames,
+    )
+    arguments = {
+        "frame_paths": [_frame(1), _frame(2), _frame(3)],
+        "nx": 7,
+        "nz": 4,
+        "slice_mode": "nearest_plane",
+        "slab_ratio": 0.01,
+        "y_round_decimals": 10,
+    }
+    serial = build_concentration_sequence(**arguments, workers=1)
+    parallel = build_concentration_sequence(**arguments, workers=2)
+
+    np.testing.assert_array_equal(
+        np.isnan(parallel.C_frames), np.isnan(serial.C_frames)
+    )
+    assert_allclose(parallel.C_frames, serial.C_frames, rtol=0.0, atol=0.0)
+    tracking_kwargs = {
+        "threshold": 0.0,
+        "min_component_pixels": 1,
+        "bottom_rows": 1,
+        "max_front_jump": 1.0,
+        "connectivity": 8,
+    }
+    serial_front = track_concentration_front(
+        serial.time, serial.Xi, serial.Zi, serial.C_frames, **tracking_kwargs
+    )
+    parallel_front = track_concentration_front(
+        parallel.time,
+        parallel.Xi,
+        parallel.Zi,
+        parallel.C_frames,
+        **tracking_kwargs,
+    )
+    np.testing.assert_array_equal(parallel_front.x_front, serial_front.x_front)
+    assert parallel_front.status == serial_front.status
 
 
 def test_slab_mode_records_nan_selected_y(
@@ -203,9 +382,30 @@ def test_slab_mode_records_nan_selected_y(
         slice_mode="slab",
         slab_ratio=0.01,
         y_round_decimals=10,
+        interpolation_engine="scattered_linear",
     )
 
     assert np.isnan(sequence.selected_y[0])
+
+
+def test_scattered_nearest_engine_retains_slice_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, _, _, _ = _install_pipeline_fakes(monkeypatch)
+
+    sequence = build_concentration_sequence(
+        [_frame(1)],
+        nx=3,
+        nz=2,
+        slice_mode="nearest_plane",
+        slab_ratio=0.01,
+        y_round_decimals=10,
+        interpolation_engine="scattered_nearest",
+    )
+
+    assert sequence.interpolation_method == "nearest"
+    assert sequence.interpolation_engine == "scattered_nearest"
+    assert calls["plan"][0][4]["method"] == "nearest"
 
 
 def test_legacy_mode_uses_griddata_for_every_frame(
@@ -220,13 +420,14 @@ def test_legacy_mode_uses_griddata_for_every_frame(
         slice_mode="nearest_plane",
         slab_ratio=0.01,
         y_round_decimals=10,
+        interpolation_engine="scattered_linear",
         reuse_interpolation_geometry=False,
     )
 
     assert calls["plan"] == []
     assert calls["application"] == []
     assert len(calls["interpolation"]) == 2
-    assert sequence.interpolation_engine == "per_frame_griddata"
+    assert sequence.interpolation_engine == "scattered_linear"
 
 
 def test_workers_one_explicitly_uses_only_serial_path(
@@ -241,6 +442,7 @@ def test_workers_one_explicitly_uses_only_serial_path(
         slice_mode="nearest_plane",
         slab_ratio=0.01,
         y_round_decimals=10,
+        interpolation_engine="scattered_linear",
         workers=1,
     )
 
@@ -270,6 +472,7 @@ def test_workers_two_keeps_first_frame_serial_and_dispatches_later_frames(
         slice_mode="nearest_plane",
         slab_ratio=0.01,
         y_round_decimals=10,
+        interpolation_engine="scattered_linear",
         workers=2,
     )
 
@@ -300,6 +503,7 @@ def test_parallel_and_serial_sequences_and_front_results_are_identical(
         "slice_mode": "nearest_plane",
         "slab_ratio": 0.01,
         "y_round_decimals": 10,
+        "interpolation_engine": "scattered_linear",
     }
 
     serial = build_concentration_sequence(**arguments, workers=1)
@@ -381,6 +585,7 @@ def test_geometry_mismatch_identifies_later_source_file(
             slice_mode="nearest_plane",
             slab_ratio=0.01,
             y_round_decimals=10,
+            interpolation_engine="scattered_linear",
         )
 
 
@@ -401,6 +606,7 @@ def test_frame_with_no_finite_interpolated_concentration_fails_with_path(
             slice_mode="nearest_plane",
             slab_ratio=0.01,
             y_round_decimals=10,
+            interpolation_engine="scattered_linear",
         )
 
 
@@ -417,6 +623,7 @@ def test_nonfinite_nek_time_fails_with_source_path(
             slice_mode="nearest_plane",
             slab_ratio=0.01,
             y_round_decimals=10,
+            interpolation_engine="scattered_linear",
         )
 
 
@@ -433,6 +640,7 @@ def test_nonincreasing_times_fail_in_file_index_order(
             slice_mode="nearest_plane",
             slab_ratio=0.01,
             y_round_decimals=10,
+            interpolation_engine="scattered_linear",
         )
 
 
@@ -442,7 +650,7 @@ def test_nonincreasing_times_fail_in_file_index_order(
         ({"frame_paths": []}, "At least one"),
         ({"nx": 1}, "nx"),
         ({"nz": 1}, "nz"),
-        ({"interpolation_method": "cubic"}, "linear.*nearest"),
+        ({"interpolation_method": "cubic"}, "requires"),
         ({"workers": 0}, "workers"),
         (
             {
@@ -464,6 +672,7 @@ def test_workflow_input_validation(
         "slice_mode": "nearest_plane",
         "slab_ratio": 0.01,
         "y_round_decimals": 10,
+        "interpolation_engine": "scattered_linear",
         "interpolation_method": "linear",
     }
     arguments.update(updates)
@@ -486,6 +695,7 @@ def test_workflow_writes_no_intermediate_files(
         slice_mode="nearest_plane",
         slab_ratio=0.01,
         y_round_decimals=10,
+        interpolation_engine="scattered_linear",
     )
 
     assert list(tmp_path.iterdir()) == []

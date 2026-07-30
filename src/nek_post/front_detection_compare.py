@@ -40,6 +40,23 @@ class FrontDetectionComparison:
     absolute_difference: NDArray[np.float64]
 
 
+COMPARISON_STATUSES = frozenset(
+    {"available", "no_time_overlap", "disabled"}
+)
+
+
+def empty_front_detection_comparison() -> FrontDetectionComparison:
+    """Return a deterministic typed comparison containing no rows."""
+    return FrontDetectionComparison(
+        time=np.empty(0, dtype=np.float64),
+        file_indices=np.empty(0, dtype=np.int64),
+        x_front_auto=np.empty(0, dtype=np.float64),
+        x_front_reference=np.empty(0, dtype=np.float64),
+        difference=np.empty(0, dtype=np.float64),
+        absolute_difference=np.empty(0, dtype=np.float64),
+    )
+
+
 def compare_detected_front_to_reference(
     tracking_result: FrontTrackingResult,
     file_indices: NDArray[np.int64],
@@ -77,9 +94,7 @@ def compare_detected_front_to_reference(
         & (auto_time <= reference_time[-1])
     )
     if not np.any(overlap):
-        raise ValueError(
-            "No successful automatic front detections overlap the reference time range."
-        )
+        return empty_front_detection_comparison()
 
     comparison_time = auto_time[overlap]
     comparison_auto = auto_x[overlap]
@@ -106,8 +121,28 @@ def build_front_detection_summary(
     tracking_result: FrontTrackingResult,
     comparison: FrontDetectionComparison,
     reference_path: str | Path,
+    comparison_status: str | None = None,
 ) -> dict[str, str | int | float]:
     """Build deterministic detection, comparison, and slumping-velocity metrics."""
+    status = (
+        comparison_status
+        if comparison_status is not None
+        else ("available" if comparison.time.size else "no_time_overlap")
+    )
+    if status not in COMPARISON_STATUSES:
+        raise ValueError(
+            "comparison_status must be 'available', 'no_time_overlap', or "
+            "'disabled'."
+        )
+    has_comparison = comparison.time.size > 0
+    if status == "available" and not has_comparison:
+        raise ValueError(
+            "comparison_status='available' requires at least one comparison point."
+        )
+    if status != "available" and has_comparison:
+        raise ValueError(
+            f"comparison_status={status!r} requires an empty comparison."
+        )
     status_counts = Counter(tracking_result.status)
     n_input = int(sequence.time.size)
     n_successful = int(np.count_nonzero(np.isfinite(tracking_result.x_front)))
@@ -117,7 +152,44 @@ def build_front_detection_summary(
         interpolation_method = sequence.grid_metadata.get(
             "interpolation_method", "linear"
         )
-    slumping_mask = (comparison.time >= 3.0) & (comparison.time <= 12.0)
+    sequence_element_shape = getattr(sequence, "spectral_element_shape", None)
+    sequence_polynomial_order = getattr(
+        sequence, "spectral_polynomial_order", None
+    )
+    sequence_slice_y = getattr(sequence, "spectral_slice_y", None)
+    interpolation_engine = getattr(
+        sequence,
+        "interpolation_engine",
+        f"scattered_{interpolation_method}",
+    )
+    spectral_element_shape = (
+        ""
+        if sequence_element_shape is None
+        else " x ".join(str(value) for value in sequence_element_shape)
+    )
+    spectral_polynomial_order = (
+        ""
+        if sequence_polynomial_order is None
+        else " x ".join(str(value) for value in sequence_polynomial_order)
+    )
+    spectral_slice_y: str | float = (
+        "" if sequence_slice_y is None else sequence_slice_y
+    )
+    difference_mean = float("nan")
+    difference_mean_absolute = float("nan")
+    difference_rms = float("nan")
+    difference_maximum_absolute = float("nan")
+    if has_comparison:
+        difference_mean = float(np.mean(comparison.difference))
+        difference_mean_absolute = mean_abs(comparison.difference)
+        difference_rms = rms(comparison.difference)
+        difference_maximum_absolute = max_abs(comparison.difference)
+
+    slumping_mask = (
+        (comparison.time >= 3.0) & (comparison.time <= 12.0)
+        if has_comparison
+        else np.empty(0, dtype=bool)
+    )
     n_slumping = int(np.count_nonzero(slumping_mask))
     auto_velocity = float("nan")
     reference_velocity = float("nan")
@@ -139,8 +211,13 @@ def build_front_detection_summary(
 
     return {
         "case": case,
-        "reference_file": str(reference_path),
-        "reference_role": "external_comparison_only",
+        "reference_file": "" if status == "disabled" else str(reference_path),
+        "reference_role": (
+            "not_requested"
+            if status == "disabled"
+            else "external_comparison_only"
+        ),
+        "comparison_status": status,
         "n_input_frames": n_input,
         "n_successful_detections": n_successful,
         "success_fraction": n_successful / n_input,
@@ -167,11 +244,15 @@ def build_front_detection_summary(
         "nx": int(sequence.Xi.shape[1]),
         "nz": int(sequence.Xi.shape[0]),
         "interpolation_method": str(interpolation_method),
+        "interpolation_engine": interpolation_engine,
+        "spectral_element_shape": spectral_element_shape,
+        "spectral_polynomial_order": spectral_polynomial_order,
+        "spectral_slice_y": spectral_slice_y,
         "n_comparison_points": int(comparison.time.size),
-        "mean_signed_difference": float(np.mean(comparison.difference)),
-        "mean_absolute_difference": mean_abs(comparison.difference),
-        "rms_difference": rms(comparison.difference),
-        "max_absolute_difference": max_abs(comparison.difference),
+        "mean_signed_difference": difference_mean,
+        "mean_absolute_difference": difference_mean_absolute,
+        "rms_difference": difference_rms,
+        "max_absolute_difference": difference_maximum_absolute,
         "n_slumping_points": n_slumping,
         "auto_slumping_velocity": auto_velocity,
         "reference_slumping_velocity": reference_velocity,

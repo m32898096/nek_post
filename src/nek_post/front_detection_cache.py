@@ -19,9 +19,10 @@ import numpy as np
 
 from nek_post.front_detection_io import NekFramePath
 from nek_post.front_detection_workflow import ConcentrationSequence
+from nek_post.spectral_interpolation import SPECTRAL_ALGORITHM_VERSION
 
 
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 MANIFEST_FILENAME = "manifest.json"
 ARRAY_FILENAMES = MappingProxyType(
     {
@@ -88,6 +89,10 @@ class FrontDetectionCacheSpec:
     y_round_decimals: int
     interpolation_method: str
     interpolation_engine: str
+    spectral_algorithm_version: int | None
+    slice_y_mode: str
+    slice_y_value: float | None
+    per_frame_griddata: bool
 
 
 @dataclass(frozen=True)
@@ -141,9 +146,9 @@ def _validated_preprocessing(
     if not np.isfinite(slab_value) or slab_value < 0.0:
         raise ValueError("slab_ratio must be finite and non-negative.")
     decimals = _nonnegative_integer(y_round_decimals, "y_round_decimals")
-    if interpolation_method not in {"linear", "nearest"}:
+    if interpolation_method not in {"spectral", "linear", "nearest"}:
         raise ValueError(
-            "interpolation_method must be exactly 'linear' or 'nearest'."
+            "interpolation_method must be 'spectral', 'linear', or 'nearest'."
         )
     return (
         nx_value,
@@ -156,12 +161,65 @@ def _validated_preprocessing(
 
 
 def _validated_interpolation_engine(value: str) -> str:
-    if value not in {"precomputed_geometry", "per_frame_griddata"}:
+    if value not in {
+        "spectral_element",
+        "scattered_linear",
+        "scattered_nearest",
+    }:
         raise ValueError(
-            "interpolation_engine must be exactly 'precomputed_geometry' or "
-            "'per_frame_griddata'."
+            "interpolation_engine must be 'spectral_element', "
+            "'scattered_linear', or 'scattered_nearest'."
         )
     return value
+
+
+def _validated_slice_y(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("slice_y must be finite when supplied.") from exc
+    if not np.isfinite(parsed):
+        raise ValueError("slice_y must be finite when supplied.")
+    return parsed
+
+
+def _validate_engine_configuration(
+    interpolation_engine: str,
+    interpolation_method: str,
+    *,
+    slice_y: float | None,
+    per_frame_griddata: bool,
+) -> tuple[str, str, int | None, str, float | None, bool]:
+    engine = _validated_interpolation_engine(interpolation_engine)
+    expected_method = {
+        "spectral_element": "spectral",
+        "scattered_linear": "linear",
+        "scattered_nearest": "nearest",
+    }[engine]
+    if interpolation_method != expected_method:
+        raise ValueError(
+            f"interpolation_engine={engine!r} requires "
+            f"interpolation_method={expected_method!r}."
+        )
+    explicit_y = _validated_slice_y(slice_y)
+    if engine == "spectral_element":
+        if per_frame_griddata:
+            raise ValueError(
+                "per_frame_griddata applies only to scattered interpolation."
+            )
+        return (
+            engine,
+            expected_method,
+            SPECTRAL_ALGORITHM_VERSION,
+            "explicit" if explicit_y is not None else "domain_midpoint",
+            explicit_y,
+            False,
+        )
+    if explicit_y is not None:
+        raise ValueError("slice_y applies only to spectral_element interpolation.")
+    return engine, expected_method, None, "not_applicable", None, bool(per_frame_griddata)
 
 
 def build_front_detection_cache_spec(
@@ -176,6 +234,8 @@ def build_front_detection_cache_spec(
     y_round_decimals: int,
     interpolation_method: str,
     interpolation_engine: str,
+    slice_y: float | None = None,
+    per_frame_griddata: bool = False,
 ) -> FrontDetectionCacheSpec:
     """Build a preprocessing-only specification with ordered source signatures."""
     case_value = _nonempty_text(case, "case")
@@ -198,8 +258,18 @@ def build_front_detection_cache_spec(
         y_round_decimals=y_round_decimals,
         interpolation_method=interpolation_method,
     )
-    interpolation_engine_value = _validated_interpolation_engine(
-        interpolation_engine
+    (
+        interpolation_engine_value,
+        interpolation_value,
+        spectral_version,
+        slice_y_mode,
+        slice_y_value,
+        per_frame_value,
+    ) = _validate_engine_configuration(
+        interpolation_engine,
+        interpolation_value,
+        slice_y=slice_y,
+        per_frame_griddata=per_frame_griddata,
     )
 
     indices: list[int] = []
@@ -243,6 +313,10 @@ def build_front_detection_cache_spec(
         y_round_decimals=decimals,
         interpolation_method=interpolation_value,
         interpolation_engine=interpolation_engine_value,
+        spectral_algorithm_version=spectral_version,
+        slice_y_mode=slice_y_mode,
+        slice_y_value=slice_y_value,
+        per_frame_griddata=per_frame_value,
     )
 
 
@@ -263,6 +337,8 @@ def default_front_detection_cache_path(
     slice_mode: str,
     interpolation_method: str,
     interpolation_engine: str,
+    slice_y: float | None = None,
+    per_frame_griddata: bool = False,
 ) -> Path:
     """Return a readable cache directory derived from selected preprocessing."""
     frames = tuple(frame_paths)
@@ -284,15 +360,34 @@ def default_front_detection_cache_path(
         _nonempty_text(interpolation_method, "interpolation_method")
     )
     engine_value = _validated_interpolation_engine(interpolation_engine)
-    engine_name = (
-        "precomputed"
-        if engine_value == "precomputed_geometry"
-        else "griddata"
-    )
+    expected_method = {
+        "spectral_element": "spectral",
+        "scattered_linear": "linear",
+        "scattered_nearest": "nearest",
+    }[engine_value]
+    if interpolation_method != expected_method:
+        raise ValueError(
+            f"interpolation_engine={engine_value!r} requires "
+            f"interpolation_method={expected_method!r}."
+        )
+    if per_frame_griddata and engine_value == "spectral_element":
+        raise ValueError("per_frame_griddata applies only to scattered interpolation.")
+    resolved_slice_y = _validated_slice_y(slice_y)
+    if engine_value == "spectral_element":
+        y_suffix = (
+            "_ydomain_midpoint"
+            if resolved_slice_y is None
+            else "_y" + _sanitize_path_component(f"{resolved_slice_y:.16g}")
+        )
+    else:
+        if resolved_slice_y is not None:
+            raise ValueError("slice_y applies only to spectral_element interpolation.")
+        y_suffix = ""
+    per_frame_suffix = "_per_frame_griddata" if per_frame_griddata else ""
     directory_name = (
         f"{prefix_name}_f{indices[0]:05d}-f{indices[-1]:05d}_"
         f"n{len(indices)}_{nx_value}x{nz_value}_{slice_name}_"
-        f"{interpolation_name}_{engine_name}"
+        f"{interpolation_name}_{engine_value}{y_suffix}{per_frame_suffix}"
     )
     return Path(cache_root) / case_name / directory_name
 
@@ -340,6 +435,43 @@ def _manifest_text(value: Any, context: str) -> str:
             f"Cache manifest field {context} must be a nonempty string."
         )
     return value
+
+
+def _manifest_optional_int(value: Any, context: str) -> int | None:
+    if value is None:
+        return None
+    return _manifest_int(value, context)
+
+
+def _manifest_optional_float(value: Any, context: str) -> float | None:
+    if value is None:
+        return None
+    return _manifest_float(value, context)
+
+
+def _manifest_bool(value: Any, context: str) -> bool:
+    if not isinstance(value, bool):
+        raise FrontDetectionCacheCorruptionError(
+            f"Cache manifest field {context} must be a boolean."
+        )
+    return value
+
+
+def _manifest_optional_integer_triplet(
+    value: Any,
+    context: str,
+) -> tuple[int, int, int] | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or any(not isinstance(item, int) or isinstance(item, bool) for item in value)
+    ):
+        raise FrontDetectionCacheCorruptionError(
+            f"Cache manifest field {context} must be null or three integers."
+        )
+    return tuple(int(item) for item in value)  # type: ignore[return-value]
 
 
 def cache_spec_from_dict(payload: Mapping[str, Any]) -> FrontDetectionCacheSpec:
@@ -423,6 +555,22 @@ def cache_spec_from_dict(payload: Mapping[str, Any]) -> FrontDetectionCacheSpec:
             _required_key(payload, "interpolation_engine", "spec"),
             "spec.interpolation_engine",
         ),
+        spectral_algorithm_version=_manifest_optional_int(
+            _required_key(payload, "spectral_algorithm_version", "spec"),
+            "spec.spectral_algorithm_version",
+        ),
+        slice_y_mode=_manifest_text(
+            _required_key(payload, "slice_y_mode", "spec"),
+            "spec.slice_y_mode",
+        ),
+        slice_y_value=_manifest_optional_float(
+            _required_key(payload, "slice_y_value", "spec"),
+            "spec.slice_y_value",
+        ),
+        per_frame_griddata=_manifest_bool(
+            _required_key(payload, "per_frame_griddata", "spec"),
+            "spec.per_frame_griddata",
+        ),
     )
     if not spec.file_indices:
         raise FrontDetectionCacheCorruptionError(
@@ -451,7 +599,27 @@ def cache_spec_from_dict(payload: Mapping[str, Any]) -> FrontDetectionCacheSpec:
             y_round_decimals=spec.y_round_decimals,
             interpolation_method=spec.interpolation_method,
         )
-        _validated_interpolation_engine(spec.interpolation_engine)
+        (
+            _engine,
+            _method,
+            expected_spectral_version,
+            expected_slice_y_mode,
+            expected_slice_y_value,
+            expected_per_frame,
+        ) = _validate_engine_configuration(
+            spec.interpolation_engine,
+            spec.interpolation_method,
+            slice_y=spec.slice_y_value,
+            per_frame_griddata=spec.per_frame_griddata,
+        )
+        if spec.spectral_algorithm_version != expected_spectral_version:
+            raise ValueError("spectral_algorithm_version is inconsistent.")
+        if spec.slice_y_mode != expected_slice_y_mode:
+            raise ValueError("slice_y_mode is inconsistent.")
+        if spec.slice_y_value != expected_slice_y_value:
+            raise ValueError("slice_y_value is inconsistent.")
+        if spec.per_frame_griddata != expected_per_frame:
+            raise ValueError("per_frame_griddata is inconsistent.")
         for index in spec.file_indices:
             _nonnegative_integer(index, "Nek frame index")
         for source in spec.source_files:
@@ -552,6 +720,50 @@ def _validate_sequence(
         raise ValueError(
             "Sequence interpolation engine must match the cache specification."
         )
+    if spec.interpolation_engine == "spectral_element":
+        shape = sequence.spectral_element_shape
+        order = sequence.spectral_polynomial_order
+        resolved_y = sequence.spectral_slice_y
+        if (
+            shape is None
+            or order is None
+            or len(shape) != 3
+            or len(order) != 3
+            or any(
+                not isinstance(value, Integral)
+                or isinstance(value, (bool, np.bool_))
+                or int(value) < 2
+                for value in shape
+            )
+        ):
+            raise ValueError(
+                "Spectral sequence must record a valid three-axis element shape."
+            )
+        expected_order = tuple(int(value) - 1 for value in shape)
+        if tuple(int(value) for value in order) != expected_order:
+            raise ValueError(
+                "Spectral polynomial order must equal element shape minus one."
+            )
+        if resolved_y is None or not np.isfinite(float(resolved_y)):
+            raise ValueError("Spectral sequence must record a finite resolved slice y.")
+        if (
+            spec.slice_y_mode == "explicit"
+            and float(resolved_y) != spec.slice_y_value
+        ):
+            raise ValueError(
+                "Resolved spectral slice y must match the explicit cache specification."
+            )
+    elif any(
+        value is not None
+        for value in (
+            sequence.spectral_element_shape,
+            sequence.spectral_polynomial_order,
+            sequence.spectral_slice_y,
+        )
+    ):
+        raise ValueError(
+            "Scattered sequences must not contain spectral-only metadata."
+        )
     missing_grid_metadata = sorted(
         REQUIRED_GRID_METADATA - set(sequence.grid_metadata)
     )
@@ -588,6 +800,19 @@ def _manifest_payload(
         "grid_metadata": _json_grid_metadata(sequence.grid_metadata),
         "interpolation_method": sequence.interpolation_method,
         "interpolation_engine": sequence.interpolation_engine,
+        "spectral_algorithm_version": spec.spectral_algorithm_version,
+        "slice_y_mode": spec.slice_y_mode,
+        "resolved_slice_y": sequence.spectral_slice_y,
+        "spectral_element_shape": (
+            None
+            if sequence.spectral_element_shape is None
+            else list(sequence.spectral_element_shape)
+        ),
+        "spectral_polynomial_order": (
+            None
+            if sequence.spectral_polynomial_order is None
+            else list(sequence.spectral_polynomial_order)
+        ),
         "arrays": _array_manifest(arrays),
     }
 
@@ -762,6 +987,26 @@ def load_cache_manifest(cache_dir: str | Path) -> dict[str, Any]:
         _required_key(payload, "interpolation_engine", "manifest"),
         "manifest.interpolation_engine",
     )
+    _manifest_optional_int(
+        _required_key(payload, "spectral_algorithm_version", "manifest"),
+        "manifest.spectral_algorithm_version",
+    )
+    _manifest_text(
+        _required_key(payload, "slice_y_mode", "manifest"),
+        "manifest.slice_y_mode",
+    )
+    _manifest_optional_float(
+        _required_key(payload, "resolved_slice_y", "manifest"),
+        "manifest.resolved_slice_y",
+    )
+    _manifest_optional_integer_triplet(
+        _required_key(payload, "spectral_element_shape", "manifest"),
+        "manifest.spectral_element_shape",
+    )
+    _manifest_optional_integer_triplet(
+        _required_key(payload, "spectral_polynomial_order", "manifest"),
+        "manifest.spectral_polynomial_order",
+    )
     source_order = _required_key(payload, "source_file_order", "manifest")
     if not isinstance(source_order, list) or any(
         not isinstance(value, str) for value in source_order
@@ -789,6 +1034,10 @@ def _spec_mismatches(
         "y_round_decimals",
         "interpolation_method",
         "interpolation_engine",
+        "spectral_algorithm_version",
+        "slice_y_mode",
+        "slice_y_value",
+        "per_frame_griddata",
     ):
         if getattr(stored, name) != getattr(expected, name):
             mismatches.append(name)
@@ -863,6 +1112,17 @@ def load_concentration_sequence_cache(
         raise FrontDetectionCacheCorruptionError(
             "Cache interpolation_engine disagrees with its specification."
         )
+    if (
+        manifest["spectral_algorithm_version"]
+        != expected_spec.spectral_algorithm_version
+    ):
+        raise FrontDetectionCacheCorruptionError(
+            "Cache spectral_algorithm_version disagrees with its specification."
+        )
+    if manifest["slice_y_mode"] != expected_spec.slice_y_mode:
+        raise FrontDetectionCacheCorruptionError(
+            "Cache slice_y_mode disagrees with its specification."
+        )
     expected_order = [source.path for source in expected_spec.source_files]
     if manifest["source_file_order"] != expected_order:
         raise FrontDetectionCacheCorruptionError(
@@ -875,6 +1135,18 @@ def load_concentration_sequence_cache(
         grid_metadata = _json_grid_metadata(grid_metadata_raw)
     except ValueError as exc:
         raise FrontDetectionCacheCorruptionError(str(exc)) from exc
+    spectral_element_shape = _manifest_optional_integer_triplet(
+        manifest["spectral_element_shape"],
+        "manifest.spectral_element_shape",
+    )
+    spectral_polynomial_order = _manifest_optional_integer_triplet(
+        manifest["spectral_polynomial_order"],
+        "manifest.spectral_polynomial_order",
+    )
+    spectral_slice_y = _manifest_optional_float(
+        manifest["resolved_slice_y"],
+        "manifest.resolved_slice_y",
+    )
     sequence = ConcentrationSequence(
         time=arrays["time"],
         file_indices=arrays["file_indices"],
@@ -891,6 +1163,9 @@ def load_concentration_sequence_cache(
         selected_y=arrays["selected_y"],
         interpolation_method=manifest["interpolation_method"],
         interpolation_engine=manifest["interpolation_engine"],
+        spectral_element_shape=spectral_element_shape,
+        spectral_polynomial_order=spectral_polynomial_order,
+        spectral_slice_y=spectral_slice_y,
     )
     try:
         _validate_sequence(sequence, expected_spec)

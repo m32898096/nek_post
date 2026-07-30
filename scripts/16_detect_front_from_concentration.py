@@ -19,6 +19,7 @@ from nek_post.front_detection_cache import (
 from nek_post.front_detection_compare import (
     build_front_detection_summary,
     compare_detected_front_to_reference,
+    empty_front_detection_comparison,
 )
 from nek_post.front_detection_diagnostic_plotting import (
     write_front_frame_diagnostic_plots,
@@ -159,10 +160,30 @@ def _parse_args(
         help="Y-coordinate rounding precision for nearest-plane slicing.",
     )
     parser.add_argument(
+        "--interpolation-engine",
+        choices=("spectral_element", "scattered_linear", "scattered_nearest"),
+        default="spectral_element",
+        help=(
+            "Concentration preprocessing engine. Spectral interpolation evaluates "
+            "the exact physical slice; scattered engines retain the regression "
+            "baseline."
+        ),
+    )
+    parser.add_argument(
+        "--slice-y",
+        type=float,
+        help=(
+            "Exact physical y coordinate for spectral interpolation. When omitted, "
+            "the first field file's physical y-domain midpoint is used."
+        ),
+    )
+    parser.add_argument(
         "--interpolation-method",
         choices=("linear", "nearest"),
-        default="linear",
-        help="Concentration interpolation method.",
+        help=(
+            "Legacy scattered-method selector. When supplied, it must agree with "
+            "--interpolation-engine and is invalid for spectral interpolation."
+        ),
     )
     parser.add_argument(
         "--per-frame-griddata",
@@ -189,6 +210,14 @@ def _parse_args(
             "Optional front_simple.dat curve used only for post-hoc comparison; "
             "it does not affect automatic detection. Dynamic default: "
             "CASE_DIR/front_simple.dat."
+        ),
+    )
+    parser.add_argument(
+        "--no-reference-comparison",
+        action="store_true",
+        help=(
+            "Disable only the optional front_simple comparison. Automatic front "
+            "detection, CSV output, and requested diagnostics still run."
         ),
     )
     parser.add_argument(
@@ -272,25 +301,40 @@ def main() -> None:
             if output_dir_arg is not None
             else paths.front_detection_dir / case
         )
-        interpolation_engine = (
-            "per_frame_griddata"
-            if args.per_frame_griddata
-            else "precomputed_geometry"
-        )
+        interpolation_engine = args.interpolation_engine
+        interpolation_method = {
+            "spectral_element": "spectral",
+            "scattered_linear": "linear",
+            "scattered_nearest": "nearest",
+        }[interpolation_engine]
+        if interpolation_engine == "spectral_element":
+            if args.interpolation_method is not None:
+                raise ValueError(
+                    "--interpolation-method applies only to scattered interpolation."
+                )
+            if args.per_frame_griddata:
+                raise ValueError(
+                    "--per-frame-griddata applies only to scattered interpolation."
+                )
+        elif (
+            args.interpolation_method is not None
+            and args.interpolation_method != interpolation_method
+        ):
+            raise ValueError(
+                f"--interpolation-engine {interpolation_engine} requires "
+                f"--interpolation-method {interpolation_method} when the legacy "
+                "option is supplied."
+            )
+        if interpolation_engine != "spectral_element" and args.slice_y is not None:
+            raise ValueError(
+                "--slice-y applies only to --interpolation-engine spectral_element."
+            )
 
         csv_paths = [
             detected_front_timeseries_path(output_dir, case),
             front_detection_comparison_path(output_dir, case),
             front_detection_summary_path(output_dir, case),
         ]
-        figure_paths = (
-            []
-            if args.no_plots
-            else [
-                front_detection_overlay_path(output_dir, case),
-                front_detection_difference_path(output_dir, case),
-            ]
-        )
         diagnostic_paths = (
             []
             if diagnostic_indices is None or args.no_plots
@@ -300,7 +344,7 @@ def main() -> None:
             ]
         )
         preflight_output_paths(
-            [*csv_paths, *figure_paths, *diagnostic_paths],
+            [*csv_paths, *diagnostic_paths],
             args.overwrite,
         )
 
@@ -327,8 +371,10 @@ def main() -> None:
                 nx=args.nx,
                 nz=args.nz,
                 slice_mode=args.slice_mode,
-                interpolation_method=args.interpolation_method,
+                interpolation_method=interpolation_method,
                 interpolation_engine=interpolation_engine,
+                slice_y=args.slice_y,
+                per_frame_griddata=args.per_frame_griddata,
             )
         )
         cache_spec = build_front_detection_cache_spec(
@@ -340,8 +386,10 @@ def main() -> None:
             slice_mode=args.slice_mode,
             slab_ratio=args.slab_ratio,
             y_round_decimals=args.y_round_decimals,
-            interpolation_method=args.interpolation_method,
+            interpolation_method=interpolation_method,
             interpolation_engine=interpolation_engine,
+            slice_y=args.slice_y,
+            per_frame_griddata=args.per_frame_griddata,
         )
         acquisition = acquire_concentration_sequence(
             cache_dir=cache_dir,
@@ -353,7 +401,8 @@ def main() -> None:
                 slice_mode=args.slice_mode,
                 slab_ratio=args.slab_ratio,
                 y_round_decimals=args.y_round_decimals,
-                interpolation_method=args.interpolation_method,
+                interpolation_engine=interpolation_engine,
+                slice_y=args.slice_y,
                 reuse_interpolation_geometry=not args.per_frame_griddata,
                 workers=args.workers,
             ),
@@ -364,6 +413,21 @@ def main() -> None:
         print(f"Concentration sequence source: {acquisition.mode}")
         print(f"Preprocessing workers: {args.workers}")
         print(f"Interpolation engine: {sequence.interpolation_engine}")
+        if sequence.interpolation_engine == "spectral_element":
+            assert sequence.spectral_element_shape is not None
+            assert sequence.spectral_polynomial_order is not None
+            assert sequence.spectral_slice_y is not None
+            print(
+                "Spectral element shape: "
+                + " x ".join(str(value) for value in sequence.spectral_element_shape)
+            )
+            print(
+                "Spectral polynomial order: "
+                + " x ".join(
+                    str(value) for value in sequence.spectral_polynomial_order
+                )
+            )
+            print(f"Spectral slice y: {sequence.spectral_slice_y:.16g}")
         print(
             "Concentration cache: "
             + ("disabled" if acquisition.cache_dir is None else str(cache_dir))
@@ -391,18 +455,33 @@ def main() -> None:
             max_front_jump=args.max_front_jump,
             connectivity=args.connectivity,
         )
-        reference_front = read_front_simple_dat(reference_path)
-        comparison = compare_detected_front_to_reference(
-            tracking_result,
-            sequence.file_indices,
-            reference_front,
-        )
+        if args.no_reference_comparison:
+            reference_front = None
+            comparison = empty_front_detection_comparison()
+            comparison_status = "disabled"
+            message = "Reference comparison: disabled (--no-reference-comparison)"
+            if reference_file_arg is not None:
+                message += "; --reference-file ignored"
+            print(message)
+        else:
+            reference_front = read_front_simple_dat(reference_path)
+            comparison = compare_detected_front_to_reference(
+                tracking_result,
+                sequence.file_indices,
+                reference_front,
+            )
+            comparison_status = (
+                "available"
+                if comparison.time.size > 0
+                else "no_time_overlap"
+            )
         summary = build_front_detection_summary(
             case=case,
             sequence=sequence,
             tracking_result=tracking_result,
             comparison=comparison,
             reference_path=reference_path,
+            comparison_status=comparison_status,
         )
         diagnostics = (
             ()
@@ -414,6 +493,14 @@ def main() -> None:
                 reference_front=reference_front,
             )
         )
+        if not args.no_plots and comparison.time.size > 0:
+            preflight_output_paths(
+                [
+                    front_detection_overlay_path(output_dir, case),
+                    front_detection_difference_path(output_dir, case),
+                ],
+                args.overwrite,
+            )
 
         written_csv_paths = write_front_detection_csvs(
             output_dir,
@@ -426,7 +513,7 @@ def main() -> None:
         )
         written_figure_paths = (
             []
-            if args.no_plots
+            if args.no_plots or comparison.time.size == 0
             else write_front_detection_plots(
                 output_dir,
                 case,
@@ -459,9 +546,20 @@ def main() -> None:
             else:
                 print("Figures and diagnostics: skipped (--no-plots)")
         else:
-            print("Figure files:")
-            for path in written_figure_paths:
-                print(f"  {path}")
+            if comparison_status == "no_time_overlap":
+                print(
+                    "Comparison figures: skipped "
+                    "(no overlapping reference times)"
+                )
+            elif comparison_status == "disabled":
+                print(
+                    "Comparison figures: skipped "
+                    "(reference comparison disabled)"
+                )
+            else:
+                print("Comparison figure files:")
+                for path in written_figure_paths:
+                    print(f"  {path}")
             if written_diagnostic_paths:
                 print("Diagnostic figure files:")
                 for path in written_diagnostic_paths:

@@ -15,6 +15,7 @@ from nek_post.front_detection import (
     STATUS_SELECTED_TRACKED,
 )
 from nek_post.front_detection_compare import FrontDetectionComparison
+from nek_post.front_detection_compare import empty_front_detection_comparison
 from nek_post import front_detection_plotting
 from nek_post.front_detection_plotting import write_front_detection_plots
 
@@ -177,3 +178,29 @@ def test_plot_overwrite_true_replaces_outputs(tmp_path: Path) -> None:
     assert written == paths
     assert all(path.read_bytes().startswith(b"\x89PNG") for path in paths)
     assert plt.get_fignums() == []
+
+
+def test_empty_comparison_skips_preflight_and_both_plotting_routines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("empty comparison attempted figure work")
+
+    monkeypatch.setattr(front_detection_plotting, "preflight_output_paths", fail)
+    monkeypatch.setattr(front_detection_plotting, "plot_front_detection_overlay", fail)
+    monkeypatch.setattr(
+        front_detection_plotting, "plot_front_detection_difference", fail
+    )
+
+    paths = write_front_detection_plots(
+        tmp_path,
+        "N7",
+        _tracking(),
+        _reference(),
+        empty_front_detection_comparison(),
+        overwrite=False,
+    )
+
+    assert paths == []
+    assert not list(tmp_path.iterdir())
