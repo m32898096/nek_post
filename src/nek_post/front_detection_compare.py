@@ -117,6 +117,29 @@ def build_front_detection_summary(
         interpolation_method = sequence.grid_metadata.get(
             "interpolation_method", "linear"
         )
+    sequence_element_shape = getattr(sequence, "spectral_element_shape", None)
+    sequence_polynomial_order = getattr(
+        sequence, "spectral_polynomial_order", None
+    )
+    sequence_slice_y = getattr(sequence, "spectral_slice_y", None)
+    interpolation_engine = getattr(
+        sequence,
+        "interpolation_engine",
+        f"scattered_{interpolation_method}",
+    )
+    spectral_element_shape = (
+        ""
+        if sequence_element_shape is None
+        else " x ".join(str(value) for value in sequence_element_shape)
+    )
+    spectral_polynomial_order = (
+        ""
+        if sequence_polynomial_order is None
+        else " x ".join(str(value) for value in sequence_polynomial_order)
+    )
+    spectral_slice_y: str | float = (
+        "" if sequence_slice_y is None else sequence_slice_y
+    )
     slumping_mask = (comparison.time >= 3.0) & (comparison.time <= 12.0)
     n_slumping = int(np.count_nonzero(slumping_mask))
     auto_velocity = float("nan")
@@ -167,6 +190,10 @@ def build_front_detection_summary(
         "nx": int(sequence.Xi.shape[1]),
         "nz": int(sequence.Xi.shape[0]),
         "interpolation_method": str(interpolation_method),
+        "interpolation_engine": interpolation_engine,
+        "spectral_element_shape": spectral_element_shape,
+        "spectral_polynomial_order": spectral_polynomial_order,
+        "spectral_slice_y": spectral_slice_y,
         "n_comparison_points": int(comparison.time.size),
         "mean_signed_difference": float(np.mean(comparison.difference)),
         "mean_absolute_difference": mean_abs(comparison.difference),

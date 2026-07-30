@@ -134,6 +134,10 @@ def test_summary_metrics_status_counts_success_fraction_and_slumping_velocity() 
     assert summary["n_no_valid_spatial_candidate"] == 0
     assert summary["n_no_valid_temporal_candidate"] == 1
     assert summary["reference_role"] == "external_comparison_only"
+    assert summary["interpolation_engine"] == "scattered_linear"
+    assert summary["spectral_element_shape"] == ""
+    assert summary["spectral_polynomial_order"] == ""
+    assert summary["spectral_slice_y"] == ""
     assert summary["mean_signed_difference"] == 6.0
     assert summary["mean_absolute_difference"] == 6.0
     assert summary["rms_difference"] == pytest.approx(np.sqrt(42.0))
@@ -179,3 +183,38 @@ def test_summary_returns_nan_velocities_with_fewer_than_two_slumping_points() ->
     assert np.isnan(summary["reference_slumping_velocity"])
     assert np.isnan(summary["slumping_velocity_difference"])
     assert np.isnan(summary["slumping_velocity_relative_difference"])
+
+
+def test_summary_records_spectral_preprocessing_metadata() -> None:
+    tracking = _tracking([2.0], [1.0], (STATUS_SELECTED_INITIAL,))
+    sequence = SimpleNamespace(
+        time=np.array([2.0]),
+        file_indices=np.array([1]),
+        Xi=np.zeros((2, 3)),
+        interpolation_method="spectral",
+        interpolation_engine="spectral_element",
+        spectral_element_shape=(8, 8, 8),
+        spectral_polynomial_order=(7, 7, 7),
+        spectral_slice_y=0.75,
+    )
+    comparison = FrontDetectionComparison(
+        time=np.array([2.0]),
+        file_indices=np.array([1]),
+        x_front_auto=np.array([1.0]),
+        x_front_reference=np.array([1.0]),
+        difference=np.array([0.0]),
+        absolute_difference=np.array([0.0]),
+    )
+
+    summary = build_front_detection_summary(
+        case="N7",
+        sequence=sequence,
+        tracking_result=tracking,
+        comparison=comparison,
+        reference_path="front_simple.dat",
+    )
+
+    assert summary["interpolation_engine"] == "spectral_element"
+    assert summary["spectral_element_shape"] == "8 x 8 x 8"
+    assert summary["spectral_polynomial_order"] == "7 x 7 x 7"
+    assert summary["spectral_slice_y"] == 0.75

@@ -159,10 +159,30 @@ def _parse_args(
         help="Y-coordinate rounding precision for nearest-plane slicing.",
     )
     parser.add_argument(
+        "--interpolation-engine",
+        choices=("spectral_element", "scattered_linear", "scattered_nearest"),
+        default="spectral_element",
+        help=(
+            "Concentration preprocessing engine. Spectral interpolation evaluates "
+            "the exact physical slice; scattered engines retain the regression "
+            "baseline."
+        ),
+    )
+    parser.add_argument(
+        "--slice-y",
+        type=float,
+        help=(
+            "Exact physical y coordinate for spectral interpolation. When omitted, "
+            "the first field file's physical y-domain midpoint is used."
+        ),
+    )
+    parser.add_argument(
         "--interpolation-method",
         choices=("linear", "nearest"),
-        default="linear",
-        help="Concentration interpolation method.",
+        help=(
+            "Legacy scattered-method selector. When supplied, it must agree with "
+            "--interpolation-engine and is invalid for spectral interpolation."
+        ),
     )
     parser.add_argument(
         "--per-frame-griddata",
@@ -272,11 +292,34 @@ def main() -> None:
             if output_dir_arg is not None
             else paths.front_detection_dir / case
         )
-        interpolation_engine = (
-            "per_frame_griddata"
-            if args.per_frame_griddata
-            else "precomputed_geometry"
-        )
+        interpolation_engine = args.interpolation_engine
+        interpolation_method = {
+            "spectral_element": "spectral",
+            "scattered_linear": "linear",
+            "scattered_nearest": "nearest",
+        }[interpolation_engine]
+        if interpolation_engine == "spectral_element":
+            if args.interpolation_method is not None:
+                raise ValueError(
+                    "--interpolation-method applies only to scattered interpolation."
+                )
+            if args.per_frame_griddata:
+                raise ValueError(
+                    "--per-frame-griddata applies only to scattered interpolation."
+                )
+        elif (
+            args.interpolation_method is not None
+            and args.interpolation_method != interpolation_method
+        ):
+            raise ValueError(
+                f"--interpolation-engine {interpolation_engine} requires "
+                f"--interpolation-method {interpolation_method} when the legacy "
+                "option is supplied."
+            )
+        if interpolation_engine != "spectral_element" and args.slice_y is not None:
+            raise ValueError(
+                "--slice-y applies only to --interpolation-engine spectral_element."
+            )
 
         csv_paths = [
             detected_front_timeseries_path(output_dir, case),
@@ -327,8 +370,10 @@ def main() -> None:
                 nx=args.nx,
                 nz=args.nz,
                 slice_mode=args.slice_mode,
-                interpolation_method=args.interpolation_method,
+                interpolation_method=interpolation_method,
                 interpolation_engine=interpolation_engine,
+                slice_y=args.slice_y,
+                per_frame_griddata=args.per_frame_griddata,
             )
         )
         cache_spec = build_front_detection_cache_spec(
@@ -340,8 +385,10 @@ def main() -> None:
             slice_mode=args.slice_mode,
             slab_ratio=args.slab_ratio,
             y_round_decimals=args.y_round_decimals,
-            interpolation_method=args.interpolation_method,
+            interpolation_method=interpolation_method,
             interpolation_engine=interpolation_engine,
+            slice_y=args.slice_y,
+            per_frame_griddata=args.per_frame_griddata,
         )
         acquisition = acquire_concentration_sequence(
             cache_dir=cache_dir,
@@ -353,7 +400,8 @@ def main() -> None:
                 slice_mode=args.slice_mode,
                 slab_ratio=args.slab_ratio,
                 y_round_decimals=args.y_round_decimals,
-                interpolation_method=args.interpolation_method,
+                interpolation_engine=interpolation_engine,
+                slice_y=args.slice_y,
                 reuse_interpolation_geometry=not args.per_frame_griddata,
                 workers=args.workers,
             ),
@@ -364,6 +412,21 @@ def main() -> None:
         print(f"Concentration sequence source: {acquisition.mode}")
         print(f"Preprocessing workers: {args.workers}")
         print(f"Interpolation engine: {sequence.interpolation_engine}")
+        if sequence.interpolation_engine == "spectral_element":
+            assert sequence.spectral_element_shape is not None
+            assert sequence.spectral_polynomial_order is not None
+            assert sequence.spectral_slice_y is not None
+            print(
+                "Spectral element shape: "
+                + " x ".join(str(value) for value in sequence.spectral_element_shape)
+            )
+            print(
+                "Spectral polynomial order: "
+                + " x ".join(
+                    str(value) for value in sequence.spectral_polynomial_order
+                )
+            )
+            print(f"Spectral slice y: {sequence.spectral_slice_y:.16g}")
         print(
             "Concentration cache: "
             + ("disabled" if acquisition.cache_dir is None else str(cache_dir))
