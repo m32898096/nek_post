@@ -337,7 +337,7 @@ def build_leading_edge_evolution(
 def select_leading_edge_times(
     evolution: LeadingEdgeEvolution,
     *,
-    spacing: float | None = 0.28,
+    spacing: float | None = 0.25,
 ) -> LeadingEdgeTimeSelection:
     """Select nearest unique frames for regular targets, or all if spacing is None."""
     actual_times = np.asarray(evolution.time, dtype=np.float64)

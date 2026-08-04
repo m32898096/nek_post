@@ -52,7 +52,7 @@ def _cases_config() -> dict[str, object]:
             "z_target": 0.04,
             "threshold": 0.1,
             "y_upsample_factor": 2,
-            "contour_time_spacing": 0.28,
+            "contour_time_spacing": 0.25,
         },
     }
 
@@ -213,7 +213,7 @@ def test_configured_defaults_match_production_definition(tmp_path: Path) -> None
     assert args.z_target == 0.04
     assert args.threshold == 0.1
     assert args.y_upsample_factor == 2
-    assert args.contour_time_spacing == 0.28
+    assert args.contour_time_spacing == 0.25
     assert args.file_prefix == "GC0"
 
 
@@ -480,7 +480,7 @@ def test_main_does_not_mutate_package_results(
     assert_array_equal(selection.x_front, original_selection_front)
     assert not evolution.time.flags.writeable
     assert not selection.x_front.flags.writeable
-    assert calls["select"] == [(evolution, 0.28)]
+    assert calls["select"] == [(evolution, 0.25)]
 
 
 def test_importing_script_does_not_execute_main(
