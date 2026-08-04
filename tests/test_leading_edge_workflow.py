@@ -10,6 +10,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 
 from nek_post.front_detection_io import NekFramePath
+from nek_post.leading_edge_parallel import LeadingEdgeFrameResult
 from nek_post.leading_edge_workflow import (
     LeadingEdgeEvolution,
     build_leading_edge_evolution,
@@ -71,6 +72,7 @@ def _run_synthetic(
     frames: tuple[NekFramePath, ...] | None = None,
     times: dict[str, float] | None = None,
 ) -> tuple[LeadingEdgeEvolution, dict[str, object]]:
+    import nek_post.leading_edge_parallel as parallel
     import nek_post.leading_edge_workflow as workflow
 
     if frames is None:
@@ -135,7 +137,7 @@ def _run_synthetic(
         return plane
 
     monkeypatch.setattr(workflow, "build_spectral_horizontal_slice_plan", build)
-    monkeypatch.setattr(workflow, "apply_spectral_horizontal_slice_plan", apply)
+    monkeypatch.setattr(parallel, "apply_spectral_horizontal_slice_plan", apply)
     monkeypatch.setattr(workflow, "spectral_horizontal_plan_metadata", _plan_metadata)
     evolution = build_leading_edge_evolution(
         frames,
@@ -314,6 +316,7 @@ def test_full_concentration_planes_are_discarded(
 def test_stage_one_plan_and_stage_two_results_are_not_modified(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import nek_post.leading_edge_parallel as parallel
     import nek_post.leading_edge_workflow as workflow
     from nek_post.leading_edge_extraction import extract_spanwise_leading_edge
 
@@ -328,7 +331,7 @@ def test_stage_one_plan_and_stage_two_results_are_not_modified(
         curves.append((curve, snapshot))
         return curve
 
-    monkeypatch.setattr(workflow, "extract_spanwise_leading_edge", recording_extract)
+    monkeypatch.setattr(parallel, "extract_spanwise_leading_edge", recording_extract)
     evolution, calls = _run_synthetic(monkeypatch)
     plan = calls["plan"]
     assert isinstance(plan, SimpleNamespace)
@@ -379,6 +382,7 @@ def test_read_failure_has_source_path_context() -> None:
 def test_geometry_mismatch_preserves_type_and_has_source_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import nek_post.leading_edge_parallel as parallel
     import nek_post.leading_edge_workflow as workflow
 
     plan = _fake_plan()
@@ -390,7 +394,7 @@ def test_geometry_mismatch_preserves_type_and_has_source_context(
     def apply(_plan: object, _data: object, *, source_file: Path) -> np.ndarray:
         raise SpectralGeometryMismatchError("coordinate signature changed")
 
-    monkeypatch.setattr(workflow, "apply_spectral_horizontal_slice_plan", apply)
+    monkeypatch.setattr(parallel, "apply_spectral_horizontal_slice_plan", apply)
     path = Path("N7/GC0.f00001")
     with pytest.raises(
         SpectralGeometryMismatchError,
@@ -402,6 +406,265 @@ def test_geometry_mismatch_preserves_type_and_has_source_context(
             z_target=0.04,
             _frame_reader=lambda _path: SimpleNamespace(time=1.0),
         )
+
+
+@pytest.mark.parametrize("workers", [0, -1, 1.5, True])
+def test_workers_argument_validation(workers: object) -> None:
+    with pytest.raises(ValueError, match="workers"):
+        build_leading_edge_evolution(
+            [NekFramePath(1, Path("GC0.f00001"))],
+            nx=3,
+            z_target=0.04,
+            workers=workers,  # type: ignore[arg-type]
+        )
+
+
+def _workflow_frame_result(
+    frame: NekFramePath,
+    *,
+    time: float,
+    offset: float = 0.0,
+) -> LeadingEdgeFrameResult:
+    x_front = _readonly(
+        [0.25 + offset, 0.5 + offset, np.nan, 1.0 + offset],
+        np.float64,
+    )
+    success = _readonly([True, True, False, True], np.bool_)
+    return LeadingEdgeFrameResult(
+        file_index=frame.index,
+        source_path=frame.path,
+        time=time,
+        x_front=x_front,
+        success_mask=success,
+        crossing_count=_readonly([1, 1, 0, 2], np.int64),
+        finite_leading_edge_fraction=0.75,
+        successful_y_count=3,
+    )
+
+
+def _install_parallel_workflow_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[tuple[NekFramePath, ...], dict[int, LeadingEdgeFrameResult], dict[str, object]]:
+    import nek_post.leading_edge_workflow as workflow
+
+    frames = tuple(
+        NekFramePath(index, Path(f"GC0.f{index:05d}"))
+        for index in (10, 20, 30)
+    )
+    results = {
+        frame.index: _workflow_frame_result(
+            frame,
+            time={10: 1.0, 20: 1.25, 30: 1.5}[frame.index],
+            offset=frame.index / 100.0,
+        )
+        for frame in frames
+    }
+    plan = _fake_plan()
+    calls: dict[str, object] = {
+        "read": [],
+        "build": [],
+        "serial": [],
+        "parallel": [],
+        "plan": plan,
+    }
+
+    def read(path: Path) -> SimpleNamespace:
+        calls["read"].append(path)  # type: ignore[union-attr]
+        return SimpleNamespace(path=path, time=results[int(path.name[-5:])].time)
+
+    def build(data: object, **kwargs: object) -> SimpleNamespace:
+        calls["build"].append((data, kwargs))  # type: ignore[union-attr]
+        return plan
+
+    def serial(
+        frame: NekFramePath,
+        supplied_plan: object,
+        x: np.ndarray,
+        y: np.ndarray,
+        threshold: float,
+        *,
+        frame_reader: object,
+    ) -> LeadingEdgeFrameResult:
+        calls["serial"].append(  # type: ignore[union-attr]
+            (frame, supplied_plan, x, y, threshold, frame_reader)
+        )
+        return results[frame.index]
+
+    def parallel(
+        later_frames: tuple[NekFramePath, ...],
+        supplied_plan: object,
+        x: np.ndarray,
+        y: np.ndarray,
+        threshold: float,
+        *,
+        workers: int,
+    ) -> tuple[LeadingEdgeFrameResult, ...]:
+        calls["parallel"].append(  # type: ignore[union-attr]
+            (later_frames, supplied_plan, x, y, threshold, workers)
+        )
+        return tuple(results[frame.index] for frame in reversed(later_frames))
+
+    monkeypatch.setattr(workflow, "read_nek_file", read)
+    monkeypatch.setattr(workflow, "build_spectral_horizontal_slice_plan", build)
+    monkeypatch.setattr(workflow, "spectral_horizontal_plan_metadata", _plan_metadata)
+    monkeypatch.setattr(workflow, "process_leading_edge_frame", serial)
+    monkeypatch.setattr(workflow, "process_leading_edge_frames_parallel", parallel)
+    return frames, results, calls
+
+
+def test_workers_two_builds_plan_once_keeps_first_serial_and_only_dispatches_later(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames, _results, calls = _install_parallel_workflow_fakes(monkeypatch)
+
+    evolution = build_leading_edge_evolution(
+        tuple(reversed(frames)),
+        nx=3,
+        z_target=0.04,
+        workers=2,
+    )
+
+    assert len(calls["build"]) == 1  # type: ignore[arg-type]
+    serial_calls = calls["serial"]
+    assert isinstance(serial_calls, list)
+    assert [call[0] for call in serial_calls] == [frames[0]]
+    parallel_calls = calls["parallel"]
+    assert isinstance(parallel_calls, list) and len(parallel_calls) == 1
+    assert parallel_calls[0][0] == frames[1:]
+    assert parallel_calls[0][1] is calls["plan"]
+    assert parallel_calls[0][-1] == 2
+    assert_array_equal(evolution.file_indices, [10, 20, 30])
+    assert_allclose(evolution.time, [1.0, 1.25, 1.5])
+
+
+def test_workers_one_builds_plan_once_and_never_uses_parallel_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames, _results, calls = _install_parallel_workflow_fakes(monkeypatch)
+
+    evolution = build_leading_edge_evolution(
+        frames,
+        nx=3,
+        z_target=0.04,
+        workers=1,
+    )
+
+    assert len(calls["build"]) == 1  # type: ignore[arg-type]
+    assert [call[0] for call in calls["serial"]] == list(frames)  # type: ignore[index]
+    assert calls["parallel"] == []
+    assert_array_equal(evolution.file_indices, [10, 20, 30])
+
+
+def test_one_frame_never_uses_parallel_helper_even_with_workers_two(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames, _results, calls = _install_parallel_workflow_fakes(monkeypatch)
+
+    evolution = build_leading_edge_evolution(
+        frames[:1],
+        nx=3,
+        z_target=0.04,
+        workers=2,
+    )
+
+    assert evolution.file_indices.tolist() == [10]
+    assert calls["parallel"] == []
+    assert len(calls["build"]) == 1  # type: ignore[arg-type]
+
+
+def test_custom_reader_is_supported_serially_and_rejected_for_multiple_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames, _results, calls = _install_parallel_workflow_fakes(monkeypatch)
+
+    custom_reads: list[Path] = []
+
+    def custom_reader(path: Path) -> SimpleNamespace:
+        custom_reads.append(path)
+        return SimpleNamespace(time=1.0)
+
+    build_leading_edge_evolution(
+        frames[:1],
+        nx=3,
+        z_target=0.04,
+        workers=1,
+        _frame_reader=custom_reader,
+    )
+    assert custom_reads == [frames[0].path]
+    assert calls["parallel"] == []
+
+    with pytest.raises(ValueError, match=r"custom _frame_reader.*workers=1"):
+        build_leading_edge_evolution(
+            frames,
+            nx=3,
+            z_target=0.04,
+            workers=2,
+            _frame_reader=custom_reader,
+        )
+
+
+@pytest.mark.parametrize("second_time", [1.0, 0.9])
+def test_parallel_results_are_ordered_before_time_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    second_time: float,
+) -> None:
+    frames, results, _calls = _install_parallel_workflow_fakes(monkeypatch)
+    results[20] = _workflow_frame_result(frames[1], time=second_time)
+
+    with pytest.raises(ValueError, match=r"strictly increasing.*f00010.*f00020"):
+        build_leading_edge_evolution(
+            frames,
+            nx=3,
+            z_target=0.04,
+            workers=2,
+        )
+
+
+def test_workers_one_and_two_produce_identical_evolution_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames, _results, _calls = _install_parallel_workflow_fakes(monkeypatch)
+    serial = build_leading_edge_evolution(
+        frames,
+        nx=3,
+        z_target=0.04,
+        workers=1,
+    )
+    parallel = build_leading_edge_evolution(
+        tuple(reversed(frames)),
+        nx=3,
+        z_target=0.04,
+        workers=2,
+    )
+
+    for name in (
+        "file_indices",
+        "time",
+        "x",
+        "y",
+        "x_front",
+        "success_mask",
+        "crossing_count",
+        "finite_leading_edge_fraction",
+        "successful_y_count",
+    ):
+        serial_array = getattr(serial, name)
+        parallel_array = getattr(parallel, name)
+        assert_array_equal(serial_array, parallel_array)
+        assert not serial_array.flags.writeable
+        assert not parallel_array.flags.writeable
+    assert serial.source_files == parallel.source_files
+    assert serial.horizontal_plan_metadata == parallel.horizontal_plan_metadata
+    for name in (
+        "threshold",
+        "z_target",
+        "nx",
+        "native_ny",
+        "dense_ny",
+        "y_upsample_factor",
+        "periodic_endpoint_included",
+    ):
+        assert getattr(serial, name) == getattr(parallel, name)
 
 
 def test_default_time_selection_targets_nearest_frames_and_preserves_values() -> None:
