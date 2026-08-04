@@ -155,11 +155,10 @@ objects and full two-dimensional concentration planes are discarded in the
 worker.
 
 `--workers 1` is the deterministic serial baseline and is also the mode to use
-with the package API's custom frame-reader injection. Two workers are the
-conservative configured production default, but this choice must still be
-verified on the real N7 data and storage system. Increasing the process count
-can raise memory use and I/O pressure; no speedup is claimed without a real
-benchmark.
+with the package API's custom frame-reader injection. The completed full-N7
+benchmark supports retaining two workers as the configured production default;
+four workers remain available as a manual override. Increasing the process
+count can still raise memory use and I/O pressure.
 
 Script 20 reads only those existing CSV artifacts and writes PNG and PDF. It
 does not discover, open, or interpolate Nek5000 files. Its flags are:
@@ -182,6 +181,92 @@ definition, target grid, upsampling, threshold, or time selection changes.
 Figure-formatting changes require only script 20; these reruns do not read any
 `.fNNNNN` file or repeat spectral interpolation. Plot-only execution is
 independent of the compute worker count and does not expose a worker option.
+
+## Worker-count benchmark
+
+Script 21 measures the existing script-19 compute command in fresh Python
+processes for `workers=1`, `workers=2`, and `workers=4`. Each run includes plan
+construction, Nek snapshot reads, process-pool startup where applicable,
+spectral interpolation, leading-edge extraction, time selection, and CSV
+writing. On Linux, `/usr/bin/time` supplies elapsed wall time, user CPU time,
+system CPU time, and maximum resident set size in KiB through a dedicated
+machine-readable metrics file.
+
+Use a bounded frame range and reduced x resolution for an initial benchmark:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/21_benchmark_leading_edge_workers.py \
+  --case N7 \
+  --start-index 37 \
+  --end-index 52 \
+  --nx 500 \
+  --worker-counts 1,2,4 \
+  --repeats 2 \
+  --all-frames \
+  --overwrite
+```
+
+Run the full production-resolution comparison separately:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/21_benchmark_leading_edge_workers.py \
+  --case N7 \
+  --nx 1000 \
+  --worker-counts 1,2,4 \
+  --repeats 3 \
+  --overwrite
+```
+
+### Completed full-N7 results
+
+The full benchmark used all discovered N7 frames, `nx=1000`, `z_target=0.04`,
+`threshold=0.1`, `y_upsample_factor=2`, `contour_time_spacing=0.25`, and three
+measured repetitions per worker count. The median results were:
+
+| Workers | Median wall time (s) | Speedup vs. workers=1 | Scientifically equivalent |
+| ---: | ---: | ---: | :---: |
+| 1 | 516.30 | 1.00000 | True |
+| 2 | 367.69 | 1.40417 | True |
+| 4 | 348.64 | 1.48090 | True |
+
+Workers=2 reduced median wall time by approximately 28.8% relative to the
+serial baseline. Workers=4 was approximately 5.2% faster than workers=2, a much
+smaller incremental gain. All three configurations produced scientifically
+equivalent CSV artifacts. On this evidence, workers=2 remains the configured
+production default, while workers=4 is an optional manual override when the
+additional process and I/O load is acceptable.
+
+GNU time's maximum-RSS measurement must not be interpreted as the aggregate
+memory simultaneously used by the complete process tree. In particular, it is
+not a total of the parent and all worker resident sets.
+
+Run benchmarks while the machine is otherwise idle, using the same data
+location and scientific parameters for every worker count. Wall time determines
+practical speed. User CPU time can rise as more processes do work, and peak RSS
+can rise because each worker reads snapshots and holds interpolation state.
+One short run is not enough evidence for changing a default.
+
+Every measured run has a distinct directory below
+`paths.results_root/leading_edge_benchmarks/CASE/runs`, containing its two CSV
+artifacts, `stdout.log`, `stderr.log`, and `metrics.txt`. Warmups use disposable
+directories and do not enter the reports. The benchmark writes:
+
+- `leading_edge_workers_benchmark.csv`, with one stable-schema row per measured
+  run, including timing, RSS, hashes, paths, return status, and equivalence.
+- `leading_edge_workers_summary.csv`, with worker-count medians, wall-time
+  range, speedup relative to the workers=1 median, efficiency, median peak RSS,
+  and aggregate equivalence.
+
+Workers=1 is the mandatory numerical baseline. SHA-256 equality is checked
+first; differing hashes trigger exact structured comparison with zero relative
+and absolute tolerance and equal-NaN handling. Different source frames, times,
+y values, `x_front` values or NaN locations, success/crossing arrays, physical
+settings, endpoint policy, or metadata invalidate the benchmark, and no valid
+speedup is claimed. The benchmark never writes into the production
+`leading_edge/N7` directory and never changes `config/cases.yaml`; workers=2
+remains the configured production default unless separately reviewed.
 
 ## Validation commands
 

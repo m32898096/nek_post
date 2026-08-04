@@ -196,9 +196,41 @@ frame remains serial and defines the reusable spectral interpolation plan; only
 later frame descriptors enter the process pool, and workers return reduced
 one-dimensional leading-edge results rather than full concentration planes.
 Use `--workers 1` as the deterministic serial baseline. More workers can add
-memory and I/O pressure, and the conservative two-worker default still requires
-verification on the real N7 dataset; no speedup is claimed before that
-benchmark. The plot-only command is independent of workers and raw Nek files.
+memory and I/O pressure. The completed full-N7 benchmark retained workers=2 as
+the production default; workers=4 remains an optional manual override. The
+plot-only command is independent of workers and raw Nek files.
+
+Benchmark the existing compute workflow in fresh GNU-timed processes, with
+workers=1 as the mandatory exact-output baseline:
+
+```bash
+PYENV_VERSION=research312 python \
+  scripts/21_benchmark_leading_edge_workers.py \
+  --case N7 \
+  --start-index 37 \
+  --end-index 52 \
+  --nx 500 \
+  --worker-counts 1,2,4 \
+  --repeats 2 \
+  --all-frames \
+  --overwrite
+```
+
+The benchmark stores isolated run artifacts, logs, GNU-time metrics, and stable
+run/summary CSV reports outside the production leading-edge directory. It
+requires exact scientific equivalence and does not alter the configured
+workers=2 default. Run it on an otherwise idle machine; see the detailed guide
+for the full-resolution command and measurement limitations.
+
+For the completed full-N7 benchmark using all discovered frames, `nx=1000`, and
+three repetitions, median wall times were 516.30 s for workers=1, 367.69 s for
+workers=2, and 348.64 s for workers=4. These correspond to speedups of 1.00000,
+1.40417, and 1.48090, respectively, and every configuration produced
+scientifically equivalent artifacts. Workers=2 reduced wall time by about 28.8%
+relative to workers=1; workers=4 was only about 5.2% faster than workers=2. GNU
+time's maximum RSS is not the aggregate memory usage of the complete parent and
+worker process tree.
+
 See
 [docs/leading_edge_evolution.md](docs/leading_edge_evolution.md) for the full
 physical definition, CLI flags, outputs, and validation commands.
