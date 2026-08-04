@@ -173,7 +173,8 @@ python scripts/04_plot_summary.py --comparison-set t19p5 --field pressure
 ## N7 Leading-Edge Evolution
 
 Generate the Re=3450 N7 Figure-4-style spanwise leading-edge evolution from the
-fixed physical plane `z=0.04` and concentration contour `C=0.1`:
+fixed physical plane `z=0.04`, concentration contour `C=0.1`, and production
+target-time spacing `delta_t=0.25`:
 
 ```bash
 python scripts/19_plot_leading_edge_evolution.py --overwrite

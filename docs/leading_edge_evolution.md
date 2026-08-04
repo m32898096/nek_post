@@ -14,11 +14,14 @@ The production definition is:
 - Reynolds number: `3450`
 - horizontal plane: `z = 0.04`
 - concentration contour: `C = 0.1`
-- target-time spacing: `delta_t = 0.28`
+- target-time spacing: `delta_t = 0.25`
 - spanwise upsampling factor: `2`
 
 These defaults are stored in the dedicated `leading_edge` section of
 `config/cases.yaml`.
+
+The reference paper used `Delta t = 0.28`, while this project uses
+`Delta t = 0.25` to match the natural cadence of the N7 simulation outputs.
 
 ## Numerical pipeline
 
@@ -117,7 +120,7 @@ generated help. The flags are:
 | `--z-target` | Fixed physical horizontal-plane coordinate; default `0.04`. |
 | `--threshold` | Leading-edge concentration contour; default `0.1`. |
 | `--y-upsample-factor` | Multiplier defining `dense_ny`; default `2`. |
-| `--contour-time-spacing` | Regular target-time spacing; default `0.28`. |
+| `--contour-time-spacing` | Regular target-time spacing; default `0.25`. |
 | `--all-frames` | Select all processed snapshots instead of spaced targets. |
 | `--reynolds-number` | Reynolds number used in reporting/title; default `3450`. |
 | `--output-dir` | Override the dynamic results directory. |

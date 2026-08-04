@@ -76,7 +76,7 @@ leading_edge:
   z_target: 0.04
   threshold: 0.1
   y_upsample_factor: 2
-  contour_time_spacing: 0.28
+  contour_time_spacing: 0.25
 
 fields:
   - concentration

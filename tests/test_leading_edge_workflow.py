@@ -404,16 +404,16 @@ def test_geometry_mismatch_preserves_type_and_has_source_context(
         )
 
 
-def test_time_selection_targets_nearest_frames_and_preserves_values() -> None:
+def test_default_time_selection_targets_nearest_frames_and_preserves_values() -> None:
     evolution = _evolution_for_times([1.0, 1.1, 1.5, 1.9])
     original_x_front = evolution.x_front.copy()
 
-    selection = select_leading_edge_times(evolution, spacing=0.28)
+    selection = select_leading_edge_times(evolution)
 
     assert_array_equal(selection.selected_positions, [0, 1, 2, 3])
-    assert_allclose(selection.target_time, [1.0, 1.28, 1.56, 1.84])
+    assert_allclose(selection.target_time, [1.0, 1.25, 1.5, 1.75])
     assert_allclose(selection.actual_time, [1.0, 1.1, 1.5, 1.9])
-    assert_allclose(selection.time_error, [0.0, -0.18, -0.06, 0.06])
+    assert_allclose(selection.time_error, [0.0, -0.15, 0.0, 0.15])
     assert_array_equal(selection.x_front, evolution.x_front)
     assert_array_equal(evolution.x_front, original_x_front)
     assert selection.evolution is evolution
