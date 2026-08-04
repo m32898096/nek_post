@@ -11,12 +11,14 @@ import numpy as np
 from numpy.testing import assert_array_equal
 import pytest
 
+from nek_post.leading_edge_artifacts import LeadingEdgePlotData
 from nek_post.leading_edge_io import (
     leading_edge_evolution_pdf_path,
     leading_edge_evolution_png_path,
 )
 from nek_post.leading_edge_plotting import (
     periodic_leading_edge_plot_arrays,
+    write_leading_edge_artifact_plots,
     write_leading_edge_evolution_plots,
 )
 from nek_post.leading_edge_workflow import (
@@ -100,6 +102,46 @@ def test_headless_backend_and_png_pdf_creation(tmp_path: Path) -> None:
     ]
     assert all(path.is_file() and path.stat().st_size > 0 for path in paths)
     assert set(plt.get_fignums()) == before
+
+
+def test_artifact_plot_adapter_writes_the_same_png_pdf_definition(
+    tmp_path: Path,
+) -> None:
+    evolution, selection = _outputs()
+    plot_data = LeadingEdgePlotData(
+        case="N7",
+        file_indices=selection.file_indices,
+        target_time=selection.target_time,
+        actual_time=selection.actual_time,
+        time_error=selection.time_error,
+        y=evolution.y,
+        x_front=selection.x_front,
+        success_mask=selection.success_mask,
+        crossing_count=selection.crossing_count,
+        threshold=evolution.threshold,
+        z_target=evolution.z_target,
+        nx=evolution.nx,
+        native_ny=evolution.native_ny,
+        dense_ny=evolution.dense_ny,
+        y_upsample_factor=evolution.y_upsample_factor,
+        y_min=0.0,
+        y_max_periodic_endpoint=1.0,
+        periodic_endpoint_included=False,
+        target_time_spacing=None,
+    )
+
+    paths = write_leading_edge_artifact_plots(
+        tmp_path,
+        plot_data,
+        overwrite=False,
+        reynolds_number=3450,
+    )
+
+    assert paths == [
+        leading_edge_evolution_png_path(tmp_path, "N7"),
+        leading_edge_evolution_pdf_path(tmp_path, "N7"),
+    ]
+    assert all(path.stat().st_size > 100 for path in paths)
 
 
 def test_periodic_plotting_closure_is_copy_and_preserves_nan_gap() -> None:
