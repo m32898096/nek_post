@@ -12,14 +12,17 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nek_post.front_detection_io import NekFramePath
-from nek_post.io_nek import get_nek_time, read_nek_file
-from nek_post.leading_edge_extraction import extract_spanwise_leading_edge
+from nek_post.io_nek import read_nek_file
+from nek_post.leading_edge_parallel import (
+    LeadingEdgeFrameResult,
+    process_leading_edge_frame,
+    process_leading_edge_frames_parallel,
+    validate_leading_edge_workers,
+)
 from nek_post.spectral_horizontal_slice import (
-    apply_spectral_horizontal_slice_plan,
     build_spectral_horizontal_slice_plan,
     spectral_horizontal_plan_metadata,
 )
-from nek_post.spectral_interpolation import SpectralGeometryMismatchError
 
 
 @dataclass(frozen=True)
@@ -131,17 +134,6 @@ def _validated_frames(
     return frames
 
 
-def _frame_time(data: object, path: Path) -> float:
-    raw_time = get_nek_time(data)
-    try:
-        time = float(raw_time)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{path} has non-finite Nek time {raw_time!r}.") from exc
-    if not np.isfinite(time):
-        raise ValueError(f"{path} has non-finite Nek time {raw_time!r}.")
-    return time
-
-
 def _horizontal_coordinates(
     plan: object,
     expected_nx: int,
@@ -207,107 +199,123 @@ def build_leading_edge_evolution(
     z_target: float,
     threshold: float = 0.1,
     y_upsample_factor: int = 2,
+    workers: int = 1,
     _frame_reader: Any | None = None,
 ) -> LeadingEdgeEvolution:
     """Read, interpolate, and immediately reduce each frame to one x(y) curve."""
     frames = _validated_frames(frame_paths)
+    worker_count = validate_leading_edge_workers(workers)
     nx_value = _positive_integer(nx, "nx", 2)
     z_value = _finite_float(z_target, "z_target")
     threshold_value = _finite_float(threshold, "threshold")
     upsample_factor = _positive_integer(
         y_upsample_factor, "y_upsample_factor", 1
     )
+    if worker_count > 1 and _frame_reader is not None:
+        raise ValueError(
+            "A custom _frame_reader is supported only with workers=1; child "
+            "processes use the standard Nek frame reader."
+        )
     reader = read_nek_file if _frame_reader is None else _frame_reader
 
-    plan: object | None = None
-    x: np.ndarray | None = None
-    y: np.ndarray | None = None
-    times: list[float] = []
-    x_front_rows: list[NDArray[np.float64]] = []
-    success_rows: list[NDArray[np.bool_]] = []
-    crossing_rows: list[NDArray[np.int64]] = []
-    finite_fractions: list[float] = []
-    successful_counts: list[int] = []
+    first_frame = frames[0]
+    try:
+        first_data = reader(first_frame.path)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to read Nek frame {first_frame.path}: {exc}"
+        ) from exc
+    try:
+        plan = build_spectral_horizontal_slice_plan(
+            first_data,
+            nx=nx_value,
+            z_target=z_value,
+            y_upsample_factor=upsample_factor,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to build spectral horizontal interpolation plan from "
+            f"{first_frame.path}: {exc}"
+        ) from exc
+    x, y = _horizontal_coordinates(plan, nx_value)
 
-    for frame in frames:
-        source_path = frame.path
-        try:
-            data = reader(source_path)
-        except Exception as exc:
-            raise RuntimeError(f"Failed to read Nek frame {source_path}: {exc}") from exc
-        frame_time = _frame_time(data, source_path)
-        if times and frame_time <= times[-1]:
-            previous = frames[len(times) - 1]
-            raise ValueError(
-                "Nek frame times must be strictly increasing and unique in "
-                f"file-index order: {previous.path} has time {times[-1]:.16g}, "
-                f"but {source_path} has time {frame_time:.16g}."
-            )
+    def first_frame_reader(_source_path: Path) -> object:
+        return first_data
 
-        if plan is None:
-            try:
-                plan = build_spectral_horizontal_slice_plan(
-                    data,
-                    nx=nx_value,
-                    z_target=z_value,
-                    y_upsample_factor=upsample_factor,
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    "Failed to build spectral horizontal interpolation plan from "
-                    f"{source_path}: {exc}"
-                ) from exc
-            x, y = _horizontal_coordinates(plan, nx_value)
+    try:
+        first_result = process_leading_edge_frame(
+            first_frame,
+            plan,
+            x,
+            y,
+            threshold_value,
+            frame_reader=first_frame_reader,
+        )
+    finally:
+        del first_data
 
-        assert plan is not None
-        assert x is not None
-        assert y is not None
-        try:
-            concentration = apply_spectral_horizontal_slice_plan(
-                plan,  # type: ignore[arg-type]
-                data,
-                source_file=source_path,
-            )
-        except SpectralGeometryMismatchError as exc:
-            raise SpectralGeometryMismatchError(
-                f"Source geometry mismatch for {source_path}: {exc}"
-            ) from exc
-        except Exception as exc:
-            raise RuntimeError(
-                "Failed to interpolate horizontal concentration from "
-                f"{source_path}: {exc}"
-            ) from exc
-        try:
-            curve = extract_spanwise_leading_edge(
+    later_frames = frames[1:]
+    if worker_count == 1:
+        later_results = tuple(
+            process_leading_edge_frame(
+                frame,
+                plan,
                 x,
                 y,
-                concentration,
-                threshold=threshold_value,
+                threshold_value,
+                frame_reader=reader,
             )
-        except Exception as exc:
+            for frame in later_frames
+        )
+    elif later_frames:
+        later_results = process_leading_edge_frames_parallel(
+            later_frames,
+            plan,
+            x,
+            y,
+            threshold_value,
+            workers=worker_count,
+        )
+    else:
+        later_results = ()
+
+    results: tuple[LeadingEdgeFrameResult, ...] = tuple(
+        sorted((first_result, *later_results), key=lambda result: result.file_index)
+    )
+    if len(results) != len(frames):
+        raise RuntimeError(
+            "Leading-edge frame processing returned an unexpected result count: "
+            f"expected {len(frames)}, got {len(results)}."
+        )
+    for frame, result in zip(frames, results, strict=True):
+        if (
+            result.file_index != frame.index
+            or Path(result.source_path) != frame.path
+        ):
             raise RuntimeError(
-                f"Failed to extract leading edge from {source_path}: {exc}"
-            ) from exc
-
-        if not np.array_equal(curve.y, y):
-            raise ValueError(
-                f"Leading-edge y coordinates from {source_path} do not match the "
-                "horizontal interpolation plan."
+                "Leading-edge frame result identity mismatch: expected file index "
+                f"{frame.index} ({frame.path}), got {result.file_index} "
+                f"({result.source_path})."
             )
-        times.append(frame_time)
-        x_front_rows.append(curve.x_front)
-        success_rows.append(curve.success_mask)
-        crossing_rows.append(curve.crossing_count)
-        finite_count = int(np.count_nonzero(np.isfinite(curve.x_front)))
-        finite_fractions.append(float(finite_count / y.size))
-        successful_counts.append(int(np.count_nonzero(curve.success_mask)))
 
-        # Only the extracted one-dimensional arrays survive this iteration.
-        del concentration, curve, data
+    times = np.asarray([result.time for result in results], dtype=np.float64)
+    for frame, frame_time in zip(frames, times, strict=True):
+        if not np.isfinite(frame_time):
+            raise ValueError(
+                f"{frame.path} has non-finite Nek time {frame_time!r}."
+            )
+    bad_steps = np.flatnonzero(np.diff(times) <= 0.0)
+    if bad_steps.size:
+        previous_position = int(bad_steps[0])
+        current_position = previous_position + 1
+        raise ValueError(
+            "Nek frame times must be strictly increasing and unique in "
+            f"file-index order: {frames[previous_position].path} has time "
+            f"{times[previous_position]:.16g}, but "
+            f"{frames[current_position].path} has time "
+            f"{times[current_position]:.16g}."
+        )
 
-    assert plan is not None
-    assert x is not None
-    assert y is not None
     return LeadingEdgeEvolution(
         file_indices=_readonly_copy(
             [frame.index for frame in frames], np.int64
@@ -316,13 +324,22 @@ def build_leading_edge_evolution(
         time=_readonly_copy(times, np.float64),
         x=_readonly_copy(x, np.float64),
         y=_readonly_copy(y, np.float64),
-        x_front=_readonly_copy(np.stack(x_front_rows), np.float64),
-        success_mask=_readonly_copy(np.stack(success_rows), np.bool_),
-        crossing_count=_readonly_copy(np.stack(crossing_rows), np.int64),
-        finite_leading_edge_fraction=_readonly_copy(
-            finite_fractions, np.float64
+        x_front=_readonly_copy(
+            np.stack([result.x_front for result in results]), np.float64
         ),
-        successful_y_count=_readonly_copy(successful_counts, np.int64),
+        success_mask=_readonly_copy(
+            np.stack([result.success_mask for result in results]), np.bool_
+        ),
+        crossing_count=_readonly_copy(
+            np.stack([result.crossing_count for result in results]), np.int64
+        ),
+        finite_leading_edge_fraction=_readonly_copy(
+            [result.finite_leading_edge_fraction for result in results],
+            np.float64,
+        ),
+        successful_y_count=_readonly_copy(
+            [result.successful_y_count for result in results], np.int64
+        ),
         threshold=threshold_value,
         z_target=z_value,
         nx=nx_value,
