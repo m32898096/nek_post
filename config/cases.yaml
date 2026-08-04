@@ -69,6 +69,15 @@ grid:
   nx: 500
   nz: 200
 
+leading_edge:
+  case: N7
+  reynolds_number: 3450
+  nx: 1000
+  z_target: 0.04
+  threshold: 0.1
+  y_upsample_factor: 2
+  contour_time_spacing: 0.28
+
 fields:
   - concentration
   - velocity
