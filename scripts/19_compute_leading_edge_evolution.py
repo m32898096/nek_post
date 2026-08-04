@@ -151,6 +151,15 @@ def _parse_args(
         help="Multiplier from native_ny to the uniform periodic target count.",
     )
     parser.add_argument(
+        "--workers",
+        type=_integer_at_least(1),
+        default=_mapping_value(leading_edge, "workers", "leading_edge"),
+        help=(
+            "Process count for later frames; the first frame remains serial "
+            "to define the reusable interpolation plan."
+        ),
+    )
+    parser.add_argument(
         "--contour-time-spacing",
         type=_positive_float,
         default=argparse.SUPPRESS,
@@ -219,6 +228,7 @@ def main(argv: list[str] | None = None) -> None:
             z_target=args.z_target,
             threshold=args.threshold,
             y_upsample_factor=args.y_upsample_factor,
+            workers=args.workers,
         )
         expected_dense_ny = evolution.y_upsample_factor * evolution.native_ny
         if evolution.dense_ny != expected_dense_ny:
@@ -243,6 +253,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Case directory: {case_dir}")
         print(f"Nek file prefix: {args.file_prefix}")
         print(f"Input frame count: {len(frames)}")
+        print(f"Workers: {args.workers}")
         print(f"File-index range: {frames[0].index} to {frames[-1].index}")
         print(
             "Actual time range: "

@@ -50,6 +50,7 @@ def _cases_config() -> dict[str, object]:
             "threshold": 0.1,
             "y_upsample_factor": 2,
             "contour_time_spacing": 0.25,
+            "workers": 2,
         },
     }
 
@@ -147,6 +148,7 @@ def test_help_succeeds_and_contains_only_compute_options(
         "--z-target",
         "--threshold",
         "--y-upsample-factor",
+        "--workers",
         "--contour-time-spacing",
         "--all-frames",
         "--output-dir",
@@ -171,6 +173,7 @@ def test_configured_defaults_include_quarter_time_spacing(tmp_path: Path) -> Non
     assert args.threshold == 0.1
     assert args.y_upsample_factor == 2
     assert args.contour_time_spacing == 0.25
+    assert args.workers == 2
 
 
 def test_dynamic_output_directory_uses_final_case(tmp_path: Path) -> None:
@@ -219,11 +222,54 @@ def test_compute_preflights_and_writes_only_two_csvs(
     )
     assert not overwrite
     assert calls["select"] == [(evolution, 0.25)]
+    supplied_frames, build_kwargs = calls["build"][0]  # type: ignore[index]
+    assert supplied_frames
+    assert build_kwargs["workers"] == 2
     write_args, write_kwargs = calls["write"][0]  # type: ignore[index]
     assert write_args[:4] == (output_dir, "N7", evolution, selection)
     assert write_kwargs == {"overwrite": False}
     assert not hasattr(compute_script, "write_leading_edge_evolution_plots")
     assert "matplotlib" not in compute_script.__dict__
+
+
+def test_workers_one_override_is_passed_to_builder_and_reported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls, _evolution, _selection, _paths_value = _install_success_fakes(
+        tmp_path,
+        monkeypatch,
+    )
+
+    compute_script.main(["--workers", "1"])
+
+    _frames, build_kwargs = calls["build"][0]  # type: ignore[index]
+    assert build_kwargs["workers"] == 1
+    assert "Workers: 1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "true"])
+def test_invalid_workers_are_rejected(
+    value: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        compute_script._parse_args(
+            _paths(tmp_path),
+            _cases_config(),
+            ["--workers", value],
+        )
+
+    assert error.value.code == 2
+    assert "integer greater than or equal to 1" in capsys.readouterr().err
+
+
+def test_plot_only_cli_has_no_workers_option() -> None:
+    plot_script = SCRIPT_PATH.with_name("20_plot_leading_edge_evolution.py")
+
+    assert "--workers" not in plot_script.read_text(encoding="utf-8")
 
 
 def test_all_frames_selects_spacing_none(

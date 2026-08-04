@@ -77,6 +77,7 @@ leading_edge:
   threshold: 0.1
   y_upsample_factor: 2
   contour_time_spacing: 0.25
+  workers: 2
 
 fields:
   - concentration

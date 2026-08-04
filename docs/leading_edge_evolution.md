@@ -16,6 +16,7 @@ The production definition is:
 - concentration contour: `C = 0.1`
 - target-time spacing: `delta_t = 0.25`
 - spanwise upsampling factor: `2`
+- compute workers: `2`
 
 These defaults are stored in the dedicated `leading_edge` section of
 `config/cases.yaml`.
@@ -112,7 +113,10 @@ finite threshold crossing and remain gaps in the figure.
 The recommended production workflow is:
 
 ```bash
-python scripts/19_compute_leading_edge_evolution.py --case N7 --overwrite
+python scripts/19_compute_leading_edge_evolution.py \
+  --case N7 \
+  --workers 2 \
+  --overwrite
 python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite
 ```
 
@@ -130,6 +134,7 @@ are:
 | `--z-target` | Fixed physical horizontal-plane coordinate; default `0.04`. |
 | `--threshold` | Leading-edge concentration contour; default `0.1`. |
 | `--y-upsample-factor` | Multiplier defining `dense_ny`; default `2`. |
+| `--workers` | Process count for later frames; configured default `2`. |
 | `--contour-time-spacing` | Regular target-time spacing; default `0.25`. |
 | `--all-frames` | Select all processed snapshots instead of spaced targets. |
 | `--output-dir` | Override the dynamic CSV artifact directory. |
@@ -138,6 +143,23 @@ are:
 `--all-frames` and an explicitly supplied `--contour-time-spacing` are mutually
 exclusive. Both CSV paths are preflighted before any Nek snapshot is read or
 processed.
+
+The first frame is always read and reduced serially because its stationary
+geometry defines the one reusable spectral horizontal interpolation plan. With
+`--workers 2`, only subsequent frame descriptors are submitted to the process
+pool. The plan, x and y coordinates, and threshold are installed once in each
+worker by the process initializer; they are not submitted with every task and
+are not rebuilt in workers. Each worker reads its own snapshot and returns only
+the reduced one-dimensional leading-edge arrays and scalar diagnostics. Raw Nek
+objects and full two-dimensional concentration planes are discarded in the
+worker.
+
+`--workers 1` is the deterministic serial baseline and is also the mode to use
+with the package API's custom frame-reader injection. Two workers are the
+conservative configured production default, but this choice must still be
+verified on the real N7 data and storage system. Increasing the process count
+can raise memory use and I/O pressure; no speedup is claimed without a real
+benchmark.
 
 Script 20 reads only those existing CSV artifacts and writes PNG and PDF. It
 does not discover, open, or interpolate Nek5000 files. Its flags are:
@@ -158,8 +180,8 @@ together before reading either CSV.
 Recompute with script 19 only when the source snapshots, frame range, physical
 definition, target grid, upsampling, threshold, or time selection changes.
 Figure-formatting changes require only script 20; these reruns do not read any
-`.fNNNNN` file or repeat spectral interpolation. Multiprocessing and worker
-options are intentionally not included yet.
+`.fNNNNN` file or repeat spectral interpolation. Plot-only execution is
+independent of the compute worker count and does not expose a worker option.
 
 ## Validation commands
 
@@ -169,6 +191,7 @@ Use one snapshot for a quick CSV-only smoke test:
 python scripts/19_compute_leading_edge_evolution.py \
   --start-index 1 \
   --end-index 1 \
+  --workers 1 \
   --output-dir /tmp/n7-leading-edge-single \
   --overwrite
 ```
@@ -181,6 +204,7 @@ python scripts/19_compute_leading_edge_evolution.py \
   --start-index 1 \
   --end-index 5 \
   --nx 300 \
+  --workers 2 \
   --output-dir /tmp/n7-leading-edge-small \
   --overwrite
 
@@ -192,7 +216,10 @@ python scripts/20_plot_leading_edge_evolution.py \
 Run the full configured N7 production workflow with:
 
 ```bash
-python scripts/19_compute_leading_edge_evolution.py --case N7 --overwrite
+python scripts/19_compute_leading_edge_evolution.py \
+  --case N7 \
+  --workers 2 \
+  --overwrite
 python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite
 ```
 
