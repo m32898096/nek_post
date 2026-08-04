@@ -177,12 +177,16 @@ fixed physical plane `z=0.04`, concentration contour `C=0.1`, and production
 target-time spacing `delta_t=0.25`:
 
 ```bash
-python scripts/19_plot_leading_edge_evolution.py --overwrite
+python scripts/19_compute_leading_edge_evolution.py --case N7 --overwrite
+python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite
 ```
 
 The workflow uses element-aware GLL interpolation to a uniform periodic y grid
 with `dense_ny = 2 * native_ny`; it does not apply an FFT directly to raw
-element-local arrays or add DNS resolution. See
+element-local arrays or add DNS resolution. Recompute CSV artifacts only when
+the data or numerical parameters change. Plot-only reruns read those CSVs and
+never access `.fNNNNN` files, making them appropriate for figure-formatting
+changes. Worker options are not included yet. See
 [docs/leading_edge_evolution.md](docs/leading_edge_evolution.md) for the full
 physical definition, CLI flags, outputs, and validation commands.
 

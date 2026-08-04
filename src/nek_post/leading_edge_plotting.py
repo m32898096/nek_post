@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-nek-post")
 
@@ -16,14 +17,16 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from nek_post.front_detection_io import preflight_output_paths
+from nek_post.leading_edge_artifacts import LeadingEdgePlotData
 from nek_post.leading_edge_io import (
     leading_edge_evolution_pdf_path,
     leading_edge_evolution_png_path,
 )
-from nek_post.leading_edge_workflow import (
-    LeadingEdgeEvolution,
-    LeadingEdgeTimeSelection,
-)
+if TYPE_CHECKING:
+    from nek_post.leading_edge_workflow import (
+        LeadingEdgeEvolution,
+        LeadingEdgeTimeSelection,
+    )
 
 
 def periodic_leading_edge_plot_arrays(
@@ -99,32 +102,48 @@ def _x_limits(values: NDArray[np.float64]) -> tuple[float, float]:
     return x_min - padding, x_max + padding
 
 
-def write_leading_edge_evolution_plots(
+def _write_leading_edge_plot_arrays(
     output_dir: str | Path,
     case: str,
-    evolution: LeadingEdgeEvolution,
-    selection: LeadingEdgeTimeSelection,
+    y: ArrayLike,
+    x_front: ArrayLike,
+    threshold: float,
+    z_target: float,
+    y_min: float,
+    y_max_periodic_endpoint: float,
     overwrite: bool,
     *,
     reynolds_number: float | int | None = None,
 ) -> list[Path]:
-    """Write one unsmoothed solid x_front(y) curve per selected actual time."""
     paths = [
         leading_edge_evolution_png_path(output_dir, case),
         leading_edge_evolution_pdf_path(output_dir, case),
     ]
     preflight_output_paths(paths, overwrite)
 
-    selected = _selected_x_front(evolution, selection)
-    y = np.asarray(evolution.y, dtype=np.float64)
-    y_min, y_max = _physical_y_extent(evolution)
+    y_array = np.asarray(y, dtype=np.float64)
+    selected = np.asarray(x_front, dtype=np.float64)
     if (
-        y.ndim != 1
-        or y.size == 0
-        or not np.all(np.isfinite(y))
-        or np.any(np.diff(y) <= 0.0)
+        y_array.ndim != 1
+        or y_array.size == 0
+        or not np.all(np.isfinite(y_array))
+        or np.any(np.diff(y_array) <= 0.0)
     ):
         raise ValueError("Evolution y coordinates must be finite and increasing.")
+    if selected.ndim != 2 or selected.shape != (selected.shape[0], y_array.size):
+        raise ValueError(
+            "Leading-edge x_front must have shape (selected_frames, len(y))."
+        )
+    if selected.shape[0] == 0 or not np.any(np.isfinite(selected)):
+        raise ValueError("Cannot plot a selection with no finite leading-edge point.")
+    y_min_value = float(y_min)
+    y_max_value = float(y_max_periodic_endpoint)
+    if (
+        not np.isfinite(y_min_value)
+        or not np.isfinite(y_max_value)
+        or y_max_value <= y_min_value
+    ):
+        raise ValueError("Plot data must define a finite positive periodic y extent.")
     x_limits = _x_limits(selected)
 
     fig = None
@@ -132,16 +151,16 @@ def write_leading_edge_evolution_plots(
         fig, ax = plt.subplots(figsize=(7.0, 4.5))
         for x_front in selected:
             y_plot, x_plot = periodic_leading_edge_plot_arrays(
-                y,
+                y_array,
                 x_front,
-                y_max,
+                y_max_value,
             )
             ax.plot(x_plot, y_plot, color="black", linewidth=0.9, linestyle="-")
 
         title_parameters = [
             case,
-            f"C={evolution.threshold:.4g}",
-            f"z={evolution.z_target:.4g}",
+            f"C={float(threshold):.4g}",
+            f"z={float(z_target):.4g}",
         ]
         if reynolds_number is not None:
             reynolds = float(reynolds_number)
@@ -152,7 +171,7 @@ def write_leading_edge_evolution_plots(
         ax.set_xlabel("Streamwise position, x")
         ax.set_ylabel("Spanwise position, y")
         ax.set_xlim(*x_limits)
-        ax.set_ylim(y_min, y_max)
+        ax.set_ylim(y_min_value, y_max_value)
         ax.grid(True, color="0.9", linewidth=0.5)
         fig.tight_layout()
 
@@ -166,7 +185,58 @@ def write_leading_edge_evolution_plots(
     return paths
 
 
+def write_leading_edge_evolution_plots(
+    output_dir: str | Path,
+    case: str,
+    evolution: LeadingEdgeEvolution,
+    selection: LeadingEdgeTimeSelection,
+    overwrite: bool,
+    *,
+    reynolds_number: float | int | None = None,
+) -> list[Path]:
+    """Write one unsmoothed solid x_front(y) curve per selected actual time."""
+    selected = _selected_x_front(evolution, selection)
+    y_min, y_max = _physical_y_extent(evolution)
+    return _write_leading_edge_plot_arrays(
+        output_dir,
+        case,
+        evolution.y,
+        selected,
+        evolution.threshold,
+        evolution.z_target,
+        y_min,
+        y_max,
+        overwrite,
+        reynolds_number=reynolds_number,
+    )
+
+
+def write_leading_edge_artifact_plots(
+    output_dir: str | Path,
+    plot_data: LeadingEdgePlotData,
+    overwrite: bool,
+    *,
+    reynolds_number: float | int | None = None,
+) -> list[Path]:
+    """Write evolution plots from validated CSV-derived plot data."""
+    if plot_data.periodic_endpoint_included:
+        raise ValueError("Plot data periodic_endpoint_included must be False.")
+    return _write_leading_edge_plot_arrays(
+        output_dir,
+        plot_data.case,
+        plot_data.y,
+        plot_data.x_front,
+        plot_data.threshold,
+        plot_data.z_target,
+        plot_data.y_min,
+        plot_data.y_max_periodic_endpoint,
+        overwrite,
+        reynolds_number=reynolds_number,
+    )
+
+
 __all__ = (
     "periodic_leading_edge_plot_arrays",
+    "write_leading_edge_artifact_plots",
     "write_leading_edge_evolution_plots",
 )
