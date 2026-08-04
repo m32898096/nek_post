@@ -49,3 +49,13 @@ This index lists the repository scripts in numeric order. Run commands from the 
 | `scripts/15_processed_xt_paper_overlay.py` | Overlay processed reconstructed fronts against digitized Cantero Figure 5a data. | Processed front-kinematics CSV files and digitized paper CSV | `/data/Nek5000_data/results/poly_order_compare/combined_xt_overlay/` | `python scripts/15_processed_xt_paper_overlay.py --cases N5,N7,N9 --overwrite` |
 | `scripts/17_fig5a_detected_front_overlay.py` | Compare the GC8950_N7 automatic spectral front with digitized Cantero Figure 5a 3D Re8950 data. | Detected-front timeseries CSV and configured Re8950 paper CSV | `/data/Nek5000_data/results/poly_order_compare/fig5a_paper_overlay/GC8950_N7_Re8950/` | `python scripts/17_fig5a_detected_front_overlay.py --overwrite` |
 | `scripts/18_n7_reconstructed_xt_fourway_overlay.py` | Reconstruct Re3450 and Re8950 N7 automatic fronts and overlay both with their matching Cantero Figure 5a datasets. | Two detected-front timeseries CSVs and two configured paper CSVs | `/data/Nek5000_data/results/poly_order_compare/combined_xt_overlay/N7_Re3450_Re8950_reconstructed/` | `python scripts/18_n7_reconstructed_xt_fourway_overlay.py --overwrite` |
+
+## Spanwise leading-edge evolution
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/19_plot_leading_edge_evolution.py` | Evaluate the N7 concentration field on a fixed-z uniform periodic x-y grid, extract the rightmost `C=0.1` crossing for every y, and overlay selected leading-edge curves. | Configured N7 `GC0.fNNNNN` snapshots | Leading-edge timeseries and metadata CSVs plus PNG/PDF evolution figures under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/19_plot_leading_edge_evolution.py --overwrite` |
+
+See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
+definition, spectral-element sampling method, output schemas, and validation
+commands.
