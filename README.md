@@ -170,6 +170,21 @@ python scripts/04_plot_summary.py --comparison-set t19p5 --field velocity
 python scripts/04_plot_summary.py --comparison-set t19p5 --field pressure
 ```
 
+## N7 Leading-Edge Evolution
+
+Generate the Re=3450 N7 Figure-4-style spanwise leading-edge evolution from the
+fixed physical plane `z=0.04` and concentration contour `C=0.1`:
+
+```bash
+python scripts/19_plot_leading_edge_evolution.py --overwrite
+```
+
+The workflow uses element-aware GLL interpolation to a uniform periodic y grid
+with `dense_ny = 2 * native_ny`; it does not apply an FFT directly to raw
+element-local arrays or add DNS resolution. See
+[docs/leading_edge_evolution.md](docs/leading_edge_evolution.md) for the full
+physical definition, CLI flags, outputs, and validation commands.
+
 ## Output Locations
 
 Postprocessed slices and interpolated files are written under:
