@@ -54,7 +54,8 @@ This index lists the repository scripts in numeric order. Run commands from the 
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/19_plot_leading_edge_evolution.py` | Evaluate the N7 concentration field on a fixed-z uniform periodic x-y grid, extract the rightmost `C=0.1` crossing for every y, and overlay selected leading-edge curves. | Configured N7 `GC0.fNNNNN` snapshots | Leading-edge timeseries and metadata CSVs plus PNG/PDF evolution figures under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/19_plot_leading_edge_evolution.py --overwrite` |
+| `scripts/19_compute_leading_edge_evolution.py` | Evaluate N7 concentration on the fixed-z periodic target grid and extract selected rightmost `C=0.1` leading-edge curves. | Configured N7 `GC0.fNNNNN` snapshots | Leading-edge timeseries and metadata CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/19_compute_leading_edge_evolution.py --case N7 --overwrite` |
+| `scripts/20_plot_leading_edge_evolution.py` | Validate existing leading-edge CSV artifacts and render the evolution without rereading Nek snapshots. | Leading-edge timeseries and metadata CSVs | PNG/PDF evolution figures under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite` |
 
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation

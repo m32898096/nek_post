@@ -34,7 +34,9 @@ raw Nek5000 element-local GLL data
   -> dense_ny = 2 * native_ny
   -> rightmost C = 0.1 crossing in every y row
   -> nearest-snapshot time selection
-  -> tidy CSV files and Figure-4-style curve overlay
+  -> tidy timeseries and metadata CSV artifacts
+  -> validated CSV artifact reader
+  -> Figure-4-style curve overlay
 ```
 
 The raw data consists of spectral elements with element-local GLL nodes. These
@@ -105,12 +107,20 @@ case,n_input_frames,n_selected_frames,actual_time_start,actual_time_end,target_t
 NaN leading-edge values are preserved as `nan`. They indicate y rows without a
 finite threshold crossing and remain gaps in the figure.
 
-## Command-line interface
+## Two-step command-line workflow
 
-Run `python scripts/19_plot_leading_edge_evolution.py --help` for the complete
-generated help. The flags are:
+The recommended production workflow is:
 
-| Flag | Meaning |
+```bash
+python scripts/19_compute_leading_edge_evolution.py --case N7 --overwrite
+python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite
+```
+
+Script 19 reads the configured `.fNNNNN` snapshots, performs the numerical
+workflow, and writes only the timeseries and metadata CSV artifacts. Its flags
+are:
+
+| Compute flag | Meaning |
 | --- | --- |
 | `--case` | Configured case label; default `N7`. |
 | `--file-prefix` | Exact prefix before `.fNNNNN`; default `GC0`. |
@@ -122,36 +132,59 @@ generated help. The flags are:
 | `--y-upsample-factor` | Multiplier defining `dense_ny`; default `2`. |
 | `--contour-time-spacing` | Regular target-time spacing; default `0.25`. |
 | `--all-frames` | Select all processed snapshots instead of spaced targets. |
-| `--reynolds-number` | Reynolds number used in reporting/title; default `3450`. |
-| `--output-dir` | Override the dynamic results directory. |
-| `--overwrite` | Permit replacement of every requested output. |
-| `--no-plots` | Write both CSV files but skip PNG and PDF output. |
+| `--output-dir` | Override the dynamic CSV artifact directory. |
+| `--overwrite` | Permit replacement of both CSV artifacts. |
 
 `--all-frames` and an explicitly supplied `--contour-time-spacing` are mutually
-exclusive. Before any Nek snapshot is read, all requested CSV and figure paths
-are checked together for overwrite conflicts.
+exclusive. Both CSV paths are preflighted before any Nek snapshot is read or
+processed.
+
+Script 20 reads only those existing CSV artifacts and writes PNG and PDF. It
+does not discover, open, or interpolate Nek5000 files. Its flags are:
+
+| Plot flag | Meaning |
+| --- | --- |
+| `--case` | Case label expected in the CSV artifacts; default `N7`. |
+| `--timeseries-csv` | Override the existing timeseries CSV input. |
+| `--metadata-csv` | Override the existing metadata CSV input. |
+| `--output-dir` | Override the figure output directory. |
+| `--reynolds-number` | Reynolds number used in the title; default `3450`. |
+| `--overwrite` | Permit replacement of both figure artifacts. |
+
+With no path overrides, both commands use
+`paths.results_root/leading_edge/CASE`. The plot command preflights PNG and PDF
+together before reading either CSV.
+
+Recompute with script 19 only when the source snapshots, frame range, physical
+definition, target grid, upsampling, threshold, or time selection changes.
+Figure-formatting changes require only script 20; these reruns do not read any
+`.fNNNNN` file or repeat spectral interpolation. Multiprocessing and worker
+options are intentionally not included yet.
 
 ## Validation commands
 
 Use one snapshot for a quick CSV-only smoke test:
 
 ```bash
-python scripts/19_plot_leading_edge_evolution.py \
+python scripts/19_compute_leading_edge_evolution.py \
   --start-index 1 \
   --end-index 1 \
-  --no-plots \
   --output-dir /tmp/n7-leading-edge-single \
   --overwrite
 ```
 
-Use a small range to validate interpolation, selection, CSV writing, and both
-figure formats:
+Use a small range to validate interpolation, selection, artifact reading, and
+both figure formats:
 
 ```bash
-python scripts/19_plot_leading_edge_evolution.py \
+python scripts/19_compute_leading_edge_evolution.py \
   --start-index 1 \
   --end-index 5 \
   --nx 300 \
+  --output-dir /tmp/n7-leading-edge-small \
+  --overwrite
+
+python scripts/20_plot_leading_edge_evolution.py \
   --output-dir /tmp/n7-leading-edge-small \
   --overwrite
 ```
@@ -159,7 +192,8 @@ python scripts/19_plot_leading_edge_evolution.py \
 Run the full configured N7 production workflow with:
 
 ```bash
-python scripts/19_plot_leading_edge_evolution.py --overwrite
+python scripts/19_compute_leading_edge_evolution.py --case N7 --overwrite
+python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite
 ```
 
 Inspect the metadata and verify the target-grid relationship with:
@@ -168,8 +202,8 @@ Inspect the metadata and verify the target-grid relationship with:
 python -c 'import csv; p="/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/N7_leading_edge_metadata.csv"; r=next(csv.DictReader(open(p))); print(r); assert int(r["dense_ny"]) == 2 * int(r["native_ny"])'
 ```
 
-The command also prints `native_ny`, `dense_ny`, `y_upsample_factor`, and the
-explicit equality check in its success summary.
+The compute command also prints `native_ny`, `dense_ny`,
+`y_upsample_factor`, and the explicit equality check in its success summary.
 
 ## Interpretation limits
 
