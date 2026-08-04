@@ -1,4 +1,4 @@
-"""Generate the configured spanwise leading-edge evolution artifacts."""
+"""Compute selected leading-edge evolution and write reusable CSV artifacts."""
 
 from __future__ import annotations
 
@@ -16,13 +16,10 @@ from nek_post.front_detection_io import (
     preflight_output_paths,
 )
 from nek_post.leading_edge_io import (
-    leading_edge_evolution_pdf_path,
-    leading_edge_evolution_png_path,
     leading_edge_metadata_path,
     leading_edge_timeseries_path,
     write_leading_edge_csvs,
 )
-from nek_post.leading_edge_plotting import write_leading_edge_evolution_plots
 from nek_post.leading_edge_workflow import (
     build_leading_edge_evolution,
     select_leading_edge_times,
@@ -78,21 +75,11 @@ def _default_output_dir(paths: ProjectPaths, case: str) -> Path:
 def _requested_output_paths(
     output_dir: str | Path,
     case: str,
-    *,
-    no_plots: bool,
 ) -> list[Path]:
-    paths = [
+    return [
         leading_edge_timeseries_path(output_dir, case),
         leading_edge_metadata_path(output_dir, case),
     ]
-    if not no_plots:
-        paths.extend(
-            [
-                leading_edge_evolution_png_path(output_dir, case),
-                leading_edge_evolution_pdf_path(output_dir, case),
-            ]
-        )
-    return paths
 
 
 def _parse_args(
@@ -111,7 +98,7 @@ def _parse_args(
     parser = argparse.ArgumentParser(
         description=(
             "Interpolate horizontal Nek5000 concentration planes, extract the "
-            "spanwise leading edge, and write Figure-4-style evolution outputs."
+            "spanwise leading edge, and write reusable CSV artifacts."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -178,33 +165,18 @@ def _parse_args(
         help="Select every processed frame instead of regular target times.",
     )
     parser.add_argument(
-        "--reynolds-number",
-        type=_positive_float,
-        default=_mapping_value(
-            leading_edge,
-            "reynolds_number",
-            "leading_edge",
-        ),
-        help="Reynolds number shown in reporting and the figure title.",
-    )
-    parser.add_argument(
         "--output-dir",
         type=Path,
         default=argparse.SUPPRESS,
         help=(
-            "Artifact directory. Dynamic default: "
+            "CSV artifact directory. Dynamic default: "
             f"{paths.results_root}/leading_edge/CASE."
         ),
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Allow replacement of every requested output.",
-    )
-    parser.add_argument(
-        "--no-plots",
-        action="store_true",
-        help="Write both CSV outputs without creating PNG or PDF figures.",
+        help="Allow replacement of both CSV artifacts.",
     )
     args = parser.parse_args(argv)
     spacing_was_explicit = hasattr(args, "contour_time_spacing")
@@ -238,11 +210,7 @@ def main(argv: list[str] | None = None) -> None:
             start_index=args.start_index,
             end_index=args.end_index,
         )
-        requested_paths = _requested_output_paths(
-            output_dir,
-            case,
-            no_plots=args.no_plots,
-        )
+        requested_paths = _requested_output_paths(output_dir, case)
         preflight_output_paths(requested_paths, args.overwrite)
 
         evolution = build_leading_edge_evolution(
@@ -259,12 +227,10 @@ def main(argv: list[str] | None = None) -> None:
                 f"dense_ny={evolution.dense_ny}, but "
                 f"y_upsample_factor * native_ny={expected_dense_ny}."
             )
-        selection_spacing = None if args.all_frames else args.contour_time_spacing
         selection = select_leading_edge_times(
             evolution,
-            spacing=selection_spacing,
+            spacing=None if args.all_frames else args.contour_time_spacing,
         )
-
         csv_paths = write_leading_edge_csvs(
             output_dir,
             case,
@@ -272,19 +238,8 @@ def main(argv: list[str] | None = None) -> None:
             selection,
             overwrite=args.overwrite,
         )
-        figure_paths: list[Path] = []
-        if not args.no_plots:
-            figure_paths = write_leading_edge_evolution_plots(
-                output_dir,
-                case,
-                evolution,
-                selection,
-                overwrite=args.overwrite,
-                reynolds_number=args.reynolds_number,
-            )
 
         print(f"Case: {case}")
-        print(f"Reynolds number: {args.reynolds_number:g}")
         print(f"Case directory: {case_dir}")
         print(f"Nek file prefix: {args.file_prefix}")
         print(f"Input frame count: {len(frames)}")
@@ -319,11 +274,9 @@ def main(argv: list[str] | None = None) -> None:
             f"{evolution.periodic_endpoint_included}"
         )
         print(f"Output directory: {output_dir}")
-        print("Written outputs:")
-        for path in [*csv_paths, *figure_paths]:
+        print("Written CSV artifacts:")
+        for path in csv_paths:
             print(f"  {path}")
-        if args.no_plots:
-            print("Figures: skipped (--no-plots)")
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

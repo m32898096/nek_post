@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 import csv
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -14,10 +14,11 @@ from nek_post.front_detection_io import (
     format_csv_value,
     preflight_output_paths,
 )
-from nek_post.leading_edge_workflow import (
-    LeadingEdgeEvolution,
-    LeadingEdgeTimeSelection,
-)
+if TYPE_CHECKING:
+    from nek_post.leading_edge_workflow import (
+        LeadingEdgeEvolution,
+        LeadingEdgeTimeSelection,
+    )
 
 
 LEADING_EDGE_TIMESERIES_COLUMNS = (
