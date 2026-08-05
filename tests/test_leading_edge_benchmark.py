@@ -41,6 +41,7 @@ def _write_artifacts(
     ),
     threshold: float = 0.1,
     maximum_iteration_count: int = 4,
+    extraction_method: str = "rightmost-crossing",
 ) -> tuple[Path, Path]:
     directory.mkdir(parents=True, exist_ok=True)
     timeseries = directory / "N7_leading_edge_timeseries.csv"
@@ -78,6 +79,7 @@ def _write_artifacts(
                 )
     metadata_row = {
         "case": "N7",
+        "extraction_method": extraction_method,
         "n_input_frames": 2,
         "n_selected_frames": 2,
         "actual_time_start": 0.5,
@@ -312,6 +314,16 @@ def test_mismatched_metadata_is_rejected(tmp_path: Path) -> None:
         ScientificArtifactMismatchError,
         match="metadata.maximum_iteration_count",
     ):
+        assert_leading_edge_artifacts_equivalent(*baseline, *candidate)
+
+
+def test_mismatched_extraction_method_metadata_is_rejected(tmp_path: Path) -> None:
+    baseline = _write_artifacts(tmp_path / "baseline")
+    candidate = _write_artifacts(
+        tmp_path / "candidate", extraction_method="moore-boundary"
+    )
+
+    with pytest.raises(ScientificArtifactMismatchError, match="method"):
         assert_leading_edge_artifacts_equivalent(*baseline, *candidate)
 
 

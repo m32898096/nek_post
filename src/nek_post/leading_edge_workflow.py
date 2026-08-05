@@ -19,6 +19,10 @@ from nek_post.leading_edge_parallel import (
     process_leading_edge_frames_parallel,
     validate_leading_edge_workers,
 )
+from nek_post.leading_edge_methods import (
+    DEFAULT_LEADING_EDGE_METHOD,
+    normalize_leading_edge_method,
+)
 from nek_post.spectral_horizontal_slice import (
     build_spectral_horizontal_slice_plan,
     spectral_horizontal_plan_metadata,
@@ -47,6 +51,7 @@ class LeadingEdgeEvolution:
     y_upsample_factor: int
     horizontal_plan_metadata: Mapping[str, float | int]
     periodic_endpoint_included: bool = False
+    extraction_method: str = DEFAULT_LEADING_EDGE_METHOD
 
 
 @dataclass(frozen=True)
@@ -200,11 +205,13 @@ def build_leading_edge_evolution(
     threshold: float = 0.1,
     y_upsample_factor: int = 2,
     workers: int = 1,
+    extraction_method: object = DEFAULT_LEADING_EDGE_METHOD,
     _frame_reader: Any | None = None,
 ) -> LeadingEdgeEvolution:
     """Read, interpolate, and immediately reduce each frame to one x(y) curve."""
     frames = _validated_frames(frame_paths)
     worker_count = validate_leading_edge_workers(workers)
+    canonical_method = normalize_leading_edge_method(extraction_method)
     nx_value = _positive_integer(nx, "nx", 2)
     z_value = _finite_float(z_target, "z_target")
     threshold_value = _finite_float(threshold, "threshold")
@@ -238,6 +245,10 @@ def build_leading_edge_evolution(
             f"{first_frame.path}: {exc}"
         ) from exc
     x, y = _horizontal_coordinates(plan, nx_value)
+    plan_metadata = _plan_metadata(plan)
+    y_period = float(
+        plan_metadata["ymax_periodic_endpoint"] - plan_metadata["ymin"]
+    )
 
     def first_frame_reader(_source_path: Path) -> object:
         return first_data
@@ -249,6 +260,9 @@ def build_leading_edge_evolution(
             x,
             y,
             threshold_value,
+            extraction_method=canonical_method,
+            periodic_y=True,
+            y_period=y_period,
             frame_reader=first_frame_reader,
         )
     finally:
@@ -263,6 +277,9 @@ def build_leading_edge_evolution(
                 x,
                 y,
                 threshold_value,
+                extraction_method=canonical_method,
+                periodic_y=True,
+                y_period=y_period,
                 frame_reader=reader,
             )
             for frame in later_frames
@@ -274,6 +291,9 @@ def build_leading_edge_evolution(
             x,
             y,
             threshold_value,
+            extraction_method=canonical_method,
+            periodic_y=True,
+            y_period=y_period,
             workers=worker_count,
         )
     else:
@@ -296,6 +316,12 @@ def build_leading_edge_evolution(
                 "Leading-edge frame result identity mismatch: expected file index "
                 f"{frame.index} ({frame.path}), got {result.file_index} "
                 f"({result.source_path})."
+            )
+        if result.extraction_method != canonical_method:
+            raise RuntimeError(
+                "Leading-edge frame result extraction-method mismatch: expected "
+                f"{canonical_method!r}, got {result.extraction_method!r} for "
+                f"{frame.path}."
             )
 
     times = np.asarray([result.time for result in results], dtype=np.float64)
@@ -340,13 +366,14 @@ def build_leading_edge_evolution(
         successful_y_count=_readonly_copy(
             [result.successful_y_count for result in results], np.int64
         ),
+        extraction_method=canonical_method,
         threshold=threshold_value,
         z_target=z_value,
         nx=nx_value,
         native_ny=int(plan.native_ny),  # type: ignore[attr-defined]
         dense_ny=int(plan.dense_ny),  # type: ignore[attr-defined]
         y_upsample_factor=int(plan.y_upsample_factor),  # type: ignore[attr-defined]
-        horizontal_plan_metadata=_plan_metadata(plan),
+        horizontal_plan_metadata=plan_metadata,
         periodic_endpoint_included=False,
     )
 

@@ -14,6 +14,7 @@ The production definition is:
 - Reynolds number: `3450`
 - horizontal plane: `z = 0.04`
 - concentration contour: `C = 0.1`
+- extraction method: `rightmost-crossing`
 - target-time spacing: `delta_t = 0.25`
 - spanwise upsampling factor: `2`
 - compute workers: `2`
@@ -23,6 +24,21 @@ These defaults are stored in the dedicated `leading_edge` section of
 
 The reference paper used `Delta t = 0.28`, while this project uses
 `Delta t = 0.25` to match the natural cadence of the N7 simulation outputs.
+
+## Extraction methods
+
+`rightmost-crossing` is currently the only implemented extraction method. For
+each supplied y row, it finds the existing exact-threshold and strict
+sign-change intersections along x and retains the rightmost intersection. The
+adapter delegates to the validated legacy extractor, so plateau, NaN, and
+crossing behavior are unchanged.
+
+Moore-boundary and Marching-Squares-with-Asymptotic-Decider methods are planned
+but are not available in this stage. Any future method will consume the same
+element-aware spectral horizontal field: x retains the configured fixed `nx`
+with no extraction-stage upsampling, while y retains
+`dense_ny = y_upsample_factor * native_ny`. The production y upsampling factor
+remains `2`.
 
 ## Numerical pipeline
 
@@ -102,7 +118,7 @@ case,file_index,source_file,target_time,actual_time,time_error,y,x_front,success
 The metadata schema is:
 
 ```text
-case,n_input_frames,n_selected_frames,actual_time_start,actual_time_end,target_time_spacing,threshold,z_target,nx,native_ny,dense_ny,y_upsample_factor,y_min,y_max_periodic_endpoint,periodic_endpoint_included,algorithm_version,inverse_mapping_target_count,inverse_mapping_success_count,inverse_mapping_failure_count,ambiguous_boundary_point_count,maximum_successful_residual,maximum_iteration_count
+case,extraction_method,n_input_frames,n_selected_frames,actual_time_start,actual_time_end,target_time_spacing,threshold,z_target,nx,native_ny,dense_ny,y_upsample_factor,y_min,y_max_periodic_endpoint,periodic_endpoint_included,algorithm_version,inverse_mapping_target_count,inverse_mapping_success_count,inverse_mapping_failure_count,ambiguous_boundary_point_count,maximum_successful_residual,maximum_iteration_count
 ```
 
 NaN leading-edge values are preserved as `nan`. They indicate y rows without a
@@ -134,6 +150,7 @@ are:
 | `--z-target` | Fixed physical horizontal-plane coordinate; default `0.04`. |
 | `--threshold` | Leading-edge concentration contour; default `0.1`. |
 | `--y-upsample-factor` | Multiplier defining `dense_ny`; default `2`. |
+| `--extraction-method` | Extraction engine; currently only `rightmost-crossing`. |
 | `--workers` | Process count for later frames; configured default `2`. |
 | `--contour-time-spacing` | Regular target-time spacing; default `0.25`. |
 | `--all-frames` | Select all processed snapshots instead of spaced targets. |

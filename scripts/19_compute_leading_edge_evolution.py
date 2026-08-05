@@ -20,6 +20,10 @@ from nek_post.leading_edge_io import (
     leading_edge_timeseries_path,
     write_leading_edge_csvs,
 )
+from nek_post.leading_edge_methods import (
+    SUPPORTED_LEADING_EDGE_METHODS,
+    normalize_leading_edge_method,
+)
 from nek_post.leading_edge_workflow import (
     build_leading_edge_evolution,
     select_leading_edge_times,
@@ -95,6 +99,9 @@ def _parse_args(
         "contour_time_spacing",
         "leading_edge",
     )
+    configured_method = normalize_leading_edge_method(
+        _mapping_value(leading_edge, "extraction_method", "leading_edge")
+    )
     parser = argparse.ArgumentParser(
         description=(
             "Interpolate horizontal Nek5000 concentration planes, extract the "
@@ -149,6 +156,12 @@ def _parse_args(
             "leading_edge",
         ),
         help="Multiplier from native_ny to the uniform periodic target count.",
+    )
+    parser.add_argument(
+        "--extraction-method",
+        choices=SUPPORTED_LEADING_EDGE_METHODS,
+        default=configured_method,
+        help="Leading-edge extraction method.",
     )
     parser.add_argument(
         "--workers",
@@ -229,6 +242,7 @@ def main(argv: list[str] | None = None) -> None:
             threshold=args.threshold,
             y_upsample_factor=args.y_upsample_factor,
             workers=args.workers,
+            extraction_method=args.extraction_method,
         )
         expected_dense_ny = evolution.y_upsample_factor * evolution.native_ny
         if evolution.dense_ny != expected_dense_ny:
@@ -254,6 +268,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Nek file prefix: {args.file_prefix}")
         print(f"Input frame count: {len(frames)}")
         print(f"Workers: {args.workers}")
+        print(f"Extraction method: {evolution.extraction_method}")
         print(f"File-index range: {frames[0].index} to {frames[-1].index}")
         print(
             "Actual time range: "

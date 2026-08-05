@@ -127,6 +127,7 @@ def test_csv_headers_rows_nan_boolean_and_metadata_values(tmp_path: Path) -> Non
 
     metadata_row = dict(zip(metadata_rows[0], metadata_rows[1], strict=True))
     assert metadata_row["case"] == "N7"
+    assert metadata_row["extraction_method"] == "rightmost-crossing"
     assert metadata_row["n_input_frames"] == "2"
     assert metadata_row["n_selected_frames"] == "2"
     assert metadata_row["actual_time_start"] == "1"

@@ -13,6 +13,10 @@ from nek_post.leading_edge_io import (
     LEADING_EDGE_METADATA_COLUMNS,
     LEADING_EDGE_TIMESERIES_COLUMNS,
 )
+from nek_post.leading_edge_methods import (
+    DEFAULT_LEADING_EDGE_METHOD,
+    normalize_leading_edge_method,
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,7 @@ class LeadingEdgePlotData:
     y_max_periodic_endpoint: float
     periodic_endpoint_included: bool
     target_time_spacing: float | None
+    extraction_method: str = DEFAULT_LEADING_EDGE_METHOD
 
 
 @dataclass(frozen=True)
@@ -159,6 +164,9 @@ def _metadata_values(row: dict[str, str], path: Path) -> dict[str, object]:
     case = _text(row, "case", context)
     values: dict[str, object] = {
         "case": case,
+        "extraction_method": normalize_leading_edge_method(
+            _text(row, "extraction_method", context)
+        ),
         "n_input_frames": _integer(
             row, "n_input_frames", context, minimum=1
         ),
@@ -407,6 +415,7 @@ def read_leading_edge_artifacts(
 
     return LeadingEdgePlotData(
         case=str(metadata["case"]),
+        extraction_method=str(metadata["extraction_method"]),
         file_indices=_readonly_copy(ordered_indices, np.int64),
         target_time=_readonly_copy(target_time_array, np.float64),
         actual_time=_readonly_copy(actual_time_array, np.float64),
