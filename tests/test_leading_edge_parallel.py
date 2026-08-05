@@ -143,6 +143,39 @@ def test_single_frame_helper_returns_only_reduced_read_only_arrays(
     assert plane_reference() is None
 
 
+def test_single_frame_helper_dispatches_moore_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    x = np.arange(5, dtype=float)
+    y = np.arange(4, dtype=float) / 4.0
+    plane = np.broadcast_to(
+        np.where(x[None, :] < 2.0, 1.0, 0.0),
+        (y.size, x.size),
+    ).copy()
+    monkeypatch.setattr(
+        parallel_module,
+        "apply_spectral_horizontal_slice_plan",
+        lambda *_args, **_kwargs: plane,
+    )
+
+    result = process_leading_edge_frame(
+        _frame(3),
+        object(),  # type: ignore[arg-type]
+        x,
+        y,
+        0.5,
+        extraction_method="moore-boundary",
+        periodic_y=True,
+        y_period=1.0,
+        frame_reader=lambda _path: SimpleNamespace(time=0.75),
+    )
+
+    assert result.extraction_method == "moore-boundary"
+    assert_array_equal(result.x_front, np.full(y.size, 2.0))
+    assert_array_equal(result.success_mask, np.ones(y.size, dtype=bool))
+    assert_array_equal(result.crossing_count, np.ones(y.size, dtype=np.int64))
+
+
 def test_single_frame_read_failure_has_source_path_context() -> None:
     with pytest.raises(RuntimeError, match=r"GC0\.f00004.*reader failed"):
         process_leading_edge_frame(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType
 
@@ -149,6 +150,33 @@ def test_csv_headers_rows_nan_boolean_and_metadata_values(tmp_path: Path) -> Non
 
 def test_io_module_has_no_matplotlib_dependency() -> None:
     assert "matplotlib" not in leading_edge_io.__dict__
+
+
+def test_moore_method_is_metadata_only_and_timeseries_schema_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    evolution, _selection = _outputs()
+    moore_evolution = replace(
+        evolution, extraction_method="moore-boundary"
+    )
+    selection = select_leading_edge_times(moore_evolution, spacing=None)
+
+    timeseries_path, metadata_path = write_leading_edge_csvs(
+        tmp_path,
+        "N7",
+        moore_evolution,
+        selection,
+        overwrite=False,
+    )
+
+    with timeseries_path.open(newline="", encoding="utf-8") as handle:
+        timeseries_reader = csv.DictReader(handle)
+        assert tuple(timeseries_reader.fieldnames or ()) == (
+            LEADING_EDGE_TIMESERIES_COLUMNS
+        )
+    with metadata_path.open(newline="", encoding="utf-8") as handle:
+        metadata_row = next(csv.DictReader(handle))
+    assert metadata_row["extraction_method"] == "moore-boundary"
     assert "plt" not in leading_edge_io.__dict__
 
 

@@ -14,7 +14,10 @@ from nek_post.leading_edge_methods import (
 
 
 def test_supported_method_names_are_immutable_and_canonical() -> None:
-    assert SUPPORTED_LEADING_EDGE_METHODS == ("rightmost-crossing",)
+    assert SUPPORTED_LEADING_EDGE_METHODS == (
+        "rightmost-crossing",
+        "moore-boundary",
+    )
     assert DEFAULT_LEADING_EDGE_METHOD == "rightmost-crossing"
     assert normalize_leading_edge_method("rightmost-crossing") == (
         "rightmost-crossing"
@@ -22,6 +25,7 @@ def test_supported_method_names_are_immutable_and_canonical() -> None:
     assert normalize_leading_edge_method("  RIGHTMOST-CROSSING  ") == (
         "rightmost-crossing"
     )
+    assert normalize_leading_edge_method("MOORE-BOUNDARY") == "moore-boundary"
 
 
 @pytest.mark.parametrize(
@@ -116,3 +120,25 @@ def test_periodic_endpoint_must_remain_excluded() -> None:
             periodic_y=True,
             y_period=1.0,
         )
+
+
+def test_dispatcher_selects_moore_boundary_grid_node_result() -> None:
+    x = np.arange(5, dtype=float)
+    y = np.arange(4, dtype=float) / 4.0
+    concentration = np.broadcast_to(
+        np.where(x[None, :] < 2.0, 1.0, 0.0),
+        (y.size, x.size),
+    ).copy()
+
+    result = extract_leading_edge(
+        x,
+        y,
+        concentration,
+        threshold=0.5,
+        method="moore-boundary",
+        periodic_y=True,
+        y_period=1.0,
+    )
+
+    assert result.method == "moore-boundary"
+    assert_array_equal(result.x_front, np.full(y.size, 2.0))

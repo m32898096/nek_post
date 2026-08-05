@@ -4,9 +4,10 @@
 
 This workflow constructs a Figure-4-style view of how the gravity-current
 leading edge varies across the periodic span. At each selected simulation time,
-the leading edge is the rightmost physical-x intersection of the concentration
-contour with `C = 0.1`, evaluated independently for every sampled physical y
-coordinate on the horizontal plane `z = 0.04`.
+the selected extraction method produces a common `x_front(y)` representation
+of the `C = 0.1` boundary on the horizontal plane `z = 0.04`. The production
+default uses the rightmost physical-x threshold intersection independently for
+every sampled physical y coordinate.
 
 The production definition is:
 
@@ -27,18 +28,39 @@ The reference paper used `Delta t = 0.28`, while this project uses
 
 ## Extraction methods
 
-`rightmost-crossing` is currently the only implemented extraction method. For
-each supplied y row, it finds the existing exact-threshold and strict
-sign-change intersections along x and retains the rightmost intersection. The
-adapter delegates to the validated legacy extractor, so plateau, NaN, and
-crossing behavior are unchanged.
+Two extraction definitions are implemented for comparison:
 
-Moore-boundary and Marching-Squares-with-Asymptotic-Decider methods are planned
-but are not available in this stage. Any future method will consume the same
-element-aware spectral horizontal field: x retains the configured fixed `nx`
-with no extraction-stage upsampling, while y retains
-`dense_ny = y_upsample_factor * native_ny`. The production y upsampling factor
-remains `2`.
+- `rightmost-crossing` is the production default. For each supplied y row, it
+  finds the existing exact-threshold and strict sign-change intersections along
+  x and retains the rightmost sub-grid intersection. Its adapter delegates to
+  the validated legacy extractor, so plateau, NaN, and crossing behavior are
+  unchanged.
+- `moore-boundary` is a pure-Python, Fortran-derived Moore-neighbour tracing
+  method. It traces finite low-side `C <= threshold` reconstructed grid nodes
+  that have at least one high-side `C > threshold` eight-neighbour.
+  Exact-threshold values are low-side; non-finite values belong to neither
+  side. The y index wraps periodically and x is non-periodic. The shared
+  `x_front(y)` value is the greatest physical x grid-node coordinate visited at
+  each y row, with no sub-grid threshold interpolation.
+
+The Moore implementation retains the supplied Fortran one-based neighbour
+order, initial indicator `4`, and the wrapped `+5` turn before each local
+search. It is implemented entirely in Python and NumPy: no Fortran is compiled
+or called, and neither GridEnhancer, Fourier zero-padding, FFT, nor FFTW is
+used. The Python method intentionally replaces the Fortran fixed start point
+with a deterministic front-biased, upper-seam-preferred start and replaces
+right-x-edge termination with directed-edge closure. It also restricts the
+Fortran `C <= threshold` movement rule to low-side pixels adjacent to the
+high-side region so the path cannot drift through the entire exterior. It is
+therefore an alternative extraction definition, not a claim of bitwise or
+complete-program equivalence or greater accuracy.
+
+Both methods consume exactly the same element-aware spectral horizontal field.
+The physical x grid retains the configured fixed `nx`, with no extraction-stage
+upsampling. The endpoint-excluded periodic y grid retains
+`dense_ny = y_upsample_factor * native_ny`, and the production y upsampling
+factor remains `2`. `marching-squares-ad` remains planned and is not
+implemented.
 
 ## Numerical pipeline
 
@@ -49,7 +71,7 @@ raw Nek5000 element-local GLL data
   -> element-aware spectral interpolation at fixed physical z
   -> uniform periodic physical-y target grid
   -> dense_ny = 2 * native_ny
-  -> rightmost C = 0.1 crossing in every y row
+  -> selected leading-edge extraction method at C = 0.1
   -> nearest-snapshot time selection
   -> tidy timeseries and metadata CSV artifacts
   -> validated CSV artifact reader
@@ -124,6 +146,10 @@ case,extraction_method,n_input_frames,n_selected_frames,actual_time_start,actual
 NaN leading-edge values are preserved as `nan`. They indicate y rows without a
 finite threshold crossing and remain gaps in the figure.
 
+For `rightmost-crossing`, `crossing_count` is the number of threshold
+intersections in a y row. For `moore-boundary`, it is the number of unique
+traced Moore boundary pixels retained in that y row.
+
 ## Two-step command-line workflow
 
 The recommended production workflow is:
@@ -150,7 +176,7 @@ are:
 | `--z-target` | Fixed physical horizontal-plane coordinate; default `0.04`. |
 | `--threshold` | Leading-edge concentration contour; default `0.1`. |
 | `--y-upsample-factor` | Multiplier defining `dense_ny`; default `2`. |
-| `--extraction-method` | Extraction engine; currently only `rightmost-crossing`. |
+| `--extraction-method` | Extraction engine: `rightmost-crossing` or `moore-boundary`. |
 | `--workers` | Process count for later frames; configured default `2`. |
 | `--contour-time-spacing` | Regular target-time spacing; default `0.25`. |
 | `--all-frames` | Select all processed snapshots instead of spaced targets. |
@@ -192,6 +218,22 @@ does not discover, open, or interpolate Nek5000 files. Its flags are:
 With no path overrides, both commands use
 `paths.results_root/leading_edge/CASE`. The plot command preflights PNG and PDF
 together before reading either CSV.
+
+The legacy artifact filenames do not include the extraction method. To retain
+both definitions, give the compute command a method-specific directory, for
+example:
+
+```bash
+python scripts/19_compute_leading_edge_evolution.py \
+  --case N7 \
+  --extraction-method moore-boundary \
+  --output-dir /path/to/leading_edge/N7/moore_boundary \
+  --overwrite
+```
+
+The plot-only command can read the resulting common CSV artifacts without
+accessing Nek files, and its appearance is independent of the extraction
+method.
 
 Recompute with script 19 only when the source snapshots, frame range, physical
 definition, target grid, upsampling, threshold, or time selection changes.

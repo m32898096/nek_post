@@ -72,6 +72,7 @@ def _run_synthetic(
     *,
     frames: tuple[NekFramePath, ...] | None = None,
     times: dict[str, float] | None = None,
+    extraction_method: str = "rightmost-crossing",
 ) -> tuple[LeadingEdgeEvolution, dict[str, object]]:
     import nek_post.leading_edge_parallel as parallel
     import nek_post.leading_edge_workflow as workflow
@@ -146,6 +147,7 @@ def _run_synthetic(
         z_target=0.04,
         threshold=0.1,
         y_upsample_factor=2,
+        extraction_method=extraction_method,
         _frame_reader=reader,
     )
     calls["plan"] = plan
@@ -437,6 +439,7 @@ def _workflow_frame_result(
     *,
     time: float,
     offset: float = 0.0,
+    extraction_method: str = "rightmost-crossing",
 ) -> LeadingEdgeFrameResult:
     x_front = _readonly(
         [0.25 + offset, 0.5 + offset, np.nan, 1.0 + offset],
@@ -452,11 +455,14 @@ def _workflow_frame_result(
         crossing_count=_readonly([1, 1, 0, 2], np.int64),
         finite_leading_edge_fraction=0.75,
         successful_y_count=3,
+        extraction_method=extraction_method,
     )
 
 
 def _install_parallel_workflow_fakes(
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    extraction_method: str = "rightmost-crossing",
 ) -> tuple[tuple[NekFramePath, ...], dict[int, LeadingEdgeFrameResult], dict[str, object]]:
     import nek_post.leading_edge_workflow as workflow
 
@@ -469,6 +475,7 @@ def _install_parallel_workflow_fakes(
             frame,
             time={10: 1.0, 20: 1.25, 30: 1.5}[frame.index],
             offset=frame.index / 100.0,
+            extraction_method=extraction_method,
         )
         for frame in frames
     }
@@ -730,6 +737,69 @@ def test_workers_one_and_two_produce_identical_evolution_content(
         "extraction_method",
     ):
         assert getattr(serial, name) == getattr(parallel, name)
+
+
+def test_moore_serial_and_process_paths_are_exactly_equal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames, _results, calls = _install_parallel_workflow_fakes(
+        monkeypatch,
+        extraction_method="moore-boundary",
+    )
+    serial = build_leading_edge_evolution(
+        frames,
+        nx=3,
+        z_target=0.04,
+        workers=1,
+        extraction_method="moore-boundary",
+    )
+    process = build_leading_edge_evolution(
+        tuple(reversed(frames)),
+        nx=3,
+        z_target=0.04,
+        workers=2,
+        extraction_method="moore-boundary",
+    )
+
+    assert serial.extraction_method == "moore-boundary"
+    assert process.extraction_method == "moore-boundary"
+    for name in (
+        "file_indices",
+        "time",
+        "x",
+        "y",
+        "x_front",
+        "success_mask",
+        "crossing_count",
+        "finite_leading_edge_fraction",
+        "successful_y_count",
+    ):
+        assert_array_equal(getattr(serial, name), getattr(process, name))
+    assert serial.horizontal_plan_metadata == process.horizontal_plan_metadata
+    parallel_calls = calls["parallel"]
+    assert isinstance(parallel_calls, list)
+    assert parallel_calls[-1][5:9] == ("moore-boundary", True, 1.0, 2)
+
+
+def test_serial_moore_extraction_is_deterministic_and_reuses_common_grid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first, _calls = _run_synthetic(
+        monkeypatch,
+        extraction_method="moore-boundary",
+    )
+    second, _calls = _run_synthetic(
+        monkeypatch,
+        extraction_method="moore-boundary",
+    )
+
+    assert first.extraction_method == "moore-boundary"
+    assert_array_equal(first.x, second.x)
+    assert_array_equal(first.y, second.y)
+    assert_array_equal(first.x_front, second.x_front)
+    assert_array_equal(first.success_mask, second.success_mask)
+    assert_array_equal(first.crossing_count, second.crossing_count)
+    assert first.horizontal_plan_metadata == second.horizontal_plan_metadata
 
 
 def test_default_time_selection_targets_nearest_frames_and_preserves_values() -> None:
