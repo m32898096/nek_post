@@ -148,7 +148,7 @@ def _write_leading_edge_plot_arrays(
 
     fig = None
     try:
-        fig, ax = plt.subplots(figsize=(7.0, 4.5))
+        fig, ax = plt.subplots(figsize=(7.5, 2.5), dpi=300)
         for x_front in selected:
             y_plot, x_plot = periodic_leading_edge_plot_arrays(
                 y_array,
