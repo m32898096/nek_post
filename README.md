@@ -191,6 +191,15 @@ the data or numerical parameters change. Plot-only reruns read those CSVs and
 never access `.fNNNNN` files, making them appropriate for figure-formatting
 changes.
 
+The compute command currently supports only
+`--extraction-method rightmost-crossing`, which preserves the validated
+rightmost threshold-intersection behavior. Moore-boundary and
+Marching-Squares-with-Asymptotic-Decider extraction are planned but are not yet
+implemented. All extraction methods will use the same spectral horizontal
+field: x remains fixed at the configured `nx` with no additional x upsampling,
+and y remains `dense_ny = y_upsample_factor * native_ny` with production factor
+`2`.
+
 The compute command's configured production default is two processes. The first
 frame remains serial and defines the reusable spectral interpolation plan; only
 later frame descriptors enter the process pool, and workers return reduced

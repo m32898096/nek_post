@@ -112,6 +112,7 @@ def test_valid_writer_round_trip_reconstructs_exact_selected_plot_data(
     result = read_leading_edge_artifacts(timeseries, metadata)
 
     assert result.case == "N7"
+    assert result.extraction_method == "rightmost-crossing"
     assert_array_equal(result.file_indices, [10, 20])
     assert_allclose(result.target_time, [0.5, 0.75])
     assert_allclose(result.actual_time, [0.5, 0.75])
@@ -311,3 +312,13 @@ def test_metadata_schema_remains_exact_writer_schema(tmp_path: Path) -> None:
     _timeseries, metadata = _write_valid(tmp_path)
     columns, _rows = _read_dict_rows(metadata)
     assert columns == list(LEADING_EDGE_METADATA_COLUMNS)
+
+
+def test_metadata_rejects_unsupported_extraction_method(tmp_path: Path) -> None:
+    timeseries, metadata = _write_valid(tmp_path)
+    columns, rows = _read_dict_rows(metadata)
+    rows[0]["extraction_method"] = "moore-boundary"
+    _write_dict_rows(metadata, columns, rows)
+
+    with pytest.raises(ValueError, match="method"):
+        read_leading_edge_artifacts(timeseries, metadata)

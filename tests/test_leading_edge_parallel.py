@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
-from dataclasses import fields
+from dataclasses import fields, replace
 import gc
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +21,13 @@ from nek_post.leading_edge_parallel import (
     validate_leading_edge_workers,
 )
 from nek_post.spectral_interpolation import SpectralGeometryMismatchError
+
+
+_METHOD_CONTEXT = {
+    "extraction_method": "rightmost-crossing",
+    "periodic_y": True,
+    "y_period": 1.0,
+}
 
 
 def _frame(index: int) -> NekFramePath:
@@ -73,7 +80,13 @@ def test_empty_parallel_sequence_never_creates_executor(
     )
 
     assert process_leading_edge_frames_parallel(
-        [], object(), np.array([0.0, 1.0]), np.array([0.0]), 0.1, workers=2
+        [],
+        object(),
+        np.array([0.0, 1.0]),
+        np.array([0.0]),
+        0.1,
+        **_METHOD_CONTEXT,
+        workers=2,
     ) == ()
 
 
@@ -102,6 +115,7 @@ def test_single_frame_helper_returns_only_reduced_read_only_arrays(
         x,
         y,
         0.1,
+        **_METHOD_CONTEXT,
         frame_reader=lambda _path: SimpleNamespace(time=0.75),
     )
     del plane
@@ -137,6 +151,7 @@ def test_single_frame_read_failure_has_source_path_context() -> None:
             np.array([0.0, 1.0]),
             np.array([0.0]),
             0.1,
+            **_METHOD_CONTEXT,
             frame_reader=lambda _path: (_ for _ in ()).throw(OSError("reader failed")),
         )
 
@@ -162,6 +177,7 @@ def test_single_frame_geometry_mismatch_preserves_type_and_path(
             np.array([0.0, 1.0]),
             np.array([0.0]),
             0.1,
+            **_METHOD_CONTEXT,
             frame_reader=lambda _path: SimpleNamespace(time=1.0),
         )
 
@@ -176,7 +192,7 @@ def test_single_frame_extraction_failure_has_source_path_context(
     )
     monkeypatch.setattr(
         parallel_module,
-        "extract_spanwise_leading_edge",
+        "extract_leading_edge",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad contour")),
     )
     with pytest.raises(RuntimeError, match=r"GC0\.f00006.*bad contour"):
@@ -186,6 +202,7 @@ def test_single_frame_extraction_failure_has_source_path_context(
             np.array([0.0, 1.0]),
             np.array([0.0]),
             0.1,
+            **_METHOD_CONTEXT,
             frame_reader=lambda _path: SimpleNamespace(time=1.25),
         )
 
@@ -302,13 +319,22 @@ def test_initializer_context_bounded_submissions_and_deterministic_order(
         x,
         y,
         0.1,
+        **_METHOD_CONTEXT,
         workers=2,
     )
 
     executor = _FakeExecutor.instances[0]
     assert executor.max_workers == 2
     assert executor.initializer is parallel_module._initialize_worker
-    assert executor.initargs == (plan, x, y, 0.1)
+    assert executor.initargs == (
+        plan,
+        x,
+        y,
+        0.1,
+        "rightmost-crossing",
+        True,
+        1.0,
+    )
     assert executor.initializer_calls == 2
     assert all(
         function is parallel_module._process_worker_frame and args == (frame,)
@@ -343,6 +369,7 @@ def test_worker_failure_cancels_pending_and_includes_frame_identity(
             np.array([0.0, 1.0]),
             np.array([0.0]),
             0.1,
+            **_METHOD_CONTEXT,
             workers=2,
         )
 
@@ -367,6 +394,7 @@ def test_duplicate_returned_indices_are_rejected(
             np.array([0.0, 1.0]),
             np.array([0.0]),
             0.1,
+            **_METHOD_CONTEXT,
             workers=2,
         )
 
@@ -390,5 +418,27 @@ def test_returned_frame_identity_must_match_submitted_frame(
             np.array([0.0, 1.0]),
             np.array([0.0]),
             0.1,
+            **_METHOD_CONTEXT,
+            workers=1,
+        )
+
+
+def test_returned_extraction_method_must_match_requested_method(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mismatched = replace(_result(2), extraction_method="future-method")
+    _install_executor(monkeypatch, {2: mismatched})
+
+    with pytest.raises(
+        ParallelLeadingEdgeFrameError,
+        match=r"index 2.*extraction-method mismatch.*future-method",
+    ):
+        process_leading_edge_frames_parallel(
+            [_frame(2)],
+            object(),  # type: ignore[arg-type]
+            np.array([0.0, 1.0]),
+            np.array([0.0]),
+            0.1,
+            **_METHOD_CONTEXT,
             workers=1,
         )

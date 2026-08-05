@@ -14,7 +14,10 @@ from numpy.typing import NDArray
 
 from nek_post.front_detection_io import NekFramePath
 from nek_post.io_nek import get_nek_time, read_nek_file
-from nek_post.leading_edge_extraction import extract_spanwise_leading_edge
+from nek_post.leading_edge_methods import (
+    DEFAULT_LEADING_EDGE_METHOD,
+    extract_leading_edge,
+)
 from nek_post.spectral_horizontal_slice import (
     SpectralHorizontalSlicePlan,
     apply_spectral_horizontal_slice_plan,
@@ -38,6 +41,7 @@ class LeadingEdgeFrameResult:
     crossing_count: NDArray[np.int64]
     finite_leading_edge_fraction: float
     successful_y_count: int
+    extraction_method: str = DEFAULT_LEADING_EDGE_METHOD
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,9 @@ class _WorkerContext:
     x: NDArray[np.float64]
     y: NDArray[np.float64]
     threshold: float
+    extraction_method: str
+    periodic_y: bool
+    y_period: float
 
 
 _WORKER_CONTEXT: _WorkerContext | None = None
@@ -94,6 +101,9 @@ def _reduce_leading_edge_frame(
     x: NDArray[np.float64],
     y: NDArray[np.float64],
     threshold: float,
+    extraction_method: str,
+    periodic_y: bool,
+    y_period: float,
 ) -> LeadingEdgeFrameResult:
     """Interpolate and reduce already-read data using the common frame path."""
     source_path = Path(frame.path)
@@ -115,11 +125,14 @@ def _reduce_leading_edge_frame(
         ) from exc
 
     try:
-        curve = extract_spanwise_leading_edge(
+        curve = extract_leading_edge(
             x,
             y,
             concentration,
             threshold=threshold,
+            method=extraction_method,
+            periodic_y=periodic_y,
+            y_period=y_period,
         )
     except Exception as exc:
         raise RuntimeError(
@@ -137,6 +150,7 @@ def _reduce_leading_edge_frame(
     finite_count = int(np.count_nonzero(np.isfinite(x_front)))
     finite_fraction = float(finite_count / y.size)
     successful_y_count = int(np.count_nonzero(success_mask))
+    result_method = curve.method
 
     # No raw data, two-dimensional plane, or extraction object survives return.
     del concentration, curve, data
@@ -144,6 +158,7 @@ def _reduce_leading_edge_frame(
         file_index=int(frame.index),
         source_path=source_path,
         time=frame_time,
+        extraction_method=result_method,
         x_front=x_front,
         success_mask=success_mask,
         crossing_count=crossing_count,
@@ -159,6 +174,9 @@ def process_leading_edge_frame(
     y: NDArray[np.float64],
     threshold: float,
     *,
+    extraction_method: str,
+    periodic_y: bool,
+    y_period: float,
     frame_reader: Callable[[Path], Any] = read_nek_file,
 ) -> LeadingEdgeFrameResult:
     """Read and reduce one frame without retaining its two-dimensional plane."""
@@ -176,6 +194,9 @@ def process_leading_edge_frame(
         x,
         y,
         threshold,
+        extraction_method,
+        periodic_y,
+        y_period,
     )
 
 
@@ -184,6 +205,9 @@ def _initialize_worker(
     x: NDArray[np.float64],
     y: NDArray[np.float64],
     threshold: float,
+    extraction_method: str,
+    periodic_y: bool,
+    y_period: float,
 ) -> None:
     global _WORKER_CONTEXT
     _WORKER_CONTEXT = _WorkerContext(
@@ -191,6 +215,9 @@ def _initialize_worker(
         x=_readonly_copy(x, np.float64),
         y=_readonly_copy(y, np.float64),
         threshold=float(threshold),
+        extraction_method=extraction_method,
+        periodic_y=periodic_y,
+        y_period=float(y_period),
     )
 
 
@@ -204,6 +231,9 @@ def _process_worker_frame(frame: NekFramePath) -> LeadingEdgeFrameResult:
         context.x,
         context.y,
         context.threshold,
+        extraction_method=context.extraction_method,
+        periodic_y=context.periodic_y,
+        y_period=context.y_period,
     )
 
 
@@ -262,6 +292,7 @@ def _parent_result_copy(result: LeadingEdgeFrameResult) -> LeadingEdgeFrameResul
         file_index=int(result.file_index),
         source_path=Path(result.source_path),
         time=float(result.time),
+        extraction_method=str(result.extraction_method),
         x_front=x_front,
         success_mask=success_mask,
         crossing_count=crossing_count,
@@ -279,6 +310,9 @@ def process_leading_edge_frames_parallel(
     y: NDArray[np.float64],
     threshold: float,
     *,
+    extraction_method: str,
+    periodic_y: bool,
+    y_period: float,
     workers: int,
 ) -> tuple[LeadingEdgeFrameResult, ...]:
     """Reduce frames in a bounded process pool and return file-index order."""
@@ -296,7 +330,15 @@ def process_leading_edge_frames_parallel(
     with ProcessPoolExecutor(
         max_workers=worker_count,
         initializer=_initialize_worker,
-        initargs=(interpolation_plan, x, y, threshold),
+        initargs=(
+            interpolation_plan,
+            x,
+            y,
+            threshold,
+            extraction_method,
+            periodic_y,
+            y_period,
+        ),
     ) as executor:
 
         def cancel_pending() -> None:
@@ -360,6 +402,16 @@ def process_leading_edge_frames_parallel(
                             "worker result identity mismatch: returned file index "
                             f"{result.file_index} and source path "
                             f"{result.source_path}",
+                        )
+                    )
+                if result.extraction_method != extraction_method:
+                    cancel_pending()
+                    raise ParallelLeadingEdgeFrameError(
+                        _parallel_error(
+                            frame,
+                            "worker extraction-method mismatch: returned "
+                            f"{result.extraction_method!r}, expected "
+                            f"{extraction_method!r}",
                         )
                     )
                 try:

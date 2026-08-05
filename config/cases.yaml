@@ -71,6 +71,7 @@ grid:
 
 leading_edge:
   case: N7
+  extraction_method: rightmost-crossing
   reynolds_number: 3450
   nx: 1000
   z_target: 0.04

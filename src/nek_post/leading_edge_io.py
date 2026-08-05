@@ -14,6 +14,7 @@ from nek_post.front_detection_io import (
     format_csv_value,
     preflight_output_paths,
 )
+from nek_post.leading_edge_methods import normalize_leading_edge_method
 if TYPE_CHECKING:
     from nek_post.leading_edge_workflow import (
         LeadingEdgeEvolution,
@@ -42,6 +43,7 @@ LEADING_EDGE_TIMESERIES_COLUMNS = (
 
 LEADING_EDGE_METADATA_COLUMNS = (
     "case",
+    "extraction_method",
     "n_input_frames",
     "n_selected_frames",
     "actual_time_start",
@@ -209,6 +211,9 @@ def leading_edge_metadata(
     )
     return {
         "case": case,
+        "extraction_method": normalize_leading_edge_method(
+            evolution.extraction_method
+        ),
         "n_input_frames": n_input,
         "n_selected_frames": n_selected,
         "actual_time_start": evolution.time[0],

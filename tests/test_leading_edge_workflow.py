@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 import weakref
@@ -270,6 +271,7 @@ def test_extraction_shapes_values_shared_coordinates_and_metadata(
     assert evolution.native_ny == 2
     assert evolution.dense_ny == 4
     assert evolution.y_upsample_factor == 2
+    assert evolution.extraction_method == "rightmost-crossing"
     assert not evolution.periodic_endpoint_included
     assert evolution.horizontal_plan_metadata["inverse_mapping_failure_count"] == 2
 
@@ -316,7 +318,7 @@ def test_full_concentration_planes_are_discarded(
 def test_stage_one_plan_and_stage_two_results_are_not_modified(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import nek_post.leading_edge_parallel as parallel
+    import nek_post.leading_edge_methods.rightmost_crossing as rightmost
     import nek_post.leading_edge_workflow as workflow
     from nek_post.leading_edge_extraction import extract_spanwise_leading_edge
 
@@ -331,7 +333,7 @@ def test_stage_one_plan_and_stage_two_results_are_not_modified(
         curves.append((curve, snapshot))
         return curve
 
-    monkeypatch.setattr(parallel, "extract_spanwise_leading_edge", recording_extract)
+    monkeypatch.setattr(rightmost, "extract_spanwise_leading_edge", recording_extract)
     evolution, calls = _run_synthetic(monkeypatch)
     plan = calls["plan"]
     assert isinstance(plan, SimpleNamespace)
@@ -419,6 +421,17 @@ def test_workers_argument_validation(workers: object) -> None:
         )
 
 
+@pytest.mark.parametrize("method", ["unknown", "", True, 1, None])
+def test_extraction_method_validation(method: object) -> None:
+    with pytest.raises(ValueError, match="method"):
+        build_leading_edge_evolution(
+            [NekFramePath(1, Path("GC0.f00001"))],
+            nx=3,
+            z_target=0.04,
+            extraction_method=method,
+        )
+
+
 def _workflow_frame_result(
     frame: NekFramePath,
     *,
@@ -483,10 +496,23 @@ def _install_parallel_workflow_fakes(
         y: np.ndarray,
         threshold: float,
         *,
+        extraction_method: str,
+        periodic_y: bool,
+        y_period: float,
         frame_reader: object,
     ) -> LeadingEdgeFrameResult:
         calls["serial"].append(  # type: ignore[union-attr]
-            (frame, supplied_plan, x, y, threshold, frame_reader)
+            (
+                frame,
+                supplied_plan,
+                x,
+                y,
+                threshold,
+                extraction_method,
+                periodic_y,
+                y_period,
+                frame_reader,
+            )
         )
         return results[frame.index]
 
@@ -497,10 +523,23 @@ def _install_parallel_workflow_fakes(
         y: np.ndarray,
         threshold: float,
         *,
+        extraction_method: str,
+        periodic_y: bool,
+        y_period: float,
         workers: int,
     ) -> tuple[LeadingEdgeFrameResult, ...]:
         calls["parallel"].append(  # type: ignore[union-attr]
-            (later_frames, supplied_plan, x, y, threshold, workers)
+            (
+                later_frames,
+                supplied_plan,
+                x,
+                y,
+                threshold,
+                extraction_method,
+                periodic_y,
+                y_period,
+                workers,
+            )
         )
         return tuple(results[frame.index] for frame in reversed(later_frames))
 
@@ -522,6 +561,7 @@ def test_workers_two_builds_plan_once_keeps_first_serial_and_only_dispatches_lat
         nx=3,
         z_target=0.04,
         workers=2,
+        extraction_method=" RIGHTMOST-CROSSING ",
     )
 
     assert len(calls["build"]) == 1  # type: ignore[arg-type]
@@ -532,9 +572,16 @@ def test_workers_two_builds_plan_once_keeps_first_serial_and_only_dispatches_lat
     assert isinstance(parallel_calls, list) and len(parallel_calls) == 1
     assert parallel_calls[0][0] == frames[1:]
     assert parallel_calls[0][1] is calls["plan"]
-    assert parallel_calls[0][-1] == 2
+    assert parallel_calls[0][5:9] == (
+        "rightmost-crossing",
+        True,
+        1.0,
+        2,
+    )
+    assert serial_calls[0][5:8] == ("rightmost-crossing", True, 1.0)
     assert_array_equal(evolution.file_indices, [10, 20, 30])
     assert_allclose(evolution.time, [1.0, 1.25, 1.5])
+    assert evolution.extraction_method == "rightmost-crossing"
 
 
 def test_workers_one_builds_plan_once_and_never_uses_parallel_helper(
@@ -620,6 +667,23 @@ def test_parallel_results_are_ordered_before_time_validation(
         )
 
 
+def test_workflow_rejects_frame_method_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames, results, _calls = _install_parallel_workflow_fakes(monkeypatch)
+    results[20] = replace(
+        results[20], extraction_method="future-method"
+    )
+
+    with pytest.raises(RuntimeError, match="extraction-method mismatch"):
+        build_leading_edge_evolution(
+            frames,
+            nx=3,
+            z_target=0.04,
+            workers=2,
+        )
+
+
 def test_workers_one_and_two_produce_identical_evolution_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -663,6 +727,7 @@ def test_workers_one_and_two_produce_identical_evolution_content(
         "dense_ny",
         "y_upsample_factor",
         "periodic_endpoint_included",
+        "extraction_method",
     ):
         assert getattr(serial, name) == getattr(parallel, name)
 

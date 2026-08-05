@@ -422,7 +422,7 @@ def _metadata_snapshot(path: Path) -> tuple[tuple[str, object], ...]:
     result: list[tuple[str, object]] = []
     for column in LEADING_EDGE_METADATA_COLUMNS:
         raw = row[column]
-        if column == "case":
+        if column in {"case", "extraction_method"}:
             value: object = raw
         elif column in _METADATA_INTEGER_COLUMNS:
             value = int(raw)
@@ -534,6 +534,7 @@ def assert_leading_edge_artifacts_equivalent(
     right = candidate.plot_data
     for name in (
         "case",
+        "extraction_method",
         "nx",
         "native_ny",
         "dense_ny",
