@@ -184,6 +184,17 @@ python scripts/19_compute_leading_edge_evolution.py \
 python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite
 ```
 
+Run the implemented Moore comparison into a distinct artifact directory so it
+does not replace the production-default result:
+
+```bash
+python scripts/19_compute_leading_edge_evolution.py \
+  --case N7 \
+  --extraction-method moore-boundary \
+  --output-dir /path/to/leading_edge/N7/moore_boundary \
+  --overwrite
+```
+
 The workflow uses element-aware GLL interpolation to a uniform periodic y grid
 with `dense_ny = 2 * native_ny`; it does not apply an FFT directly to raw
 element-local arrays or add DNS resolution. Recompute CSV artifacts only when
@@ -191,14 +202,26 @@ the data or numerical parameters change. Plot-only reruns read those CSVs and
 never access `.fNNNNN` files, making them appropriate for figure-formatting
 changes.
 
-The compute command currently supports only
-`--extraction-method rightmost-crossing`, which preserves the validated
-rightmost threshold-intersection behavior. Moore-boundary and
-Marching-Squares-with-Asymptotic-Decider extraction are planned but are not yet
-implemented. All extraction methods will use the same spectral horizontal
-field: x remains fixed at the configured `nx` with no additional x upsampling,
-and y remains `dense_ny = y_upsample_factor * native_ny` with production factor
-`2`.
+The compute command supports `--extraction-method rightmost-crossing` and
+`--extraction-method moore-boundary`; `rightmost-crossing` remains the
+production default. Moore boundary tracing is a pure-Python, Fortran-derived
+Moore-neighbour method that preserves the supplied neighbour order and
+indicator turn rule while using deterministic start selection and
+directed-edge closure. It traces finite low-side `C <= threshold` reconstructed
+grid nodes adjacent to the `C > threshold` region; exact-threshold nodes are on
+the low side. The y direction is periodic, x is non-periodic, and the result
+uses grid-node locations rather than sub-grid threshold interpolation. No
+Fortran is compiled or called, and GridEnhancer, FFT, and FFTW are not used.
+Both methods consume the same spectral horizontal field: x remains fixed at
+configured `nx` with no extraction-stage upsampling, and y remains
+`dense_ny = y_upsample_factor * native_ny` with production factor `2`.
+`marching-squares-ad` remains planned and unavailable.
+
+Because legacy artifact filenames do not contain the method name, use a
+method-specific `--output-dir` such as
+`.../leading_edge/N7/moore_boundary` when preserving both outputs. The
+plot-only command reads either method's common CSV artifacts without accessing
+Nek files and retains the same appearance.
 
 The compute command's configured production default is two processes. The first
 frame remains serial and defines the reusable spectral interpolation plan; only

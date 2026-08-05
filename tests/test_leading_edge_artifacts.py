@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType
 
@@ -317,8 +318,24 @@ def test_metadata_schema_remains_exact_writer_schema(tmp_path: Path) -> None:
 def test_metadata_rejects_unsupported_extraction_method(tmp_path: Path) -> None:
     timeseries, metadata = _write_valid(tmp_path)
     columns, rows = _read_dict_rows(metadata)
-    rows[0]["extraction_method"] = "moore-boundary"
+    rows[0]["extraction_method"] = "marching-squares-ad"
     _write_dict_rows(metadata, columns, rows)
 
     with pytest.raises(ValueError, match="method"):
         read_leading_edge_artifacts(timeseries, metadata)
+
+
+def test_moore_metadata_round_trip_reconstructs_method(tmp_path: Path) -> None:
+    evolution = replace(_evolution(), extraction_method="moore-boundary")
+    selection = select_leading_edge_times(evolution)
+    timeseries, metadata = write_leading_edge_csvs(
+        tmp_path,
+        "N7",
+        evolution,
+        selection,
+        overwrite=False,
+    )
+
+    result = read_leading_edge_artifacts(timeseries, metadata)
+
+    assert result.extraction_method == "moore-boundary"

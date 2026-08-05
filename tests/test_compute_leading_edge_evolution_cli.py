@@ -108,6 +108,7 @@ def _install_success_fakes(
     def build(supplied_frames: object, **kwargs: object):
         calls["events"].append("build")  # type: ignore[union-attr]
         calls["build"].append((supplied_frames, kwargs))  # type: ignore[union-attr]
+        evolution.extraction_method = kwargs["extraction_method"]
         return evolution
 
     def select(supplied_evolution: object, *, spacing: object):
@@ -161,7 +162,7 @@ def test_help_succeeds_and_contains_only_compute_options(
     assert "--no-plots" not in help_text
     assert "--reynolds-number" not in help_text
     assert "rightmost-crossing" in help_text
-    assert "moore-boundary" not in help_text
+    assert "moore-boundary" in help_text
     assert "marching-squares-ad" not in help_text
 
 
@@ -282,13 +283,19 @@ def test_explicit_extraction_method_is_passed_and_reported(
         monkeypatch,
     )
 
+    output_dir = tmp_path / "moore-output"
     compute_script.main(
-        ["--extraction-method", "rightmost-crossing"]
+        [
+            "--extraction-method",
+            "moore-boundary",
+            "--output-dir",
+            str(output_dir),
+        ]
     )
 
     _frames, build_kwargs = calls["build"][0]  # type: ignore[index]
-    assert build_kwargs["extraction_method"] == "rightmost-crossing"
-    assert "Extraction method: rightmost-crossing" in capsys.readouterr().out
+    assert build_kwargs["extraction_method"] == "moore-boundary"
+    assert "Extraction method: moore-boundary" in capsys.readouterr().out
 
 
 def test_unsupported_extraction_method_is_rejected_by_argparse(
@@ -299,7 +306,7 @@ def test_unsupported_extraction_method_is_rejected_by_argparse(
         compute_script._parse_args(
             _paths(tmp_path),
             _cases_config(),
-            ["--extraction-method", "moore-boundary"],
+            ["--extraction-method", "marching-squares-ad"],
         )
 
     assert error.value.code == 2

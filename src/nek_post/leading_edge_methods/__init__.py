@@ -16,6 +16,12 @@ from nek_post.leading_edge_methods.common import (
 from nek_post.leading_edge_methods.rightmost_crossing import (
     extract_rightmost_crossing,
 )
+from nek_post.leading_edge_methods.moore_boundary import (
+    MOORE_BOUNDARY_METHOD,
+    MooreBoundaryTrace,
+    extract_moore_boundary,
+    trace_moore_boundary,
+)
 
 
 def extract_leading_edge(
@@ -39,14 +45,25 @@ def extract_leading_edge(
             concentration,
             threshold=threshold,
         )
+    if canonical_method == MOORE_BOUNDARY_METHOD:
+        return extract_moore_boundary(
+            x,
+            validated_y,
+            concentration,
+            threshold=threshold,
+        )
     raise AssertionError(f"Unhandled leading-edge method {canonical_method!r}.")
 
 
 __all__ = (
     "DEFAULT_LEADING_EDGE_METHOD",
     "LeadingEdgeExtractionResult",
+    "MOORE_BOUNDARY_METHOD",
+    "MooreBoundaryTrace",
     "PeriodicYContext",
     "SUPPORTED_LEADING_EDGE_METHODS",
     "extract_leading_edge",
+    "extract_moore_boundary",
     "normalize_leading_edge_method",
+    "trace_moore_boundary",
 )

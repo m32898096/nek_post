@@ -9,7 +9,10 @@ from numpy.typing import NDArray
 
 
 DEFAULT_LEADING_EDGE_METHOD = "rightmost-crossing"
-SUPPORTED_LEADING_EDGE_METHODS = (DEFAULT_LEADING_EDGE_METHOD,)
+SUPPORTED_LEADING_EDGE_METHODS = (
+    DEFAULT_LEADING_EDGE_METHOD,
+    "moore-boundary",
+)
 
 
 def normalize_leading_edge_method(value: object) -> str:
