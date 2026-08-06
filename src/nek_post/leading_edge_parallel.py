@@ -53,6 +53,7 @@ class _WorkerContext:
     extraction_method: str
     periodic_y: bool
     y_period: float
+    x_min: float | None
 
 
 _WORKER_CONTEXT: _WorkerContext | None = None
@@ -104,6 +105,7 @@ def _reduce_leading_edge_frame(
     extraction_method: str,
     periodic_y: bool,
     y_period: float,
+    x_min: float | None,
 ) -> LeadingEdgeFrameResult:
     """Interpolate and reduce already-read data using the common frame path."""
     source_path = Path(frame.path)
@@ -133,6 +135,7 @@ def _reduce_leading_edge_frame(
             method=extraction_method,
             periodic_y=periodic_y,
             y_period=y_period,
+            x_min=x_min,
         )
     except Exception as exc:
         raise RuntimeError(
@@ -177,6 +180,7 @@ def process_leading_edge_frame(
     extraction_method: str,
     periodic_y: bool,
     y_period: float,
+    x_min: float | None = None,
     frame_reader: Callable[[Path], Any] = read_nek_file,
 ) -> LeadingEdgeFrameResult:
     """Read and reduce one frame without retaining its two-dimensional plane."""
@@ -197,6 +201,7 @@ def process_leading_edge_frame(
         extraction_method,
         periodic_y,
         y_period,
+        x_min,
     )
 
 
@@ -208,6 +213,7 @@ def _initialize_worker(
     extraction_method: str,
     periodic_y: bool,
     y_period: float,
+    x_min: float | None = None,
 ) -> None:
     global _WORKER_CONTEXT
     _WORKER_CONTEXT = _WorkerContext(
@@ -218,6 +224,7 @@ def _initialize_worker(
         extraction_method=extraction_method,
         periodic_y=periodic_y,
         y_period=float(y_period),
+        x_min=x_min,
     )
 
 
@@ -234,6 +241,7 @@ def _process_worker_frame(frame: NekFramePath) -> LeadingEdgeFrameResult:
         extraction_method=context.extraction_method,
         periodic_y=context.periodic_y,
         y_period=context.y_period,
+        x_min=context.x_min,
     )
 
 
@@ -313,6 +321,7 @@ def process_leading_edge_frames_parallel(
     extraction_method: str,
     periodic_y: bool,
     y_period: float,
+    x_min: float | None = None,
     workers: int,
 ) -> tuple[LeadingEdgeFrameResult, ...]:
     """Reduce frames in a bounded process pool and return file-index order."""
@@ -327,18 +336,22 @@ def process_leading_edge_frames_parallel(
     results: list[LeadingEdgeFrameResult] = []
     returned_indices: set[int] = set()
 
+    initializer_args = (
+        interpolation_plan,
+        x,
+        y,
+        threshold,
+        extraction_method,
+        periodic_y,
+        y_period,
+    )
+    if x_min is not None:
+        initializer_args = (*initializer_args, x_min)
+
     with ProcessPoolExecutor(
         max_workers=worker_count,
         initializer=_initialize_worker,
-        initargs=(
-            interpolation_plan,
-            x,
-            y,
-            threshold,
-            extraction_method,
-            periodic_y,
-            y_period,
-        ),
+        initargs=initializer_args,
     ) as executor:
 
         def cancel_pending() -> None:

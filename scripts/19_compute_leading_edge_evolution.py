@@ -102,6 +102,7 @@ def _parse_args(
     configured_method = normalize_leading_edge_method(
         _mapping_value(leading_edge, "extraction_method", "leading_edge")
     )
+    configured_x_min = _mapping_value(leading_edge, "x_min", "leading_edge")
     parser = argparse.ArgumentParser(
         description=(
             "Interpolate horizontal Nek5000 concentration planes, extract the "
@@ -162,6 +163,12 @@ def _parse_args(
         choices=SUPPORTED_LEADING_EDGE_METHODS,
         default=configured_method,
         help="Leading-edge extraction method.",
+    )
+    parser.add_argument(
+        "--x-min",
+        type=_finite_float,
+        default=configured_x_min,
+        help="Strict physical lower bound for extraction (retains x > x_min).",
     )
     parser.add_argument(
         "--workers",
@@ -243,6 +250,7 @@ def main(argv: list[str] | None = None) -> None:
             y_upsample_factor=args.y_upsample_factor,
             workers=args.workers,
             extraction_method=args.extraction_method,
+            x_min=args.x_min,
         )
         expected_dense_ny = evolution.y_upsample_factor * evolution.native_ny
         if evolution.dense_ny != expected_dense_ny:
@@ -269,6 +277,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Input frame count: {len(frames)}")
         print(f"Workers: {args.workers}")
         print(f"Extraction method: {evolution.extraction_method}")
+        print(f"Extraction x condition: x > {evolution.extraction_x_min:.16g}")
         print(f"File-index range: {frames[0].index} to {frames[-1].index}")
         print(
             "Actual time range: "

@@ -44,6 +44,7 @@ def _cases_config() -> dict[str, object]:
     return {
         "file_prefix": "GC0",
         "leading_edge": {
+            "x_min": 0.0,
             "case": "N7",
             "reynolds_number": 3450,
             "nx": 1000,

@@ -422,7 +422,11 @@ def _metadata_snapshot(path: Path) -> tuple[tuple[str, object], ...]:
     result: list[tuple[str, object]] = []
     for column in LEADING_EDGE_METADATA_COLUMNS:
         raw = row[column]
-        if column in {"case", "extraction_method"}:
+        if column in {
+            "case",
+            "extraction_method",
+            "extraction_x_condition",
+        }:
             value: object = raw
         elif column in _METADATA_INTEGER_COLUMNS:
             value = int(raw)
@@ -535,6 +539,7 @@ def assert_leading_edge_artifacts_equivalent(
     for name in (
         "case",
         "extraction_method",
+        "extraction_x_condition",
         "nx",
         "native_ny",
         "dense_ny",
@@ -568,6 +573,19 @@ def assert_leading_edge_artifacts_equivalent(
     ):
         _require_exact_array(
             name, [getattr(left, name)], [getattr(right, name)], floating=True
+        )
+    if left.extraction_x_min is None or right.extraction_x_min is None:
+        _require_equal(
+            "extraction_x_min",
+            left.extraction_x_min,
+            right.extraction_x_min,
+        )
+    else:
+        _require_exact_array(
+            "extraction_x_min",
+            [left.extraction_x_min],
+            [right.extraction_x_min],
+            floating=True,
         )
     if left.target_time_spacing is None or right.target_time_spacing is None:
         _require_equal(

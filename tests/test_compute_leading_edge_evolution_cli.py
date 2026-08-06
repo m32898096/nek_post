@@ -45,6 +45,7 @@ def _cases_config() -> dict[str, object]:
         "leading_edge": {
             "case": "N7",
             "extraction_method": "rightmost-crossing",
+            "x_min": 0.0,
             "reynolds_number": 3450,
             "nx": 1000,
             "z_target": 0.04,
@@ -67,6 +68,7 @@ def _results() -> tuple[SimpleNamespace, SimpleNamespace]:
         threshold=0.1,
         periodic_endpoint_included=False,
         extraction_method="rightmost-crossing",
+        extraction_x_min=0.0,
     )
     selection = SimpleNamespace(actual_time=np.asarray([0.5, 0.75]))
     return evolution, selection
@@ -182,6 +184,7 @@ def test_configured_defaults_include_quarter_time_spacing(tmp_path: Path) -> Non
     assert args.contour_time_spacing == 0.25
     assert args.workers == 2
     assert args.extraction_method == "rightmost-crossing"
+    assert args.x_min == 0.0
 
 
 def test_extraction_method_configuration_is_required_and_validated(
@@ -197,6 +200,21 @@ def test_extraction_method_configuration_is_required_and_validated(
     malformed["leading_edge"]["extraction_method"] = True  # type: ignore[index]
     with pytest.raises(ValueError, match="extraction_method"):
         compute_script._parse_args(paths, malformed, [])
+
+
+def test_x_min_configuration_is_required_and_cli_override_is_propagated(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    missing = _cases_config()
+    del missing["leading_edge"]["x_min"]  # type: ignore[index]
+    with pytest.raises(ValueError, match="x_min"):
+        compute_script._parse_args(paths, missing, [])
+
+    args = compute_script._parse_args(
+        paths, _cases_config(), ["--x-min", "1.25"]
+    )
+    assert args.x_min == 1.25
 
 
 def test_dynamic_output_directory_uses_final_case(tmp_path: Path) -> None:
@@ -249,6 +267,7 @@ def test_compute_preflights_and_writes_only_two_csvs(
     assert supplied_frames
     assert build_kwargs["workers"] == 2
     assert build_kwargs["extraction_method"] == "rightmost-crossing"
+    assert build_kwargs["x_min"] == 0.0
     write_args, write_kwargs = calls["write"][0]  # type: ignore[index]
     assert write_args[:4] == (output_dir, "N7", evolution, selection)
     assert write_kwargs == {"overwrite": False}

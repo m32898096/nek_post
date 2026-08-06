@@ -78,6 +78,7 @@ def _outputs(*, all_nan: bool = False):
         y_upsample_factor=2,
         horizontal_plan_metadata=metadata,
         periodic_endpoint_included=False,
+        extraction_x_min=0.0,
     )
     return evolution, select_leading_edge_times(evolution, spacing=None)
 
@@ -128,6 +129,8 @@ def test_artifact_plot_adapter_writes_the_same_png_pdf_definition(
         y_max_periodic_endpoint=1.0,
         periodic_endpoint_included=False,
         target_time_spacing=None,
+        extraction_x_min=0.0,
+        extraction_x_condition="strict-greater-than",
     )
 
     paths = write_leading_edge_artifact_plots(
@@ -170,9 +173,11 @@ def test_plot_passes_raw_nan_curves_and_periodic_copies_to_matplotlib(
     original_x = evolution.x_front.copy()
     original_y = evolution.y.copy()
     captured: list[tuple[np.ndarray, np.ndarray, dict[str, object]]] = []
+    captured_axes: list[Axes] = []
     original_plot = Axes.plot
 
     def capture_plot(self, x, y, *args, **kwargs):
+        captured_axes.append(self)
         captured.append((np.asarray(x).copy(), np.asarray(y).copy(), dict(kwargs)))
         return original_plot(self, x, y, *args, **kwargs)
 
@@ -194,6 +199,7 @@ def test_plot_passes_raw_nan_curves_and_periodic_copies_to_matplotlib(
     assert first_y[-1] == 1.0
     assert first_kwargs["linestyle"] == "-"
     assert "marker" not in first_kwargs
+    assert captured_axes[0].get_xlim()[0] >= 0.0
     assert_array_equal(evolution.x_front, original_x)
     assert_array_equal(evolution.y, original_y)
 

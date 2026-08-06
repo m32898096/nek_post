@@ -162,6 +162,13 @@ def main(argv: list[str] | None = None) -> None:
         print(f"native_ny: {plot_data.native_ny}")
         print(f"dense_ny: {plot_data.dense_ny}")
         print(f"y_upsample_factor: {plot_data.y_upsample_factor}")
+        if plot_data.extraction_x_min is None:
+            print("Extraction x domain: unrestricted")
+        else:
+            print(
+                "Extraction x condition: "
+                f"x > {plot_data.extraction_x_min:.16g}"
+            )
         print("Written figure artifacts:")
         for path in figure_paths:
             print(f"  {path}")

@@ -89,7 +89,10 @@ def _selected_x_front(
     return selected
 
 
-def _x_limits(values: NDArray[np.float64]) -> tuple[float, float]:
+def _x_limits(
+    values: NDArray[np.float64],
+    extraction_x_min: float | None = None,
+) -> tuple[float, float]:
     finite = values[np.isfinite(values)]
     if finite.size == 0:
         raise ValueError("Cannot plot a selection with no finite leading-edge point.")
@@ -99,7 +102,17 @@ def _x_limits(values: NDArray[np.float64]) -> tuple[float, float]:
     padding = 0.03 * span
     if padding == 0.0:
         padding = 0.03 * max(abs(x_min), 1.0)
-    return x_min - padding, x_max + padding
+    lower = x_min - padding
+    if extraction_x_min is not None:
+        bound = float(extraction_x_min)
+        if not np.isfinite(bound):
+            raise ValueError("extraction_x_min must be finite when supplied.")
+        if np.any(finite <= bound):
+            raise ValueError(
+                "Finite leading-edge values must satisfy x > extraction_x_min."
+            )
+        lower = max(lower, bound)
+    return lower, x_max + padding
 
 
 def _write_leading_edge_plot_arrays(
@@ -114,6 +127,7 @@ def _write_leading_edge_plot_arrays(
     overwrite: bool,
     *,
     reynolds_number: float | int | None = None,
+    extraction_x_min: float | None = None,
 ) -> list[Path]:
     paths = [
         leading_edge_evolution_png_path(output_dir, case),
@@ -144,7 +158,7 @@ def _write_leading_edge_plot_arrays(
         or y_max_value <= y_min_value
     ):
         raise ValueError("Plot data must define a finite positive periodic y extent.")
-    x_limits = _x_limits(selected)
+    x_limits = _x_limits(selected, extraction_x_min)
 
     fig = None
     try:
@@ -208,6 +222,7 @@ def write_leading_edge_evolution_plots(
         y_max,
         overwrite,
         reynolds_number=reynolds_number,
+        extraction_x_min=evolution.extraction_x_min,
     )
 
 
@@ -232,6 +247,7 @@ def write_leading_edge_artifact_plots(
         plot_data.y_max_periodic_endpoint,
         overwrite,
         reynolds_number=reynolds_number,
+        extraction_x_min=plot_data.extraction_x_min,
     )
 
 

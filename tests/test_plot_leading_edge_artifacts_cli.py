@@ -38,6 +38,7 @@ def _paths(tmp_path: Path) -> ProjectPaths:
 def _cases_config() -> dict[str, object]:
     return {
         "leading_edge": {
+            "x_min": 0.0,
             "case": "N7",
             "reynolds_number": 3450,
             "nx": 1000,
@@ -85,6 +86,8 @@ def _plot_data() -> LeadingEdgePlotData:
         y_max_periodic_endpoint=1.0,
         periodic_endpoint_included=False,
         target_time_spacing=0.25,
+        extraction_x_min=0.0,
+        extraction_x_condition="strict-greater-than",
     )
 
 

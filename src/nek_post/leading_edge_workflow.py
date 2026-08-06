@@ -21,6 +21,7 @@ from nek_post.leading_edge_parallel import (
 )
 from nek_post.leading_edge_methods import (
     DEFAULT_LEADING_EDGE_METHOD,
+    normalize_extraction_x_min,
     normalize_leading_edge_method,
 )
 from nek_post.spectral_horizontal_slice import (
@@ -52,6 +53,7 @@ class LeadingEdgeEvolution:
     horizontal_plan_metadata: Mapping[str, float | int]
     periodic_endpoint_included: bool = False
     extraction_method: str = DEFAULT_LEADING_EDGE_METHOD
+    extraction_x_min: float | None = None
 
 
 @dataclass(frozen=True)
@@ -206,12 +208,14 @@ def build_leading_edge_evolution(
     y_upsample_factor: int = 2,
     workers: int = 1,
     extraction_method: object = DEFAULT_LEADING_EDGE_METHOD,
+    x_min: float | None = None,
     _frame_reader: Any | None = None,
 ) -> LeadingEdgeEvolution:
     """Read, interpolate, and immediately reduce each frame to one x(y) curve."""
     frames = _validated_frames(frame_paths)
     worker_count = validate_leading_edge_workers(workers)
     canonical_method = normalize_leading_edge_method(extraction_method)
+    extraction_x_min = normalize_extraction_x_min(x_min)
     nx_value = _positive_integer(nx, "nx", 2)
     z_value = _finite_float(z_target, "z_target")
     threshold_value = _finite_float(threshold, "threshold")
@@ -249,6 +253,9 @@ def build_leading_edge_evolution(
     y_period = float(
         plan_metadata["ymax_periodic_endpoint"] - plan_metadata["ymin"]
     )
+    x_domain_options = (
+        {} if extraction_x_min is None else {"x_min": extraction_x_min}
+    )
 
     def first_frame_reader(_source_path: Path) -> object:
         return first_data
@@ -264,6 +271,7 @@ def build_leading_edge_evolution(
             periodic_y=True,
             y_period=y_period,
             frame_reader=first_frame_reader,
+            **x_domain_options,
         )
     finally:
         del first_data
@@ -281,6 +289,7 @@ def build_leading_edge_evolution(
                 periodic_y=True,
                 y_period=y_period,
                 frame_reader=reader,
+                **x_domain_options,
             )
             for frame in later_frames
         )
@@ -295,6 +304,7 @@ def build_leading_edge_evolution(
             periodic_y=True,
             y_period=y_period,
             workers=worker_count,
+            **x_domain_options,
         )
     else:
         later_results = ()
@@ -367,6 +377,7 @@ def build_leading_edge_evolution(
             [result.successful_y_count for result in results], np.int64
         ),
         extraction_method=canonical_method,
+        extraction_x_min=extraction_x_min,
         threshold=threshold_value,
         z_target=z_value,
         nx=nx_value,
