@@ -210,11 +210,14 @@ The compute command supports `--extraction-method rightmost-crossing` and
 production default. Moore boundary tracing is a pure-Python, Fortran-derived
 Moore-neighbour method that preserves the supplied neighbour order and
 indicator turn rule while using deterministic start selection and
-directed-edge closure. It traces finite low-side `C <= threshold` reconstructed
-grid nodes adjacent to the `C > threshold` region; exact-threshold nodes are on
-the low side. The y direction is periodic, x is non-periodic, and the result
-uses grid-node locations rather than sub-grid threshold interpolation. No
-Fortran is compiled or called, and GridEnhancer, FFT, and FFTW are not used.
+directed-edge closure. It traces finite heavy-side `C > threshold`
+reconstructed grid nodes adjacent to the light-side `C <= threshold` region;
+exact-threshold nodes are on the light side. The y direction is periodic and x
+is non-periodic. After topology selection, row intersections use the same
+sub-grid linear threshold interpolation and exact-plateau semantics as the
+validated rightmost method, retaining only downstream crossings supported by
+the selected trace. No Fortran is compiled or called, and GridEnhancer, FFT,
+and FFTW are not used.
 Both methods consume the same spectral horizontal field: x remains fixed at
 configured `nx` with no extraction-stage upsampling, and y remains
 `dense_ny = y_upsample_factor * native_ny` with production factor `2`.

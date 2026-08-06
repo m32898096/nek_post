@@ -11,6 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nek_post.leading_edge_methods.common import LeadingEdgeExtractionResult
+from nek_post.leading_edge_thresholds import row_threshold_intersections
 
 
 MOORE_BOUNDARY_METHOD = "moore-boundary"
@@ -41,12 +42,12 @@ def moore_neighbor_offset(indicator: int) -> tuple[int, int]:
     return MOORE_NEIGHBOR_OFFSETS[wrap_moore_indicator(indicator) - 1]
 
 
-def build_low_side_boundary_candidate_mask(
+def build_heavy_side_boundary_candidate_mask(
     concentration: object,
     *,
     threshold: float,
 ) -> NDArray[np.bool_]:
-    """Return low-side pixels adjacent to a high-side eight-neighbour.
+    """Return heavy-side pixels adjacent to a light-side eight-neighbour.
 
     The first array dimension is periodic y. The second is non-periodic x.
     Non-finite values belong to neither threshold side.
@@ -62,18 +63,18 @@ def build_low_side_boundary_candidate_mask(
         raise ValueError("threshold must be finite.")
 
     finite = np.isfinite(values)
-    high_side = finite & (values > threshold_value)
-    low_side = finite & (values <= threshold_value)
-    adjacent_high = np.zeros(values.shape, dtype=np.bool_)
+    heavy_side = finite & (values > threshold_value)
+    light_side = finite & (values <= threshold_value)
+    adjacent_light = np.zeros(values.shape, dtype=np.bool_)
     for delta_ix, delta_iy in MOORE_NEIGHBOR_OFFSETS:
-        shifted_y = np.roll(high_side, -delta_iy, axis=0)
+        shifted_y = np.roll(light_side, -delta_iy, axis=0)
         if delta_ix == 0:
-            adjacent_high |= shifted_y
+            adjacent_light |= shifted_y
         elif delta_ix > 0:
-            adjacent_high[:, :-1] |= shifted_y[:, 1:]
+            adjacent_light[:, :-1] |= shifted_y[:, 1:]
         else:
-            adjacent_high[:, 1:] |= shifted_y[:, :-1]
-    candidate = low_side & adjacent_high
+            adjacent_light[:, 1:] |= shifted_y[:, :-1]
+    candidate = heavy_side & adjacent_light
     candidate.setflags(write=False)
     return candidate
 
@@ -704,7 +705,7 @@ def extract_moore_boundary(
     *,
     threshold: float,
 ) -> LeadingEdgeExtractionResult:
-    """Trace low-side boundary pixels and reduce them to common ``x_front(y)``."""
+    """Trace heavy-side topology and interpolate selected threshold crossings."""
     x_values = np.asarray(x, dtype=np.float64)
     y_values = np.asarray(y, dtype=np.float64)
     field = np.asarray(concentration, dtype=np.float64)
@@ -731,7 +732,7 @@ def extract_moore_boundary(
     if not np.isfinite(threshold_value):
         raise ValueError("threshold must be finite.")
 
-    candidate_mask = build_low_side_boundary_candidate_mask(
+    candidate_mask = build_heavy_side_boundary_candidate_mask(
         field,
         threshold=threshold_value,
     )
@@ -746,15 +747,31 @@ def extract_moore_boundary(
         )
 
     trace = _select_extraction_trace(candidate_mask, x_values)
+    trace_mask = np.zeros(field.shape, dtype=np.bool_)
+    trace_mask[trace.iy, trace.ix] = True
     x_front = np.full(y_values.size, np.nan, dtype=np.float64)
-    success_mask = np.zeros(y_values.size, dtype=np.bool_)
     crossing_count = np.zeros(y_values.size, dtype=np.int64)
-    for iy in range(y_values.size):
-        visited_ix = np.unique(trace.ix[trace.iy == iy])
-        if visited_ix.size:
-            x_front[iy] = float(np.max(x_values[visited_ix]))
-            success_mask[iy] = True
-            crossing_count[iy] = int(visited_ix.size)
+    for iy, row in enumerate(field):
+        selected_intersections = []
+        for intersection in row_threshold_intersections(
+            x_values,
+            row,
+            threshold_value,
+        ):
+            left_ix = intersection.left_ix
+            right_ix = intersection.right_ix
+            if left_ix is None or right_ix is None:
+                continue
+            if (
+                row[left_ix] > threshold_value
+                and row[right_ix] <= threshold_value
+                and trace_mask[iy, left_ix]
+            ):
+                selected_intersections.append(intersection.x)
+        crossing_count[iy] = len(selected_intersections)
+        if selected_intersections:
+            x_front[iy] = max(selected_intersections)
+    success_mask = crossing_count > 0
     return LeadingEdgeExtractionResult(
         method=MOORE_BOUNDARY_METHOD,
         y=y_values,
@@ -773,7 +790,7 @@ __all__ = (
     "MooreBoundaryTrace",
     "MooreTraceCandidateDiagnostic",
     "MooreTraceSelection",
-    "build_low_side_boundary_candidate_mask",
+    "build_heavy_side_boundary_candidate_mask",
     "extract_moore_boundary",
     "moore_neighbor_offset",
     "moore_trace_winding_number",

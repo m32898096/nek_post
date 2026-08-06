@@ -3,16 +3,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 
 import nek_post.leading_edge_methods.moore_boundary as moore
+from nek_post.leading_edge_extraction import extract_spanwise_leading_edge
 from nek_post.leading_edge_methods.moore_boundary import (
     MOORE_INITIAL_INDICATOR,
     MOORE_NEIGHBOR_OFFSETS,
     MooreBoundaryComponent,
     MooreBoundaryTrace,
-    build_low_side_boundary_candidate_mask,
+    build_heavy_side_boundary_candidate_mask,
     extract_moore_boundary,
     label_periodic_boundary_components,
     moore_neighbor_offset,
@@ -72,26 +73,48 @@ def test_local_search_applies_plus_five_turn_then_advances_on_rejection() -> Non
     assert found == ((3, 3), 3)
 
 
-def test_candidate_mask_threshold_finite_and_adjacency_semantics() -> None:
+def test_candidate_mask_contains_heavy_node_adjacent_to_light() -> None:
     concentration = np.full((4, 5), np.nan)
-    concentration[0, 1] = 1.0  # high side
-    concentration[0, 2] = 0.5  # exact threshold: low candidate
-    concentration[1, 1] = 0.2  # below threshold: low candidate
-    concentration[3, 1] = 0.1  # periodic-y adjacent low candidate
+    concentration[0, 1] = 1.0
+    concentration[0, 2] = 0.2
     concentration[0, 0] = np.inf
     concentration[1, 0] = -np.inf
-    concentration[2, 4] = 0.0  # isolated low side
 
-    candidate = build_low_side_boundary_candidate_mask(
+    candidate = build_heavy_side_boundary_candidate_mask(
         concentration, threshold=0.5
     )
 
     expected = np.zeros_like(candidate)
-    expected[0, 2] = True
-    expected[1, 1] = True
-    expected[3, 1] = True
+    expected[0, 1] = True
     assert_array_equal(candidate, expected)
     assert not candidate.flags.writeable
+
+
+def test_light_and_exact_threshold_nodes_are_not_candidates() -> None:
+    concentration = np.full((3, 4), np.nan)
+    concentration[1, 1] = 1.0
+    concentration[1, 2] = 0.5
+    concentration[1, 3] = 0.2
+
+    candidate = build_heavy_side_boundary_candidate_mask(
+        concentration, threshold=0.5
+    )
+
+    assert candidate[1, 1]
+    assert not candidate[1, 2]
+    assert not candidate[1, 3]
+
+
+def test_candidate_mask_uses_periodic_y_seam_adjacency() -> None:
+    concentration = np.full((4, 4), np.nan)
+    concentration[0, 2] = 1.0
+    concentration[-1, 2] = 0.0
+
+    candidate = build_heavy_side_boundary_candidate_mask(
+        concentration, threshold=0.5
+    )
+
+    assert candidate[0, 2]
 
 
 def test_candidate_mask_does_not_wrap_x_adjacency() -> None:
@@ -99,11 +122,11 @@ def test_candidate_mask_does_not_wrap_x_adjacency() -> None:
     concentration[1, 0] = 1.0
     concentration[1, 3] = 0.0
 
-    candidate = build_low_side_boundary_candidate_mask(
+    candidate = build_heavy_side_boundary_candidate_mask(
         concentration, threshold=0.5
     )
 
-    assert not candidate[1, 3]
+    assert not candidate[1, 0]
 
 
 def test_component_labeling_connects_periodic_y_seam() -> None:
@@ -473,11 +496,11 @@ def test_empty_trace_is_valid_and_has_no_start() -> None:
     assert trace.path_length == 0
 
 
-def test_trace_conversion_counts_unique_x_and_preserves_missing_rows(
+def test_trace_conversion_counts_selected_intersections_and_preserves_missing_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_trace = MooreBoundaryTrace(
-        ix=np.array([1, 1, 2, 3]),
+        ix=np.array([0, 0, 2, 0]),
         iy=np.array([0, 0, 0, 2]),
         start_point=(1, 0),
         closed=True,
@@ -490,7 +513,7 @@ def test_trace_conversion_counts_unique_x_and_preserves_missing_rows(
     )
     concentration = np.array(
         [
-            [1.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0, 0.0],
             [1.0, 0.0, 0.0, 0.0],
             [1.0, 0.0, 0.0, 0.0],
         ]
@@ -505,7 +528,7 @@ def test_trace_conversion_counts_unique_x_and_preserves_missing_rows(
 
     assert result.method == "moore-boundary"
     assert result.threshold == 0.5
-    assert_array_equal(result.x_front[[0, 2]], [1.0, 1.5])
+    assert_array_equal(result.x_front[[0, 2]], [1.25, 0.25])
     assert np.isnan(result.x_front[1])
     assert_array_equal(result.success_mask, [True, False, True])
     assert_array_equal(result.crossing_count, [2, 0, 1])
@@ -541,7 +564,7 @@ def test_extraction_traces_primary_all_y_component_not_small_seam_component(
     candidate_mask[-1, 7] = True
     monkeypatch.setattr(
         moore,
-        "build_low_side_boundary_candidate_mask",
+        "build_heavy_side_boundary_candidate_mask",
         lambda *_args, **_kwargs: candidate_mask,
     )
     x = np.arange(8, dtype=float)
@@ -550,11 +573,11 @@ def test_extraction_traces_primary_all_y_component_not_small_seam_component(
     result = extract_moore_boundary(
         x,
         y,
-        np.zeros((y.size, x.size)),
+        np.broadcast_to((x <= 2.0)[None, :], (y.size, x.size)).astype(float),
         threshold=0.5,
     )
 
-    assert_array_equal(result.x_front, np.full(y.size, 2.0))
+    assert_array_equal(result.x_front, np.full(y.size, 2.5))
     assert_array_equal(result.success_mask, np.ones(y.size, dtype=bool))
     assert_array_equal(result.crossing_count, np.ones(y.size, dtype=np.int64))
 
@@ -568,23 +591,27 @@ def test_full_span_component_selection_prefers_rowwise_physical_x_over_size(
     candidate_mask[:, 9] = True
     monkeypatch.setattr(
         moore,
-        "build_low_side_boundary_candidate_mask",
+        "build_heavy_side_boundary_candidate_mask",
         lambda *_args, **_kwargs: candidate_mask,
     )
     x = np.linspace(0.1, 4.0, candidate_mask.shape[1]) ** 2
     y = np.arange(candidate_mask.shape[0], dtype=float) / candidate_mask.shape[0]
 
+    field = np.zeros(candidate_mask.shape)
+    field[:, 2] = 1.0
+    field[:, 9] = 1.0
     result = extract_moore_boundary(
         x,
         y,
-        np.zeros(candidate_mask.shape),
+        field,
         threshold=0.5,
     )
 
-    assert_array_equal(result.x_front, np.full(y.size, x[9]))
+    expected = x[9] + 0.5 * (x[10] - x[9])
+    assert_array_equal(result.x_front, np.full(y.size, expected))
 
 
-def test_analytic_periodic_front_returns_first_low_side_grid_column() -> None:
+def test_analytic_periodic_front_returns_interpolated_threshold_location() -> None:
     x = np.arange(6, dtype=float)
     y = np.arange(4, dtype=float) / 4.0
     concentration = np.where(x[None, :] < 3.0, 1.0, 0.0)
@@ -597,6 +624,103 @@ def test_analytic_periodic_front_returns_first_low_side_grid_column() -> None:
         threshold=0.5,
     )
 
-    assert_array_equal(result.x_front, np.full(y.size, 3.0))
+    assert_array_equal(result.x_front, np.full(y.size, 2.5))
     assert_array_equal(result.success_mask, np.ones(y.size, dtype=bool))
     assert_array_equal(result.crossing_count, np.ones(y.size, dtype=np.int64))
+
+
+def test_exact_plateau_uses_rightmost_threshold_coordinate() -> None:
+    x = np.array([0.0, 0.4, 1.1, 2.0])
+    y = np.arange(4, dtype=float) / 4.0
+    concentration = np.broadcast_to(
+        np.array([1.0, 0.5, 0.5, 0.0]),
+        (y.size, x.size),
+    ).copy()
+
+    result = extract_moore_boundary(
+        x,
+        y,
+        concentration,
+        threshold=0.5,
+    )
+
+    assert_array_equal(result.x_front, np.full(y.size, 1.1))
+    assert_array_equal(result.crossing_count, np.ones(y.size, dtype=np.int64))
+
+
+def test_straight_front_matches_rightmost_at_subgrid_coordinate() -> None:
+    x = np.array([0.0, 0.7, 1.8, 3.0])
+    y = np.arange(8, dtype=float) / 8.0
+    expected_front = 1.2
+    concentration = np.broadcast_to(
+        expected_front - x[None, :],
+        (y.size, x.size),
+    ).copy()
+
+    moore_result = extract_moore_boundary(
+        x,
+        y,
+        concentration,
+        threshold=0.0,
+    )
+    rightmost_result = extract_spanwise_leading_edge(
+        x,
+        y,
+        concentration,
+        threshold=0.0,
+    )
+
+    assert_allclose(
+        moore_result.x_front,
+        rightmost_result.x_front,
+        rtol=0.0,
+        atol=1e-14,
+    )
+    assert_allclose(moore_result.x_front, expected_front, rtol=0.0, atol=1e-14)
+    assert np.all(moore_result.success_mask)
+    assert not np.any(np.isin(moore_result.x_front, x))
+
+
+def test_slanted_periodic_front_is_continuous_and_not_grid_locked() -> None:
+    x = np.linspace(0.0, 4.0, 17)
+    y = np.arange(16, dtype=float) / 16.0
+    expected_front = 2.05 + 0.18 * np.sin(2.0 * np.pi * y)
+    concentration = expected_front[:, None] - x[None, :]
+
+    result = extract_moore_boundary(
+        x,
+        y,
+        concentration,
+        threshold=0.0,
+    )
+
+    assert np.all(result.success_mask)
+    assert_array_equal(result.crossing_count, np.ones(y.size, dtype=np.int64))
+    assert_allclose(result.x_front, expected_front, rtol=0.0, atol=2e-14)
+    assert not np.any(np.isin(result.x_front, x))
+
+
+def test_detached_frontward_blob_does_not_replace_full_span_trace() -> None:
+    x = np.linspace(0.0, 6.0, 25)
+    y = np.arange(12, dtype=float) / 12.0
+    expected_front = 2.05 + 0.12 * np.sin(2.0 * np.pi * y)
+    concentration = expected_front[:, None] - x[None, :]
+    concentration[3:7, 18:21] = 1.0
+
+    moore_result = extract_moore_boundary(
+        x,
+        y,
+        concentration,
+        threshold=0.0,
+    )
+    unrestricted_result = extract_spanwise_leading_edge(
+        x,
+        y,
+        concentration,
+        threshold=0.0,
+    )
+
+    assert_allclose(moore_result.x_front, expected_front, rtol=0.0, atol=2e-14)
+    assert np.all(unrestricted_result.x_front[3:7] > 5.0)
+    assert np.all(moore_result.x_front[3:7] < 2.3)
+    assert_array_equal(moore_result.crossing_count, np.ones(y.size, dtype=np.int64))

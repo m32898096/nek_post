@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from nek_post.leading_edge_thresholds import row_threshold_intersections
+
 
 @dataclass(frozen=True)
 class LeadingEdgeCurve:
@@ -81,48 +83,14 @@ def _row_intersections(
     concentration: NDArray[np.float64],
     threshold: float,
 ) -> list[float]:
-    finite = np.isfinite(concentration)
-    shifted = concentration - threshold
-    exact = finite & (shifted == 0.0)
-    intersections: list[float] = []
-
-    # Every maximal run of exact-threshold samples is one intersection. Its
-    # rightmost coordinate represents that plateau for leading-edge selection.
-    index = 0
-    while index < x.size:
-        if not exact[index]:
-            index += 1
-            continue
-        plateau_end = index
-        while plateau_end + 1 < x.size and exact[plateau_end + 1]:
-            plateau_end += 1
-        intersections.append(float(x[plateau_end]))
-        index = plateau_end + 1
-
-    # Exact endpoints are deliberately excluded here, so a plateau cannot also
-    # generate a duplicate adjacent-pair crossing.
-    for index in range(x.size - 1):
-        if not finite[index] or not finite[index + 1]:
-            continue
-        left_shifted = float(shifted[index])
-        right_shifted = float(shifted[index + 1])
-        strict_change = (
-            left_shifted < 0.0 < right_shifted
-            or right_shifted < 0.0 < left_shifted
+    return [
+        intersection.x
+        for intersection in row_threshold_intersections(
+            x,
+            concentration,
+            threshold,
         )
-        if not strict_change:
-            continue
-        left_concentration = float(concentration[index])
-        right_concentration = float(concentration[index + 1])
-        crossing = float(
-            x[index]
-            + (threshold - left_concentration)
-            * (x[index + 1] - x[index])
-            / (right_concentration - left_concentration)
-        )
-        intersections.append(crossing)
-
-    return intersections
+    ]
 
 
 def extract_spanwise_leading_edge(

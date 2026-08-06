@@ -84,7 +84,12 @@ def _readonly_copy(values: object, dtype: np.dtype | type) -> np.ndarray:
 
 @dataclass(frozen=True)
 class LeadingEdgeExtractionResult:
-    """Immutable method-independent leading-edge extraction result."""
+    """Immutable method-independent leading-edge extraction result.
+
+    For Moore extraction, ``crossing_count`` counts retained downstream
+    threshold intersections supported by the selected trace, rather than
+    visited Moore grid nodes.
+    """
 
     method: str
     y: NDArray[np.float64]
