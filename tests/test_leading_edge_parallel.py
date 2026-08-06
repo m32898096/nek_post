@@ -171,7 +171,7 @@ def test_single_frame_helper_dispatches_moore_boundary(
     )
 
     assert result.extraction_method == "moore-boundary"
-    assert_array_equal(result.x_front, np.full(y.size, 2.0))
+    assert_array_equal(result.x_front, np.full(y.size, 1.5))
     assert_array_equal(result.success_mask, np.ones(y.size, dtype=bool))
     assert_array_equal(result.crossing_count, np.ones(y.size, dtype=np.int64))
 

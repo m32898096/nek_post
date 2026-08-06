@@ -124,7 +124,7 @@ def test_periodic_endpoint_must_remain_excluded() -> None:
         )
 
 
-def test_dispatcher_selects_moore_boundary_grid_node_result() -> None:
+def test_dispatcher_selects_interpolated_moore_boundary_result() -> None:
     x = np.arange(5, dtype=float)
     y = np.arange(4, dtype=float) / 4.0
     concentration = np.broadcast_to(
@@ -143,7 +143,7 @@ def test_dispatcher_selects_moore_boundary_grid_node_result() -> None:
     )
 
     assert result.method == "moore-boundary"
-    assert_array_equal(result.x_front, np.full(y.size, 2.0))
+    assert_array_equal(result.x_front, np.full(y.size, 1.5))
 
 
 def test_strict_x_domain_removes_negative_and_exact_bound_columns() -> None:
@@ -171,7 +171,11 @@ def test_moore_domain_restriction_precedes_candidate_construction(
         seen.append(np.asarray(values).copy())
         return np.zeros(np.asarray(values).shape, dtype=bool)
 
-    monkeypatch.setattr(moore, "build_low_side_boundary_candidate_mask", candidates)
+    monkeypatch.setattr(
+        moore,
+        "build_heavy_side_boundary_candidate_mask",
+        candidates,
+    )
     x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
     y = np.arange(4, dtype=float) / 4.0
     field = np.broadcast_to(np.arange(x.size), (y.size, x.size)).copy()
@@ -193,7 +197,7 @@ def test_moore_domain_restriction_precedes_candidate_construction(
 
 @pytest.mark.parametrize(
     ("method", "expected_x"),
-    [("rightmost-crossing", 2.5), ("moore-boundary", 3.0)],
+    [("rightmost-crossing", 2.5), ("moore-boundary", 2.5)],
 )
 def test_symmetric_periodic_front_uses_only_positive_x_domain(
     method: str, expected_x: float

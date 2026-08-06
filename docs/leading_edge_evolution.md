@@ -45,12 +45,14 @@ gives every extraction method the same scientific domain.
   the validated legacy extractor, so plateau, NaN, and crossing behavior are
   unchanged.
 - `moore-boundary` is a pure-Python, Fortran-derived Moore-neighbour tracing
-  method. It traces finite low-side `C <= threshold` reconstructed grid nodes
-  that have at least one high-side `C > threshold` eight-neighbour.
-  Exact-threshold values are low-side; non-finite values belong to neither
-  side. The y index wraps periodically and x is non-periodic. The shared
-  `x_front(y)` value is the greatest physical x grid-node coordinate visited at
-  each y row, with no sub-grid threshold interpolation.
+  method. It traces finite heavy-side `C > threshold` reconstructed grid nodes
+  that have at least one light-side `C <= threshold` eight-neighbour.
+  Exact-threshold values are light-side; non-finite values belong to neither
+  side. The y index wraps periodically and x is non-periodic. The selected
+  trace constrains which downstream heavy-to-light row intersections are
+  retained. Their `x_front(y)` coordinates use the same sub-grid physical-x
+  linear interpolation and rightmost exact-plateau representation as
+  `rightmost-crossing`.
 
 The Moore implementation retains the supplied Fortran one-based neighbour
 order, initial indicator `4`, and the wrapped `+5` turn before each local
@@ -58,11 +60,10 @@ search. It is implemented entirely in Python and NumPy: no Fortran is compiled
 or called, and neither GridEnhancer, Fourier zero-padding, FFT, nor FFTW is
 used. The Python method intentionally replaces the Fortran fixed start point
 with a deterministic front-biased, upper-seam-preferred start and replaces
-right-x-edge termination with directed-edge closure. It also restricts the
-Fortran `C <= threshold` movement rule to low-side pixels adjacent to the
-high-side region so the path cannot drift through the entire exterior. It is
-therefore an alternative extraction definition, not a claim of bitwise or
-complete-program equivalence or greater accuracy.
+right-x-edge termination with directed-edge closure. Candidate construction
+uses the predecessor boundary definition: a heavy-fluid grid point adjacent to
+a light-fluid grid point. It is therefore an alternative extraction definition,
+not a claim of bitwise or complete-program equivalence or greater accuracy.
 
 When that candidate mask contains disconnected boundaries, the Python method
 labels periodic-y, non-periodic-x eight-connected components. Full-span
@@ -180,8 +181,9 @@ NaN leading-edge values are preserved as `nan`. They indicate y rows without a
 finite threshold crossing and remain gaps in the figure.
 
 For `rightmost-crossing`, `crossing_count` is the number of threshold
-intersections in a y row. For `moore-boundary`, it is the number of unique
-traced Moore boundary pixels retained in that y row.
+intersections in a y row. For `moore-boundary`, it is the number of downstream
+threshold intersections in that row whose heavy-side supporting node belongs
+to the selected Moore trace.
 
 ## Two-step command-line workflow
 
