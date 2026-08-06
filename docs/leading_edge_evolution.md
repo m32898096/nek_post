@@ -16,6 +16,7 @@ The production definition is:
 - horizontal plane: `z = 0.04`
 - concentration contour: `C = 0.1`
 - extraction method: `rightmost-crossing`
+- extraction domain: strict `x > 0.0`
 - target-time spacing: `delta_t = 0.25`
 - spanwise upsampling factor: `2`
 - compute workers: `2`
@@ -29,6 +30,14 @@ The reference paper used `Delta t = 0.28`, while this project uses
 ## Extraction methods
 
 Two extraction definitions are implemented for comparison:
+
+Before either method runs, the common dispatcher restricts the reconstructed
+field to physical columns satisfying strict `x > x_min`. The N7 production
+configuration records `x_min = 0.0`; columns at `x = 0` and all negative-x
+columns are removed before threshold intersections, boundary-candidate
+construction, connected-component labeling, or tracing. No value is
+interpolated at the bound. This isolates the right-moving gravity current and
+gives every extraction method the same scientific domain.
 
 - `rightmost-crossing` is the production default. For each supplied y row, it
   finds the existing exact-threshold and strict sign-change intersections along
@@ -55,6 +64,29 @@ high-side region so the path cannot drift through the entire exterior. It is
 therefore an alternative extraction definition, not a claim of bitwise or
 complete-program equivalence or greater accuracy.
 
+When that candidate mask contains disconnected boundaries, the Python method
+labels periodic-y, non-periodic-x eight-connected components. Full-span
+one-winding traces are compared first by greatest unique-y count, then greatest
+median rowwise physical x, then greatest mean rowwise physical x, followed by
+deterministic component, start, and indicator tie-breaks. Component pixel count
+does not outrank streamwise position in that choice. If no full-span winding
+trace exists, the established primary-component fallback remains available for
+partial-y data. This connected-component selection is a Python robustness
+adaptation motivated by full N7 data, not behavior inherited from the supplied
+Fortran.
+
+The selected component can still contain branches and small contractible local
+cycles. The production method therefore evaluates deterministic Moore walks
+from every boundary pixel on both sides of the periodic seam and all eight
+initial indicators. Each closed walk is assigned an integer periodic-y winding
+number. When the primary component spans every y row, the selected trace must
+wind exactly once (`abs(winding_number) == 1`); zero-winding local cycles are
+rejected even when they are farther forward in x. For a component that does not
+span the full y domain, the best deterministic zero-winding closed trace remains
+an allowed fallback. This topology-aware trace selection is another Python
+robustness adaptation and is not claimed to originate in the supplied Fortran
+or to provide greater physical accuracy.
+
 Both methods consume exactly the same element-aware spectral horizontal field.
 The physical x grid retains the configured fixed `nx`, with no extraction-stage
 upsampling. The endpoint-excluded periodic y grid retains
@@ -71,6 +103,7 @@ raw Nek5000 element-local GLL data
   -> element-aware spectral interpolation at fixed physical z
   -> uniform periodic physical-y target grid
   -> dense_ny = 2 * native_ny
+  -> strict physical extraction domain x > 0.0
   -> selected leading-edge extraction method at C = 0.1
   -> nearest-snapshot time selection
   -> tidy timeseries and metadata CSV artifacts
@@ -126,8 +159,8 @@ For the production case this contains:
 - `N7_leading_edge_timeseries.csv`: one row for every selected frame and
   computational y coordinate.
 - `N7_leading_edge_metadata.csv`: one row describing the input/selection sizes,
-  physical parameters, spanwise resolution, endpoint policy, algorithm version,
-  and inverse-mapping diagnostics.
+  physical parameters, strict extraction-x domain, spanwise resolution,
+  endpoint policy, algorithm version, and inverse-mapping diagnostics.
 - `N7_leading_edge_evolution.png`: raster Figure-4-style overlay.
 - `N7_leading_edge_evolution.pdf`: the same figure in vector form.
 
@@ -140,7 +173,7 @@ case,file_index,source_file,target_time,actual_time,time_error,y,x_front,success
 The metadata schema is:
 
 ```text
-case,extraction_method,n_input_frames,n_selected_frames,actual_time_start,actual_time_end,target_time_spacing,threshold,z_target,nx,native_ny,dense_ny,y_upsample_factor,y_min,y_max_periodic_endpoint,periodic_endpoint_included,algorithm_version,inverse_mapping_target_count,inverse_mapping_success_count,inverse_mapping_failure_count,ambiguous_boundary_point_count,maximum_successful_residual,maximum_iteration_count
+case,extraction_method,extraction_x_min,extraction_x_condition,n_input_frames,n_selected_frames,actual_time_start,actual_time_end,target_time_spacing,threshold,z_target,nx,native_ny,dense_ny,y_upsample_factor,y_min,y_max_periodic_endpoint,periodic_endpoint_included,algorithm_version,inverse_mapping_target_count,inverse_mapping_success_count,inverse_mapping_failure_count,ambiguous_boundary_point_count,maximum_successful_residual,maximum_iteration_count
 ```
 
 NaN leading-edge values are preserved as `nan`. They indicate y rows without a
@@ -157,6 +190,7 @@ The recommended production workflow is:
 ```bash
 python scripts/19_compute_leading_edge_evolution.py \
   --case N7 \
+  --x-min 0.0 \
   --workers 2 \
   --overwrite
 python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite
@@ -177,6 +211,7 @@ are:
 | `--threshold` | Leading-edge concentration contour; default `0.1`. |
 | `--y-upsample-factor` | Multiplier defining `dense_ny`; default `2`. |
 | `--extraction-method` | Extraction engine: `rightmost-crossing` or `moore-boundary`. |
+| `--x-min` | Strict extraction lower bound; production retains `x > 0.0`. |
 | `--workers` | Process count for later frames; configured default `2`. |
 | `--contour-time-spacing` | Regular target-time spacing; default `0.25`. |
 | `--all-frames` | Select all processed snapshots instead of spaced targets. |
@@ -190,12 +225,12 @@ processed.
 The first frame is always read and reduced serially because its stationary
 geometry defines the one reusable spectral horizontal interpolation plan. With
 `--workers 2`, only subsequent frame descriptors are submitted to the process
-pool. The plan, x and y coordinates, and threshold are installed once in each
-worker by the process initializer; they are not submitted with every task and
-are not rebuilt in workers. Each worker reads its own snapshot and returns only
-the reduced one-dimensional leading-edge arrays and scalar diagnostics. Raw Nek
-objects and full two-dimensional concentration planes are discarded in the
-worker.
+pool. The plan, x and y coordinates, threshold, and extraction-x bound are
+installed once in each worker by the process initializer; they are not
+submitted with every task and are not rebuilt in workers. Each worker reads its
+own snapshot and returns only the reduced one-dimensional leading-edge arrays
+and scalar diagnostics. Raw Nek objects and full two-dimensional concentration
+planes are discarded in the worker.
 
 `--workers 1` is the deterministic serial baseline and is also the mode to use
 with the package API's custom frame-reader injection. The completed full-N7
@@ -227,13 +262,15 @@ example:
 python scripts/19_compute_leading_edge_evolution.py \
   --case N7 \
   --extraction-method moore-boundary \
+  --x-min 0.0 \
   --output-dir /path/to/leading_edge/N7/moore_boundary \
   --overwrite
 ```
 
-The plot-only command can read the resulting common CSV artifacts without
-accessing Nek files, and its appearance is independent of the extraction
-method.
+The plot-only command reads the recorded `extraction_x_min` and prevents the
+x-axis range from extending below that bound. It can read the resulting common
+CSV artifacts without accessing Nek files, and its line appearance is
+independent of the extraction method.
 
 Recompute with script 19 only when the source snapshots, frame range, physical
 definition, target grid, upsampling, threshold, or time selection changes.

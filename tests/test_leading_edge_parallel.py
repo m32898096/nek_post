@@ -383,6 +383,26 @@ def test_initializer_context_bounded_submissions_and_deterministic_order(
         assert not result.crossing_count.flags.writeable
 
 
+def test_parallel_initializer_receives_explicit_x_min(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames = (_frame(2),)
+    _install_executor(monkeypatch, {2: _result(2)}, completion_order=[2])
+
+    process_leading_edge_frames_parallel(
+        frames,
+        object(),  # type: ignore[arg-type]
+        np.array([-1.0, 0.0, 1.0, 2.0]),
+        np.array([0.0, 0.5]),
+        0.1,
+        **_METHOD_CONTEXT,
+        x_min=0.0,
+        workers=2,
+    )
+
+    assert _FakeExecutor.instances[0].initargs[-1] == 0.0
+
+
 def test_worker_failure_cancels_pending_and_includes_frame_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

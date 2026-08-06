@@ -15,6 +15,7 @@ from nek_post.leading_edge_io import (
 )
 from nek_post.leading_edge_methods import (
     DEFAULT_LEADING_EDGE_METHOD,
+    EXTRACTION_X_CONDITION,
     normalize_leading_edge_method,
 )
 
@@ -43,6 +44,8 @@ class LeadingEdgePlotData:
     periodic_endpoint_included: bool
     target_time_spacing: float | None
     extraction_method: str = DEFAULT_LEADING_EDGE_METHOD
+    extraction_x_min: float | None = None
+    extraction_x_condition: str = "unrestricted"
 
 
 @dataclass(frozen=True)
@@ -167,6 +170,9 @@ def _metadata_values(row: dict[str, str], path: Path) -> dict[str, object]:
         "extraction_method": normalize_leading_edge_method(
             _text(row, "extraction_method", context)
         ),
+        "extraction_x_condition": _text(
+            row, "extraction_x_condition", context
+        ),
         "n_input_frames": _integer(
             row, "n_input_frames", context, minimum=1
         ),
@@ -226,6 +232,27 @@ def _metadata_values(row: dict[str, str], path: Path) -> dict[str, object]:
         )
     else:
         values["target_time_spacing"] = raw_spacing
+
+    raw_x_min = _float(
+        row,
+        "extraction_x_min",
+        context,
+        allow_nan=True,
+    )
+    if np.isnan(raw_x_min):
+        values["extraction_x_min"] = None
+        if values["extraction_x_condition"] != "unrestricted":
+            raise ValueError(
+                f"{context} requires extraction_x_condition='unrestricted' "
+                "when extraction_x_min is nan."
+            )
+    else:
+        values["extraction_x_min"] = raw_x_min
+        if values["extraction_x_condition"] != EXTRACTION_X_CONDITION:
+            raise ValueError(
+                f"{context} requires extraction_x_condition="
+                f"{EXTRACTION_X_CONDITION!r} for a finite extraction_x_min."
+            )
 
     if values["n_selected_frames"] > values["n_input_frames"]:  # type: ignore[operator]
         raise ValueError("Metadata n_selected_frames exceeds n_input_frames.")
@@ -413,6 +440,15 @@ def read_leading_edge_artifacts(
             "Timeseries computational y grid must exclude y_max_periodic_endpoint."
         )
 
+    x_front_array = np.asarray(x_front_rows, dtype=np.float64)
+    extraction_x_min = metadata["extraction_x_min"]
+    if extraction_x_min is not None and np.any(
+        x_front_array[np.isfinite(x_front_array)] <= float(extraction_x_min)
+    ):
+        raise ValueError(
+            "Timeseries x_front violates the strict metadata extraction x domain."
+        )
+
     return LeadingEdgePlotData(
         case=str(metadata["case"]),
         extraction_method=str(metadata["extraction_method"]),
@@ -421,7 +457,7 @@ def read_leading_edge_artifacts(
         actual_time=_readonly_copy(actual_time_array, np.float64),
         time_error=_readonly_copy(time_errors, np.float64),
         y=_readonly_copy(shared_y, np.float64),
-        x_front=_readonly_copy(x_front_rows, np.float64),
+        x_front=_readonly_copy(x_front_array, np.float64),
         success_mask=_readonly_copy(success_rows, np.bool_),
         crossing_count=_readonly_copy(crossing_rows, np.int64),
         threshold=float(metadata["threshold"]),
@@ -434,6 +470,8 @@ def read_leading_edge_artifacts(
         y_max_periodic_endpoint=y_max,
         periodic_endpoint_included=False,
         target_time_spacing=metadata["target_time_spacing"],  # type: ignore[arg-type]
+        extraction_x_min=extraction_x_min,  # type: ignore[arg-type]
+        extraction_x_condition=str(metadata["extraction_x_condition"]),
     )
 
 

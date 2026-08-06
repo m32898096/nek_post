@@ -174,11 +174,13 @@ python scripts/04_plot_summary.py --comparison-set t19p5 --field pressure
 
 Generate the Re=3450 N7 Figure-4-style spanwise leading-edge evolution from the
 fixed physical plane `z=0.04`, concentration contour `C=0.1`, and production
-target-time spacing `delta_t=0.25`:
+target-time spacing `delta_t=0.25`. The right-moving current is isolated before
+extraction with the strict physical domain `x > 0.0`:
 
 ```bash
 python scripts/19_compute_leading_edge_evolution.py \
   --case N7 \
+  --x-min 0.0 \
   --workers 2 \
   --overwrite
 python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite
@@ -191,6 +193,7 @@ does not replace the production-default result:
 python scripts/19_compute_leading_edge_evolution.py \
   --case N7 \
   --extraction-method moore-boundary \
+  --x-min 0.0 \
   --output-dir /path/to/leading_edge/N7/moore_boundary \
   --overwrite
 ```
@@ -216,6 +219,16 @@ Both methods consume the same spectral horizontal field: x remains fixed at
 configured `nx` with no extraction-stage upsampling, and y remains
 `dense_ny = y_upsample_factor * native_ny` with production factor `2`.
 `marching-squares-ad` remains planned and unavailable.
+
+The common dispatcher removes `x <= x_min` columns before either method runs;
+it does not trace the full domain and filter afterward, and it does not
+interpolate a value at `x=0`. Production metadata records
+`extraction_x_min=0.0` and
+`extraction_x_condition=strict-greater-than`. Plot-only reruns use that metadata
+to keep the displayed x range within the positive half-domain. If several
+full-span, one-winding Moore traces exist there, selection prefers greatest y
+coverage, then greatest median and mean rowwise physical x, followed by stable
+component/start/indicator tie-breaks.
 
 Because legacy artifact filenames do not contain the method name, use a
 method-specific `--output-dir` such as

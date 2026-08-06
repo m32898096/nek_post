@@ -15,6 +15,7 @@ from nek_post.front_detection_io import (
     preflight_output_paths,
 )
 from nek_post.leading_edge_methods import normalize_leading_edge_method
+from nek_post.leading_edge_methods import EXTRACTION_X_CONDITION
 if TYPE_CHECKING:
     from nek_post.leading_edge_workflow import (
         LeadingEdgeEvolution,
@@ -44,6 +45,8 @@ LEADING_EDGE_TIMESERIES_COLUMNS = (
 LEADING_EDGE_METADATA_COLUMNS = (
     "case",
     "extraction_method",
+    "extraction_x_min",
+    "extraction_x_condition",
     "n_input_frames",
     "n_selected_frames",
     "actual_time_start",
@@ -209,10 +212,21 @@ def leading_edge_metadata(
         if selection.target_time_spacing is None
         else selection.target_time_spacing
     )
+    extraction_x_min = (
+        np.nan
+        if evolution.extraction_x_min is None
+        else float(evolution.extraction_x_min)
+    )
     return {
         "case": case,
         "extraction_method": normalize_leading_edge_method(
             evolution.extraction_method
+        ),
+        "extraction_x_min": extraction_x_min,
+        "extraction_x_condition": (
+            "unrestricted"
+            if evolution.extraction_x_min is None
+            else EXTRACTION_X_CONDITION
         ),
         "n_input_frames": n_input,
         "n_selected_frames": n_selected,

@@ -71,6 +71,7 @@ def _evolution() -> LeadingEdgeEvolution:
         y_upsample_factor=2,
         horizontal_plan_metadata=metadata,
         periodic_endpoint_included=False,
+        extraction_x_min=0.0,
     )
 
 
@@ -114,6 +115,8 @@ def test_valid_writer_round_trip_reconstructs_exact_selected_plot_data(
 
     assert result.case == "N7"
     assert result.extraction_method == "rightmost-crossing"
+    assert result.extraction_x_min == 0.0
+    assert result.extraction_x_condition == "strict-greater-than"
     assert_array_equal(result.file_indices, [10, 20])
     assert_allclose(result.target_time, [0.5, 0.75])
     assert_allclose(result.actual_time, [0.5, 0.75])
@@ -322,6 +325,16 @@ def test_metadata_rejects_unsupported_extraction_method(tmp_path: Path) -> None:
     _write_dict_rows(metadata, columns, rows)
 
     with pytest.raises(ValueError, match="method"):
+        read_leading_edge_artifacts(timeseries, metadata)
+
+
+def test_metadata_strict_x_domain_rejects_nonpositive_front(tmp_path: Path) -> None:
+    timeseries, metadata = _write_valid(tmp_path)
+    columns, rows = _read_dict_rows(timeseries)
+    rows[0]["x_front"] = "0"
+    _write_dict_rows(timeseries, columns, rows)
+
+    with pytest.raises(ValueError, match="strict metadata extraction x domain"):
         read_leading_edge_artifacts(timeseries, metadata)
 
 

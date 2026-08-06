@@ -80,6 +80,8 @@ def _write_artifacts(
     metadata_row = {
         "case": "N7",
         "extraction_method": extraction_method,
+        "extraction_x_min": "nan",
+        "extraction_x_condition": "unrestricted",
         "n_input_frames": 2,
         "n_selected_frames": 2,
         "actual_time_start": 0.5,

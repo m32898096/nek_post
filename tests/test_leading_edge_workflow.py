@@ -506,6 +506,7 @@ def _install_parallel_workflow_fakes(
         extraction_method: str,
         periodic_y: bool,
         y_period: float,
+        x_min: float | None = None,
         frame_reader: object,
     ) -> LeadingEdgeFrameResult:
         calls["serial"].append(  # type: ignore[union-attr]
@@ -518,6 +519,7 @@ def _install_parallel_workflow_fakes(
                 extraction_method,
                 periodic_y,
                 y_period,
+                x_min,
                 frame_reader,
             )
         )
@@ -533,6 +535,7 @@ def _install_parallel_workflow_fakes(
         extraction_method: str,
         periodic_y: bool,
         y_period: float,
+        x_min: float | None = None,
         workers: int,
     ) -> tuple[LeadingEdgeFrameResult, ...]:
         calls["parallel"].append(  # type: ignore[union-attr]
@@ -545,6 +548,7 @@ def _install_parallel_workflow_fakes(
                 extraction_method,
                 periodic_y,
                 y_period,
+                x_min,
                 workers,
             )
         )
@@ -579,16 +583,35 @@ def test_workers_two_builds_plan_once_keeps_first_serial_and_only_dispatches_lat
     assert isinstance(parallel_calls, list) and len(parallel_calls) == 1
     assert parallel_calls[0][0] == frames[1:]
     assert parallel_calls[0][1] is calls["plan"]
-    assert parallel_calls[0][5:9] == (
+    assert parallel_calls[0][5:10] == (
         "rightmost-crossing",
         True,
         1.0,
+        None,
         2,
     )
     assert serial_calls[0][5:8] == ("rightmost-crossing", True, 1.0)
     assert_array_equal(evolution.file_indices, [10, 20, 30])
     assert_allclose(evolution.time, [1.0, 1.25, 1.5])
     assert evolution.extraction_method == "rightmost-crossing"
+
+
+def test_explicit_x_min_reaches_serial_and_parallel_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frames, _results, calls = _install_parallel_workflow_fakes(monkeypatch)
+
+    evolution = build_leading_edge_evolution(
+        frames,
+        nx=3,
+        z_target=0.04,
+        workers=2,
+        x_min=0.0,
+    )
+
+    assert evolution.extraction_x_min == 0.0
+    assert all(call[8] == 0.0 for call in calls["serial"])  # type: ignore[index]
+    assert calls["parallel"][0][8] == 0.0  # type: ignore[index]
 
 
 def test_workers_one_builds_plan_once_and_never_uses_parallel_helper(
@@ -778,7 +801,13 @@ def test_moore_serial_and_process_paths_are_exactly_equal(
     assert serial.horizontal_plan_metadata == process.horizontal_plan_metadata
     parallel_calls = calls["parallel"]
     assert isinstance(parallel_calls, list)
-    assert parallel_calls[-1][5:9] == ("moore-boundary", True, 1.0, 2)
+    assert parallel_calls[-1][5:10] == (
+        "moore-boundary",
+        True,
+        1.0,
+        None,
+        2,
+    )
 
 
 def test_serial_moore_extraction_is_deterministic_and_reuses_common_grid(
