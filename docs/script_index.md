@@ -70,6 +70,12 @@ This index lists the repository scripts in numeric order. Run commands from the 
 | --- | --- | --- | --- | --- |
 | `scripts/23_compute_cantero_equivalent_height.py` | Compute Cantero Eq. (4.1) local equivalent height by z-direction composite GLL quadrature, then Eq. (4.2) spanwise average by composite physical-y GLL quadrature divided by `Ly`. Neither integral uses uniform interpolation. | One configured `GC0.fNNNNN` field file | `/data/Nek5000_data/results/poly_order_compare/cantero_equivalent_height/<case>/<case>_fNNNNN_cantero_equivalent_height.npz` | `PYENV_VERSION=research312 python scripts/23_compute_cantero_equivalent_height.py --case N7 --index 79` |
 
+## Cantero mean-front definition
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/24_compute_cantero_mean_front.py` | Reuse Phase 1 Cantero Eq. (4.1)–(4.2) composite-GLL equivalent-height preprocessing for each configured snapshot, then locate the first positive-x physical-GLL threshold crossing where `h_bar < delta`; default `delta=0.01`. No uniform-grid interpolation, paper comparison, or reconstruction is performed. | Configured `GC0.fNNNNN` field snapshots | `/data/Nek5000_data/results/poly_order_compare/cantero_mean_front/<case>/<case>_cantero_mean_front_timeseries.csv` | `PYENV_VERSION=research312 python scripts/24_compute_cantero_mean_front.py --case N7 --threshold 0.01 --reference-x 0` |
+
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation
 commands.
