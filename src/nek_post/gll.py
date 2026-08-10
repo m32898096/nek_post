@@ -1,4 +1,4 @@
-"""Legendre--Gauss--Lobatto nodes and barycentric Lagrange utilities."""
+"""Legendre--Gauss--Lobatto nodes, quadrature, and interpolation utilities."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from numbers import Integral
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.special import roots_jacobi
+from scipy.special import eval_legendre, roots_jacobi
 
 
 def _readonly(array: object) -> NDArray[np.float64]:
@@ -42,6 +42,43 @@ def gll_nodes(node_count: int) -> NDArray[np.float64]:
     if count < 2:
         raise ValueError("node_count must be greater than or equal to 2.")
     result = _cached_gll_nodes(count).view()
+    result.setflags(write=False)
+    return result
+
+
+@lru_cache(maxsize=None)
+def _cached_gll_quadrature_weights(
+    node_count: int,
+) -> NDArray[np.float64]:
+    nodes = gll_nodes(node_count)
+    polynomial_order = node_count - 1
+    legendre_values = eval_legendre(polynomial_order, nodes)
+    denominator = (
+        polynomial_order
+        * (polynomial_order + 1)
+        * legendre_values**2
+    )
+    return _readonly(2.0 / denominator)
+
+
+def gll_quadrature_weights(node_count: int) -> NDArray[np.float64]:
+    """Return quadrature weights for exactly ``node_count`` GLL nodes.
+
+    ``node_count`` is the number of nodes, not the polynomial order. Thus a
+    Nek polynomial order of 7 uses ``node_count=8``. These integration weights
+    are distinct from the barycentric weights used for interpolation.
+
+    The returned float64 array is deterministic and read-only. A fresh view is
+    returned so callers cannot make the cached base array writable.
+    """
+    if not isinstance(node_count, Integral) or isinstance(
+        node_count, (bool, np.bool_)
+    ):
+        raise ValueError("node_count must be an integer greater than or equal to 2.")
+    count = int(node_count)
+    if count < 2:
+        raise ValueError("node_count must be greater than or equal to 2.")
+    result = _cached_gll_quadrature_weights(count).view()
     result.setflags(write=False)
     return result
 

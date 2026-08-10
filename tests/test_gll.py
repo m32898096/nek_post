@@ -8,6 +8,7 @@ from nek_post.gll import (
     barycentric_basis_and_derivative,
     barycentric_weights,
     gll_nodes,
+    gll_quadrature_weights,
 )
 
 
@@ -104,3 +105,60 @@ def test_barycentric_interpolation_reproduces_polynomials_through_degree_n(
 def test_barycentric_weights_reject_duplicate_nodes() -> None:
     with pytest.raises(ValueError, match="distinct"):
         barycentric_weights([-1.0, 0.0, 0.0, 1.0])
+
+
+@pytest.mark.parametrize("node_count", range(2, 17))
+def test_gll_quadrature_weights_are_positive_symmetric_normalized_and_read_only(
+    node_count: int,
+) -> None:
+    weights = gll_quadrature_weights(node_count)
+
+    assert weights.shape == (node_count,)
+    assert weights.dtype == np.float64
+    assert np.all(weights > 0.0)
+    np.testing.assert_allclose(weights, weights[::-1], rtol=0.0, atol=3.0e-15)
+    assert np.sum(weights) == pytest.approx(2.0, abs=3.0e-15)
+    assert not weights.flags.writeable
+
+
+def test_eight_node_quadrature_weights_match_matlab_reference() -> None:
+    expected = np.asarray(
+        [
+            0.0357142857142857,
+            0.210704227143506,
+            0.341122692483504,
+            0.412458794658704,
+            0.412458794658704,
+            0.341122692483504,
+            0.210704227143506,
+            0.0357142857142857,
+        ]
+    )
+
+    np.testing.assert_allclose(
+        gll_quadrature_weights(8),
+        expected,
+        rtol=2.0e-14,
+        atol=2.0e-15,
+    )
+
+
+@pytest.mark.parametrize("node_count", range(2, 11))
+def test_gll_quadrature_integrates_monomials_through_degree_two_n_minus_three(
+    node_count: int,
+) -> None:
+    nodes = gll_nodes(node_count)
+    weights = gll_quadrature_weights(node_count)
+
+    for degree in range(2 * node_count - 2):
+        expected = 0.0 if degree % 2 else 2.0 / (degree + 1)
+        actual = float(weights @ nodes**degree)
+        assert actual == pytest.approx(expected, rel=3.0e-13, abs=3.0e-14)
+
+
+@pytest.mark.parametrize("node_count", (1, 0, -2, 2.5, True))
+def test_gll_quadrature_weights_reject_invalid_node_counts(
+    node_count: object,
+) -> None:
+    with pytest.raises(ValueError, match="node_count"):
+        gll_quadrature_weights(node_count)  # type: ignore[arg-type]
