@@ -67,6 +67,9 @@ def test_derives_established_output_directories(tmp_path: Path) -> None:
     )
     assert paths.fig5a_paper_overlay_dir == Path("/tmp/nek-results/fig5a_paper_overlay")
     assert paths.combined_xt_overlay_dir == Path("/tmp/nek-results/combined_xt_overlay")
+    assert paths.cantero_equivalent_height_dir == Path(
+        "/tmp/nek-results/cantero_equivalent_height"
+    )
 
 
 def test_loads_cantero_figure_5a_csv_paths(tmp_path: Path) -> None:

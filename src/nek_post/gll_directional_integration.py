@@ -98,6 +98,12 @@ class GLLDirectionalIntegrationPlan:
     vertical_local_to_global: NDArray[np.int64]
     element_geometry_tolerances: NDArray[np.float64]
     topology_tolerances: tuple[float, float, float]
+    physical_axis_coordinates: tuple[
+        NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]
+    ]
+    physical_axis_local_to_global: tuple[
+        NDArray[np.int64], NDArray[np.int64], NDArray[np.int64]
+    ]
 
 
 @dataclass(frozen=True)
@@ -601,12 +607,24 @@ def build_gll_directional_integration_plan(
         remaining_reference_axes.index(horizontal_reference_axis),
     )
 
-    horizontal_coordinates, horizontal_local_to_global = (
-        _assemble_global_coordinate(cell_profiles[horizontal_physical_axis])
+    physical_axis_coordinate_data = tuple(
+        _assemble_global_coordinate(cell_profiles[physical_axis])
+        for physical_axis in range(3)
     )
-    vertical_coordinates, vertical_local_to_global = (
-        _assemble_global_coordinate(cell_profiles[vertical_physical_axis])
+    physical_axis_coordinates = tuple(
+        coordinate_data[0] for coordinate_data in physical_axis_coordinate_data
     )
+    physical_axis_local_to_global = tuple(
+        coordinate_data[1] for coordinate_data in physical_axis_coordinate_data
+    )
+    horizontal_coordinates = physical_axis_coordinates[horizontal_physical_axis]
+    horizontal_local_to_global = physical_axis_local_to_global[
+        horizontal_physical_axis
+    ]
+    vertical_coordinates = physical_axis_coordinates[vertical_physical_axis]
+    vertical_local_to_global = physical_axis_local_to_global[
+        vertical_physical_axis
+    ]
 
     column_elements = []
     column_horizontal_cells = []
@@ -683,7 +701,82 @@ def build_gll_directional_integration_plan(
             element_tolerances, np.float64
         ),
         topology_tolerances=topology_tolerances,
+        physical_axis_coordinates=tuple(
+            _readonly_copy(coordinates, np.float64)
+            for coordinates in physical_axis_coordinates
+        ),
+        physical_axis_local_to_global=tuple(
+            _readonly_copy(local_to_global, np.int64)
+            for local_to_global in physical_axis_local_to_global
+        ),
     )
+
+
+def composite_physical_axis_quadrature_weights(
+    plan: GLLDirectionalIntegrationPlan,
+    physical_axis: object,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Assemble global composite GLL weights for one physical coordinate axis.
+
+    Element-interface endpoint weights are accumulated at their common global
+    GLL node.  The first and last physical endpoints remain distinct, including
+    for a periodic physical coordinate.
+    """
+    if not isinstance(plan, GLLDirectionalIntegrationPlan):
+        raise ValueError("plan must be a GLLDirectionalIntegrationPlan.")
+    if not isinstance(physical_axis, str) or physical_axis not in PHYSICAL_COORDINATE_NAMES:
+        raise ValueError("physical_axis must be exactly one of: x, y, z.")
+    axis_index = PHYSICAL_COORDINATE_NAMES.index(physical_axis)
+    coordinates = np.asarray(plan.physical_axis_coordinates[axis_index], dtype=np.float64)
+    local_to_global = np.asarray(
+        plan.physical_axis_local_to_global[axis_index], dtype=np.int64
+    )
+    reference_axis = plan.physical_to_reference_axes[axis_index]
+    reference_weights = gll_quadrature_weights(
+        plan.element_shape[reference_axis]
+    )
+    expected_shape = (
+        plan.element_interval_counts[axis_index],
+        reference_weights.size,
+    )
+    if local_to_global.shape != expected_shape:
+        raise ValueError(
+            "Plan physical-axis local-to-global map has incompatible shape: "
+            f"expected {expected_shape}, got {local_to_global.shape}."
+        )
+    if (
+        coordinates.ndim != 1
+        or coordinates.size == 0
+        or not np.all(np.isfinite(coordinates))
+        or np.any(np.diff(coordinates) <= 0.0)
+    ):
+        raise ValueError("Plan physical-axis coordinates must be finite increasing.")
+
+    weights = np.zeros(coordinates.size, dtype=np.float64)
+    for node_indices in local_to_global:
+        local_coordinates = coordinates[node_indices]
+        half_span = 0.5 * (local_coordinates[-1] - local_coordinates[0])
+        if not np.isfinite(half_span) or half_span <= 0.0:
+            raise ValueError("Physical-axis element spans must be finite and positive.")
+        np.add.at(weights, node_indices, half_span * reference_weights)
+
+    length = float(coordinates[-1] - coordinates[0])
+    total_weight = float(np.sum(weights, dtype=np.float64))
+    if (
+        not np.all(np.isfinite(weights))
+        or np.any(weights <= 0.0)
+        or not np.isclose(
+            total_weight,
+            length,
+            rtol=1.0e-12,
+            atol=1.0e-13 * max(1.0, abs(length)),
+        )
+    ):
+        raise ValueError(
+            "Composite physical GLL quadrature weights are invalid: "
+            f"sum {total_weight:.16g}, physical length {length:.16g}."
+        )
+    return _readonly_copy(coordinates, np.float64), _readonly_copy(weights, np.float64)
 
 
 def _validate_plan_geometry(
@@ -871,5 +964,6 @@ __all__ = (
     "TRANSVERSE_VALUE_RTOL",
     "apply_gll_directional_integration_plan",
     "build_gll_directional_integration_plan",
+    "composite_physical_axis_quadrature_weights",
     "normalize_integration_direction",
 )
