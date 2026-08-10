@@ -148,6 +148,11 @@ class ProjectPaths:
         """Root directory for single-snapshot directional GLL artifacts."""
         return self.results_root / "gll_directional_integrals"
 
+    @property
+    def cantero_equivalent_height_dir(self) -> Path:
+        """Root directory for Cantero-equivalent-height artifacts."""
+        return self.results_root / "cantero_equivalent_height"
+
 
 def load_project_paths(path: str | Path = DEFAULT_PATHS_FILE) -> ProjectPaths:
     """Load the project's fixed and derived filesystem paths."""

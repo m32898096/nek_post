@@ -64,6 +64,12 @@ This index lists the repository scripts in numeric order. Run commands from the 
 | --- | --- | --- | --- | --- |
 | `scripts/22_integrate_gll_field.py` | Integrate one configured Nek5000 scalar snapshot along physical `x`, `y`, or `z` with the validated GLL directional-integration core. | One configured `GC0.fNNNNN` field file | `/data/Nek5000_data/results/poly_order_compare/gll_directional_integrals/<case>/<field>/<direction>/<case>_fNNNNN_<field>_integrate_<direction>.npz` | `PYENV_VERSION=research312 python scripts/22_integrate_gll_field.py --case N7 --index 79 --field concentration --direction y` |
 
+## Cantero-equivalent-height preprocessing
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/23_compute_cantero_equivalent_height.py` | Compute Cantero Eq. (4.1) local equivalent height by z-direction composite GLL quadrature, then Eq. (4.2) spanwise average by composite physical-y GLL quadrature divided by `Ly`. Neither integral uses uniform interpolation. | One configured `GC0.fNNNNN` field file | `/data/Nek5000_data/results/poly_order_compare/cantero_equivalent_height/<case>/<case>_fNNNNN_cantero_equivalent_height.npz` | `PYENV_VERSION=research312 python scripts/23_compute_cantero_equivalent_height.py --case N7 --index 79` |
+
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation
 commands.
