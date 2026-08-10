@@ -143,6 +143,11 @@ class ProjectPaths:
     def combined_xt_overlay_dir(self) -> Path:
         return self.results_root / "combined_xt_overlay"
 
+    @property
+    def gll_directional_integrals_dir(self) -> Path:
+        """Root directory for single-snapshot directional GLL artifacts."""
+        return self.results_root / "gll_directional_integrals"
+
 
 def load_project_paths(path: str | Path = DEFAULT_PATHS_FILE) -> ProjectPaths:
     """Load the project's fixed and derived filesystem paths."""

@@ -58,6 +58,12 @@ This index lists the repository scripts in numeric order. Run commands from the 
 | `scripts/20_plot_leading_edge_evolution.py` | Validate existing leading-edge CSV artifacts and render the evolution without rereading Nek snapshots. | Leading-edge timeseries and metadata CSVs | PNG/PDF evolution figures under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite` |
 | `scripts/21_benchmark_leading_edge_workers.py` | Measure isolated script-19 runs for workers 1, 2, and 4 with GNU time and require exact CSV artifact equivalence. | Configured N7 snapshots and script-19 compute workflow | Per-run logs/artifacts plus benchmark and summary CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge_benchmarks/N7/` | `python scripts/21_benchmark_leading_edge_workers.py --case N7 --start-index 37 --end-index 52 --nx 500 --worker-counts 1,2,4 --repeats 2 --all-frames --overwrite` |
 
+## Directional GLL integration
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/22_integrate_gll_field.py` | Integrate one configured Nek5000 scalar snapshot along physical `x`, `y`, or `z` with the validated GLL directional-integration core. | One configured `GC0.fNNNNN` field file | `/data/Nek5000_data/results/poly_order_compare/gll_directional_integrals/<case>/<field>/<direction>/<case>_fNNNNN_<field>_integrate_<direction>.npz` | `PYENV_VERSION=research312 python scripts/22_integrate_gll_field.py --case N7 --index 79 --field concentration --direction y` |
+
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation
 commands.
