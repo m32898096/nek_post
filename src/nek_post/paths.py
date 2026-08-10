@@ -163,6 +163,11 @@ class ProjectPaths:
         """Root directory for Cantero reconstructed-front artifacts."""
         return self.results_root / "cantero_front_reconstruction"
 
+    @property
+    def cantero_re3450_multicase_dir(self) -> Path:
+        """Root directory for the formal N5/N7/N9 Re3450 overlay."""
+        return self.results_root / "cantero_re3450_multicase"
+
 
 def load_project_paths(path: str | Path = DEFAULT_PATHS_FILE) -> ProjectPaths:
     """Load the project's fixed and derived filesystem paths."""

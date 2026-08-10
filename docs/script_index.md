@@ -82,6 +82,12 @@ This index lists the repository scripts in numeric order. Run commands from the 
 | --- | --- | --- | --- | --- |
 | `scripts/25_reconstruct_cantero_front.py` | Formal N7/Re3450 Phase-3 workflow: composite-GLL spatial z/y integration produces equivalent height, `delta=0.01` produces the mean front, and the established temporal gradient/smoothing/trapezoidal reconstruction produces reconstructed `x-t` before the only paper comparison. The raw Phase-2 `x_F` is never overlaid with paper data. `--case` is intentionally restricted to `N7`; expert input-path overrides remain available. | Phase-2 N7 Cantero mean-front CSV and configured Re3450 Figure-5a CSV | `/data/Nek5000_data/results/poly_order_compare/cantero_front_reconstruction/N7/` | `PYENV_VERSION=research312 python scripts/25_reconstruct_cantero_front.py --case N7` |
 
+## Cantero Re3450 polynomial-order overlay
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/26_overlay_cantero_re3450_multicase.py` | Formal Re3450 comparison with Cantero Figure 5a plus independently reconstructed N5, N7, and N9 fronts together on one linear four-curve overlay and one log-log four-curve overlay. Only reconstructed numerical fronts are compared with paper; raw mean-front trajectories are not overlaid. Log-log inputs are masked independently to strictly positive finite time/displacement without epsilon substitution or coordinate shifts. Smoothing retains the established moving-average window `11`; no fitting or tuning to paper data is performed. | Three formal Phase-2 Cantero mean-front CSVs and configured Re3450 Figure-5a CSV | `/data/Nek5000_data/results/poly_order_compare/cantero_re3450_multicase/` | `PYENV_VERSION=research312 python scripts/26_overlay_cantero_re3450_multicase.py` |
+
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation
 commands.
