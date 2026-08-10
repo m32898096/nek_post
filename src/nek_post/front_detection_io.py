@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from numbers import Integral, Real
 from pathlib import Path
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from nek_post.front_detection import FrontTrackingResult
+if TYPE_CHECKING:
+    from nek_post.front_detection import FrontTrackingResult
 
 
 TIMESERIES_COLUMNS = (
