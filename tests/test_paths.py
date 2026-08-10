@@ -73,6 +73,9 @@ def test_derives_established_output_directories(tmp_path: Path) -> None:
     assert paths.cantero_mean_front_dir == Path(
         "/tmp/nek-results/cantero_mean_front"
     )
+    assert paths.cantero_front_reconstruction_dir == Path(
+        "/tmp/nek-results/cantero_front_reconstruction"
+    )
 
 
 def test_loads_cantero_figure_5a_csv_paths(tmp_path: Path) -> None:

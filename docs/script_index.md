@@ -76,6 +76,12 @@ This index lists the repository scripts in numeric order. Run commands from the 
 | --- | --- | --- | --- | --- |
 | `scripts/24_compute_cantero_mean_front.py` | Reuse Phase 1 Cantero Eq. (4.1)–(4.2) composite-GLL equivalent-height preprocessing for each configured snapshot, then locate the first positive-x physical-GLL threshold crossing where `h_bar < delta`; default `delta=0.01`. No uniform-grid interpolation, paper comparison, or reconstruction is performed. | Configured `GC0.fNNNNN` field snapshots | `/data/Nek5000_data/results/poly_order_compare/cantero_mean_front/<case>/<case>_cantero_mean_front_timeseries.csv` | `PYENV_VERSION=research312 python scripts/24_compute_cantero_mean_front.py --case N7 --threshold 0.01 --reference-x 0` |
 
+## Cantero reconstructed x-t comparison
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/25_reconstruct_cantero_front.py` | Formal N7/Re3450 Phase-3 workflow: composite-GLL spatial z/y integration produces equivalent height, `delta=0.01` produces the mean front, and the established temporal gradient/smoothing/trapezoidal reconstruction produces reconstructed `x-t` before the only paper comparison. The raw Phase-2 `x_F` is never overlaid with paper data. `--case` is intentionally restricted to `N7`; expert input-path overrides remain available. | Phase-2 N7 Cantero mean-front CSV and configured Re3450 Figure-5a CSV | `/data/Nek5000_data/results/poly_order_compare/cantero_front_reconstruction/N7/` | `PYENV_VERSION=research312 python scripts/25_reconstruct_cantero_front.py --case N7` |
+
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation
 commands.

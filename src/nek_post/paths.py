@@ -158,6 +158,11 @@ class ProjectPaths:
         """Root directory for Cantero mean-front CSV artifacts."""
         return self.results_root / "cantero_mean_front"
 
+    @property
+    def cantero_front_reconstruction_dir(self) -> Path:
+        """Root directory for Cantero reconstructed-front artifacts."""
+        return self.results_root / "cantero_front_reconstruction"
+
 
 def load_project_paths(path: str | Path = DEFAULT_PATHS_FILE) -> ProjectPaths:
     """Load the project's fixed and derived filesystem paths."""
