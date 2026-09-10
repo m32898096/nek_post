@@ -128,11 +128,17 @@ def _write_leading_edge_plot_arrays(
     *,
     reynolds_number: float | int | None = None,
     extraction_x_min: float | None = None,
+    output_stem: str | None = None,
+    title_note: str | None = None,
 ) -> list[Path]:
     paths = [
         leading_edge_evolution_png_path(output_dir, case),
         leading_edge_evolution_pdf_path(output_dir, case),
     ]
+    if output_stem is not None:
+        if not output_stem or Path(output_stem).name != output_stem:
+            raise ValueError("output_stem must be a nonempty filename stem.")
+        paths = [Path(output_dir) / f"{output_stem}.{ext}" for ext in ("png", "pdf")]
     preflight_output_paths(paths, overwrite)
 
     y_array = np.asarray(y, dtype=np.float64)
@@ -181,7 +187,10 @@ def _write_leading_edge_plot_arrays(
             if not np.isfinite(reynolds):
                 raise ValueError("reynolds_number must be finite when supplied.")
             title_parameters.insert(1, f"Re={reynolds:g}")
-        ax.set_title("Leading-edge evolution: " + ", ".join(title_parameters))
+        title = "Leading-edge evolution: " + ", ".join(title_parameters)
+        if title_note is not None:
+            title += "\n" + title_note
+        ax.set_title(title)
         ax.set_xlabel("Streamwise position, x")
         ax.set_ylabel("Spanwise position, y")
         ax.set_xlim(*x_limits)
