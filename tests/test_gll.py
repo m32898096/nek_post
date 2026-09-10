@@ -7,6 +7,7 @@ from numpy.polynomial import Polynomial
 from nek_post.gll import (
     barycentric_basis_and_derivative,
     barycentric_weights,
+    gll_interpolation_matrix,
     gll_nodes,
     gll_quadrature_weights,
 )
@@ -162,3 +163,69 @@ def test_gll_quadrature_weights_reject_invalid_node_counts(
 ) -> None:
     with pytest.raises(ValueError, match="node_count"):
         gll_quadrature_weights(node_count)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("source_node_count", "target_node_count"),
+    ((8, 10), (2, 10), (5, 9), (11, 13), (10, 8)),
+)
+def test_gll_interpolation_matrix_shape_partition_of_unity_and_constant_exactness(
+    source_node_count: int,
+    target_node_count: int,
+) -> None:
+    matrix = gll_interpolation_matrix(source_node_count, target_node_count)
+
+    assert matrix.shape == (target_node_count, source_node_count)
+    assert matrix.dtype == np.float64
+    np.testing.assert_allclose(matrix.sum(axis=1), 1.0, rtol=0.0, atol=1.0e-15)
+    np.testing.assert_allclose(
+        matrix @ np.full(source_node_count, 2.5), 2.5, rtol=0.0, atol=3.0e-15
+    )
+    np.testing.assert_array_equal(matrix[0], np.eye(source_node_count)[0])
+    np.testing.assert_array_equal(matrix[-1], np.eye(source_node_count)[-1])
+
+
+@pytest.mark.parametrize("degree", range(8))
+def test_gll_interpolation_matrix_reproduces_polynomials_through_degree_seven(
+    degree: int,
+) -> None:
+    polynomial = Polynomial([(-0.7) ** power for power in range(degree + 1)])
+    actual = gll_interpolation_matrix(8, 10) @ polynomial(gll_nodes(8))
+
+    np.testing.assert_allclose(
+        actual, polynomial(gll_nodes(10)), rtol=0.0, atol=3.0e-15
+    )
+
+
+@pytest.mark.parametrize("node_count", (2, 5, 8, 10))
+def test_gll_interpolation_matrix_same_node_set_is_identity(node_count: int) -> None:
+    np.testing.assert_array_equal(
+        gll_interpolation_matrix(node_count, node_count), np.eye(node_count)
+    )
+
+
+def test_gll_interpolation_matrix_cache_is_read_only_and_deterministic() -> None:
+    first = gll_interpolation_matrix(8, 10)
+    second = gll_interpolation_matrix(np.int64(8), np.int64(10))
+
+    assert first is not second
+    assert np.shares_memory(first, second)
+    np.testing.assert_array_equal(first, second)
+    with pytest.raises(ValueError):
+        first[0, 0] = 2.0
+    with pytest.raises(ValueError):
+        first.setflags(write=True)
+
+
+@pytest.mark.parametrize("name", ("source_node_count", "target_node_count"))
+@pytest.mark.parametrize(
+    "invalid_count", (0, 1, -2, 2.5, 8.0, True, np.bool_(False), "8", None, [8])
+)
+def test_gll_interpolation_matrix_rejects_invalid_node_counts(
+    name: str,
+    invalid_count: object,
+) -> None:
+    counts = {"source_node_count": 8, "target_node_count": 10}
+    counts[name] = invalid_count  # type: ignore[assignment]
+    with pytest.raises(ValueError, match=name):
+        gll_interpolation_matrix(**counts)

@@ -146,3 +146,52 @@ def barycentric_basis_and_derivative(
     # Preserve the derivative of the partition of unity in floating point.
     derivative[int(np.argmax(np.abs(basis)))] -= np.sum(derivative)
     return _readonly(basis), _readonly(derivative)
+
+
+@lru_cache(maxsize=None)
+def _cached_gll_interpolation_matrix(
+    source_node_count: int,
+    target_node_count: int,
+) -> NDArray[np.float64]:
+    source_nodes = gll_nodes(source_node_count)
+    target_nodes = gll_nodes(target_node_count)
+    weights = barycentric_weights(source_nodes)
+    return _readonly(
+        np.vstack(
+            [
+                barycentric_basis_and_derivative(source_nodes, weights, q)[0]
+                for q in target_nodes
+            ]
+        )
+    )
+
+
+def gll_interpolation_matrix(
+    source_node_count: int,
+    target_node_count: int,
+) -> NDArray[np.float64]:
+    """Evaluate source GLL Lagrange basis functions at target GLL nodes.
+
+    The shape is ``(target_node_count, source_node_count)``; each row contains
+    the source basis evaluated at one target node. Both counts must be integers
+    >= 2. Here ``polynomial_order = node_count - 1``: 8 -> 10 nodes resamples
+    a P7 polynomial on the order-9 GLL nodal set, adding no solution information.
+
+    The cached float64 matrix is deterministic and read-only. A fresh view is
+    returned so callers cannot make the cached base array writable.
+    """
+    for name, count in (
+        ("source_node_count", source_node_count),
+        ("target_node_count", target_node_count),
+    ):
+        try:
+            gll_nodes(count)
+        except ValueError as exc:
+            raise ValueError(
+                f"{name} must be an integer greater than or equal to 2."
+            ) from exc
+    result = _cached_gll_interpolation_matrix(
+        int(source_node_count), int(target_node_count)
+    ).view()
+    result.setflags(write=False)
+    return result
