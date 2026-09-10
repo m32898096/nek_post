@@ -23,6 +23,8 @@ from nek_post.spectral_horizontal_slice import (
     apply_spectral_horizontal_slice_plan,
 )
 from nek_post.spectral_interpolation import SpectralGeometryMismatchError
+from nek_post.refined_gll_horizontal_slice import RefinedGLLHorizontalSlicePlan
+from nek_post.refined_gll_leading_edge import extract_refined_gll_leading_edge_frame
 
 
 class ParallelLeadingEdgeFrameError(RuntimeError):
@@ -46,7 +48,7 @@ class LeadingEdgeFrameResult:
 
 @dataclass(frozen=True)
 class _WorkerContext:
-    interpolation_plan: SpectralHorizontalSlicePlan
+    interpolation_plan: SpectralHorizontalSlicePlan | RefinedGLLHorizontalSlicePlan
     x: NDArray[np.float64]
     y: NDArray[np.float64]
     threshold: float
@@ -98,7 +100,7 @@ def _finite_frame_time(data: object, source_path: Path) -> float:
 def _reduce_leading_edge_frame(
     frame: NekFramePath,
     data: object,
-    interpolation_plan: SpectralHorizontalSlicePlan,
+    interpolation_plan: SpectralHorizontalSlicePlan | RefinedGLLHorizontalSlicePlan,
     x: NDArray[np.float64],
     y: NDArray[np.float64],
     threshold: float,
@@ -110,38 +112,53 @@ def _reduce_leading_edge_frame(
     """Interpolate and reduce already-read data using the common frame path."""
     source_path = Path(frame.path)
     frame_time = _finite_frame_time(data, source_path)
-    try:
-        concentration = apply_spectral_horizontal_slice_plan(
-            interpolation_plan,
-            data,
-            source_file=source_path,
-        )
-    except SpectralGeometryMismatchError as exc:
-        raise SpectralGeometryMismatchError(
-            f"Source geometry mismatch for {source_path}: {exc}"
-        ) from exc
-    except Exception as exc:
-        raise RuntimeError(
-            "Failed to interpolate horizontal concentration from "
-            f"{source_path}: {exc}"
-        ) from exc
+    concentration = None
+    if isinstance(interpolation_plan, RefinedGLLHorizontalSlicePlan):
+        try:
+            curve = extract_refined_gll_leading_edge_frame(
+                data, plan=interpolation_plan, threshold=threshold,
+                extraction_method=extraction_method, x_min=x_min,
+            )
+        except SpectralGeometryMismatchError as exc:
+            raise SpectralGeometryMismatchError(
+                f"Source geometry mismatch for {source_path}: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to extract refined-GLL leading edge from {source_path}: {exc}"
+            ) from exc
+    else:
+        try:
+            concentration = apply_spectral_horizontal_slice_plan(
+                interpolation_plan,
+                data,
+                source_file=source_path,
+            )
+        except SpectralGeometryMismatchError as exc:
+            raise SpectralGeometryMismatchError(
+                f"Source geometry mismatch for {source_path}: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to interpolate horizontal concentration from "
+                f"{source_path}: {exc}"
+            ) from exc
 
-    try:
-        curve = extract_leading_edge(
-            x,
-            y,
-            concentration,
-            threshold=threshold,
-            method=extraction_method,
-            periodic_y=periodic_y,
-            y_period=y_period,
-            x_min=x_min,
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            f"Failed to extract leading edge from {source_path}: {exc}"
-        ) from exc
-
+        try:
+            curve = extract_leading_edge(
+                x,
+                y,
+                concentration,
+                threshold=threshold,
+                method=extraction_method,
+                periodic_y=periodic_y,
+                y_period=y_period,
+                x_min=x_min,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to extract leading edge from {source_path}: {exc}"
+            ) from exc
     if not np.array_equal(curve.y, y):
         raise ValueError(
             f"Leading-edge y coordinates from {source_path} do not match the "
@@ -172,7 +189,7 @@ def _reduce_leading_edge_frame(
 
 def process_leading_edge_frame(
     frame: NekFramePath,
-    interpolation_plan: SpectralHorizontalSlicePlan,
+    interpolation_plan: SpectralHorizontalSlicePlan | RefinedGLLHorizontalSlicePlan,
     x: NDArray[np.float64],
     y: NDArray[np.float64],
     threshold: float,
@@ -206,7 +223,7 @@ def process_leading_edge_frame(
 
 
 def _initialize_worker(
-    interpolation_plan: SpectralHorizontalSlicePlan,
+    interpolation_plan: SpectralHorizontalSlicePlan | RefinedGLLHorizontalSlicePlan,
     x: NDArray[np.float64],
     y: NDArray[np.float64],
     threshold: float,
@@ -313,7 +330,7 @@ def _parent_result_copy(result: LeadingEdgeFrameResult) -> LeadingEdgeFrameResul
 
 def process_leading_edge_frames_parallel(
     frame_paths: Sequence[NekFramePath],
-    interpolation_plan: SpectralHorizontalSlicePlan,
+    interpolation_plan: SpectralHorizontalSlicePlan | RefinedGLLHorizontalSlicePlan,
     x: NDArray[np.float64],
     y: NDArray[np.float64],
     threshold: float,

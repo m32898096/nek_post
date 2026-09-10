@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 import csv
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -79,6 +80,11 @@ def leading_edge_timeseries_path(output_dir: str | Path, case: str) -> Path:
 def leading_edge_metadata_path(output_dir: str | Path, case: str) -> Path:
     """Return the one-row leading-edge metadata CSV path."""
     return Path(output_dir) / f"{case}_leading_edge_metadata.csv"
+
+
+def leading_edge_sampling_metadata_path(output_dir: str | Path, case: str) -> Path:
+    """Return explicitly tagged refined-GLL metadata, separate from the legacy CSV."""
+    return Path(output_dir) / f"{case}_leading_edge_sampling_metadata.json"
 
 
 def leading_edge_evolution_png_path(output_dir: str | Path, case: str) -> Path:
@@ -170,7 +176,9 @@ def write_leading_edge_timeseries_csv(
                     "nx": evolution.nx,
                     "native_ny": evolution.native_ny,
                     "dense_ny": evolution.dense_ny,
-                    "y_upsample_factor": evolution.y_upsample_factor,
+                    "y_upsample_factor": (
+                        "" if evolution.y_upsample_factor is None else evolution.y_upsample_factor
+                    ),
                 }
 
     _write_rows(
@@ -189,6 +197,33 @@ def leading_edge_metadata(
     """Return the deterministic one-row metadata mapping used by the CSV."""
     n_input, n_selected = _validate_evolution_selection(evolution, selection)
     plan_metadata = evolution.horizontal_plan_metadata
+    if evolution.sampling_mode == "refined-gll":
+        if evolution.source_node_count is None or evolution.target_node_count is None:
+            raise ValueError("Refined-GLL metadata requires source and target node counts.")
+        return {
+            "metadata_format_version": 1,
+            "case": case, "sampling_mode": evolution.sampling_mode,
+            "interpretation": "Original source polynomial evaluated on a target GLL nodal set; no new solution information.",
+            "source_node_count": evolution.source_node_count,
+            "source_polynomial_order": evolution.source_node_count - 1,
+            "target_node_count": evolution.target_node_count,
+            "extraction_method": evolution.extraction_method,
+            "extraction_x_min": evolution.extraction_x_min,
+            "extraction_x_condition": "unrestricted" if evolution.extraction_x_min is None else EXTRACTION_X_CONDITION,
+            "threshold": evolution.threshold, "z_target": evolution.z_target,
+            "nx": evolution.nx, "native_ny": evolution.native_ny,
+            "output_ny": evolution.dense_ny, "dense_ny": evolution.dense_ny,
+            "y_upsample_factor": None, "periodic_endpoint_included": False,
+            "y_period": plan_metadata["ymax_periodic_endpoint"] - plan_metadata["ymin"],
+            "x": evolution.x.tolist(), "y": evolution.y.tolist(),
+            "n_input_frames": n_input, "n_selected_frames": n_selected,
+            "actual_time_start": float(evolution.time[0]),
+            "actual_time_end": float(evolution.time[-1]),
+            "target_time_spacing": selection.target_time_spacing,
+            "plan_build_seconds": evolution.plan_build_seconds,
+            "processing_runtime_seconds": evolution.processing_runtime_seconds,
+            "horizontal_plan_metadata": dict(plan_metadata),
+        }
     required_plan_keys = (
         "ymin",
         "ymax_periodic_endpoint",
@@ -272,6 +307,8 @@ def write_leading_edge_metadata_csv(
     overwrite: bool,
 ) -> None:
     """Write one row describing processing, selection, grid, and inversion."""
+    if evolution.sampling_mode != "uniform-spectral":
+        raise ValueError("Refined-GLL metadata uses JSON; use write_leading_edge_csvs.")
     row = leading_edge_metadata(case, evolution, selection)
     _write_rows(
         Path(path),
@@ -288,18 +325,31 @@ def write_leading_edge_csvs(
     selection: LeadingEdgeTimeSelection,
     overwrite: bool,
 ) -> list[Path]:
-    """Preflight both CSV paths before writing either artifact."""
+    """Write timeseries and metadata after preflight of both paths.
+
+    Uniform artifacts retain their original CSV schemas and bytes. Refined-GLL
+    uses the same timeseries columns (blank uniform-only upsample factor) plus
+    tagged JSON metadata; it is not a legacy uniform-spectral metadata CSV.
+    """
     paths = [
         leading_edge_timeseries_path(output_dir, case),
-        leading_edge_metadata_path(output_dir, case),
+        (leading_edge_sampling_metadata_path(output_dir, case)
+         if evolution.sampling_mode == "refined-gll"
+         else leading_edge_metadata_path(output_dir, case)),
     ]
     preflight_output_paths(paths, overwrite)
     write_leading_edge_timeseries_csv(
         paths[0], case, evolution, selection, overwrite=True
     )
-    write_leading_edge_metadata_csv(
-        paths[1], case, evolution, selection, overwrite=True
-    )
+    if evolution.sampling_mode == "refined-gll":
+        paths[1].write_text(
+            json.dumps(leading_edge_metadata(case, evolution, selection), indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        write_leading_edge_metadata_csv(
+            paths[1], case, evolution, selection, overwrite=True
+        )
     return paths
 
 
@@ -310,6 +360,7 @@ __all__ = (
     "leading_edge_evolution_png_path",
     "leading_edge_metadata",
     "leading_edge_metadata_path",
+    "leading_edge_sampling_metadata_path",
     "leading_edge_timeseries_path",
     "write_leading_edge_csvs",
     "write_leading_edge_metadata_csv",

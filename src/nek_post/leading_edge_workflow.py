@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from numbers import Integral
 from pathlib import Path
 from types import MappingProxyType
+from time import perf_counter
 from typing import Any, Mapping
 
 import numpy as np
@@ -28,6 +29,17 @@ from nek_post.spectral_horizontal_slice import (
     build_spectral_horizontal_slice_plan,
     spectral_horizontal_plan_metadata,
 )
+from nek_post.refined_gll_horizontal_slice import build_refined_gll_horizontal_slice_plan
+
+
+SUPPORTED_SAMPLING_MODES = ("uniform-spectral", "refined-gll")
+
+
+def normalize_sampling_mode(value: object) -> str:
+    """Return an explicit supported leading-edge sampling route."""
+    if not isinstance(value, str) or value not in SUPPORTED_SAMPLING_MODES:
+        raise ValueError("sampling_mode must be uniform-spectral or refined-gll.")
+    return value
 
 
 @dataclass(frozen=True)
@@ -49,11 +61,16 @@ class LeadingEdgeEvolution:
     nx: int
     native_ny: int
     dense_ny: int
-    y_upsample_factor: int
+    y_upsample_factor: int | None
     horizontal_plan_metadata: Mapping[str, float | int]
     periodic_endpoint_included: bool = False
     extraction_method: str = DEFAULT_LEADING_EDGE_METHOD
     extraction_x_min: float | None = None
+    sampling_mode: str = "uniform-spectral"
+    source_node_count: int | None = None
+    target_node_count: int | None = None
+    plan_build_seconds: float | None = None
+    processing_runtime_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -202,26 +219,44 @@ def _plan_metadata(plan: object) -> Mapping[str, float | int]:
 def build_leading_edge_evolution(
     frame_paths: object,
     *,
-    nx: int,
+    nx: int | None = None,
     z_target: float,
     threshold: float = 0.1,
-    y_upsample_factor: int = 2,
+    y_upsample_factor: int | None = None,
     workers: int = 1,
     extraction_method: object = DEFAULT_LEADING_EDGE_METHOD,
     x_min: float | None = None,
+    sampling_mode: str = "uniform-spectral",
+    target_node_count: int | None = None,
     _frame_reader: Any | None = None,
 ) -> LeadingEdgeEvolution:
-    """Read, interpolate, and immediately reduce each frame to one x(y) curve."""
+    """Read, sample, and immediately reduce each frame to one x(y) curve.
+
+    Uniform-spectral remains the default, with the previous y-upsample default
+    of 2. Refined-GLL requires target_node_count and forbids nx/y_upsample_factor.
+    Its native_ny counts source GLL nodes; dense_ny is the actual output count,
+    and y_upsample_factor is None (not an integer uniform-grid multiplier).
+    One geometry plan is built and passed to the existing process-pool initializer.
+    """
+    started = perf_counter()
+    mode = normalize_sampling_mode(sampling_mode)
     frames = _validated_frames(frame_paths)
     worker_count = validate_leading_edge_workers(workers)
     canonical_method = normalize_leading_edge_method(extraction_method)
     extraction_x_min = normalize_extraction_x_min(x_min)
-    nx_value = _positive_integer(nx, "nx", 2)
+    if mode == "uniform-spectral":
+        if target_node_count is not None:
+            raise ValueError("target_node_count is only valid for refined-gll sampling.")
+        nx_value = _positive_integer(nx, "nx", 2)
+        upsample_factor = _positive_integer(
+            2 if y_upsample_factor is None else y_upsample_factor, "y_upsample_factor", 1
+        )
+    else:
+        if nx is not None or y_upsample_factor is not None:
+            raise ValueError("nx and y_upsample_factor are only valid for uniform-spectral sampling.")
+        target_node_count = _positive_integer(target_node_count, "target_node_count", 2)
     z_value = _finite_float(z_target, "z_target")
     threshold_value = _finite_float(threshold, "threshold")
-    upsample_factor = _positive_integer(
-        y_upsample_factor, "y_upsample_factor", 1
-    )
     if worker_count > 1 and _frame_reader is not None:
         raise ValueError(
             "A custom _frame_reader is supported only with workers=1; child "
@@ -236,20 +271,43 @@ def build_leading_edge_evolution(
         raise RuntimeError(
             f"Failed to read Nek frame {first_frame.path}: {exc}"
         ) from exc
+    plan_started = perf_counter()
     try:
-        plan = build_spectral_horizontal_slice_plan(
-            first_data,
-            nx=nx_value,
-            z_target=z_value,
-            y_upsample_factor=upsample_factor,
-        )
+        if mode == "uniform-spectral":
+            plan = build_spectral_horizontal_slice_plan(
+                first_data, nx=nx_value, z_target=z_value, y_upsample_factor=upsample_factor,
+            )
+        else:
+            plan = build_refined_gll_horizontal_slice_plan(
+                first_data, target_node_count=target_node_count, z_target=z_value,
+            )
     except Exception as exc:
         raise RuntimeError(
             "Failed to build spectral horizontal interpolation plan from "
             f"{first_frame.path}: {exc}"
         ) from exc
-    x, y = _horizontal_coordinates(plan, nx_value)
-    plan_metadata = _plan_metadata(plan)
+    plan_seconds = perf_counter() - plan_started
+    if mode == "uniform-spectral":
+        x, y = _horizontal_coordinates(plan, nx_value)
+        plan_metadata = _plan_metadata(plan)
+        native_ny = int(plan.native_ny)
+        dense_ny = int(plan.dense_ny)
+        upsample_factor = int(plan.y_upsample_factor)
+        source_node_count = None
+    else:
+        x, y = plan.x, plan.y
+        nx_value = int(x.size)
+        source_node_count = plan.source_node_count
+        native_ny = plan.element_interval_counts[1] * (source_node_count - 1)
+        dense_ny = int(y.size)
+        upsample_factor = None
+        plan_metadata = MappingProxyType({
+            "ymin": float(y[0]), "ymax_periodic_endpoint": float(y[0] + plan.y_period),
+            "maximum_tensor_separability_deviation": plan.maximum_tensor_separability_deviation,
+            "maximum_shared_interface_coordinate_mismatch": plan.maximum_shared_interface_coordinate_mismatch,
+            "reference_q_z_min": float(plan.reference_q_z.min()),
+            "reference_q_z_max": float(plan.reference_q_z.max()),
+        })
     y_period = float(
         plan_metadata["ymax_periodic_endpoint"] - plan_metadata["ymin"]
     )
@@ -381,11 +439,16 @@ def build_leading_edge_evolution(
         threshold=threshold_value,
         z_target=z_value,
         nx=nx_value,
-        native_ny=int(plan.native_ny),  # type: ignore[attr-defined]
-        dense_ny=int(plan.dense_ny),  # type: ignore[attr-defined]
-        y_upsample_factor=int(plan.y_upsample_factor),  # type: ignore[attr-defined]
+        native_ny=native_ny,
+        dense_ny=dense_ny,
+        y_upsample_factor=upsample_factor,
         horizontal_plan_metadata=plan_metadata,
         periodic_endpoint_included=False,
+        sampling_mode=mode,
+        source_node_count=source_node_count,
+        target_node_count=target_node_count,
+        plan_build_seconds=plan_seconds if mode == "refined-gll" else None,
+        processing_runtime_seconds=perf_counter() - started if mode == "refined-gll" else None,
     )
 
 
@@ -470,6 +533,8 @@ def select_leading_edge_times(
 
 
 __all__ = (
+    "SUPPORTED_SAMPLING_MODES",
+    "normalize_sampling_mode",
     "LeadingEdgeEvolution",
     "LeadingEdgeTimeSelection",
     "build_leading_edge_evolution",
