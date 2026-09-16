@@ -314,3 +314,9 @@ It selects snapshots by header time near the project targets (5, 10, 15, 19.5),
 validates the provisional reference by mesh inventory, and writes masked field
 errors and plots to `results/h_refinement/field_comparison/`. Recorded timing
 offsets remain part of the comparison; no observed convergence order is inferred.
+
+Step 4 directional mesh and pairwise-field diagnostics are available with
+`PYENV_VERSION=research312 python scripts/30_analyze_h_refinement_convergence.py`.
+The [Step 4 documentation](docs/h_refinement_convergence.md) explains the
+measured anisotropy, classification criteria and why no global observed order
+is reported for these meshes.
