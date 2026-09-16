@@ -91,3 +91,11 @@ This index lists the repository scripts in numeric order. Run commands from the 
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation
 commands.
+
+## H-refinement inspection
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/27_inventory_h_refinement.py` | Inventory field headers and representative mesh coordinates; check candidate h-study ordering and reference. | `config/paths.yaml`, `config/h_refinement.yaml`, raw field files (read-only) | JSON to stdout; no default artifact writes | `PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py` |
+
+See [h-refinement inventory](h_refinement.md) for scope, limitations, and real-data findings.

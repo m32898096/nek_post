@@ -292,3 +292,11 @@ Postprocessed slices and interpolated files are written under:
 Final tables and figures are written under:
 
 - `/data/Nek5000_data/results/poly_order_compare`
+
+## H-refinement inventory
+
+The separate `config/h_refinement.yaml` study registers `N7_H`, `N7_VH`, and
+`N7_VVH` without adding them to the p-study's `cases.orders` or changing its
+N11 reference. Run `PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py`
+for a JSON mesh/data inventory. See [the h-refinement documentation](docs/h_refinement.md)
+for measured metadata, validation limits, and configuration details.
