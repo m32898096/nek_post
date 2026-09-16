@@ -99,3 +99,7 @@ commands.
 | `scripts/27_inventory_h_refinement.py` | Inventory field headers and representative mesh coordinates; check candidate h-study ordering and reference. | `config/paths.yaml`, `config/h_refinement.yaml`, raw field files (read-only) | JSON to stdout; no default artifact writes | `PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py` |
 
 See [h-refinement inventory](h_refinement.md) for scope, limitations, and real-data findings.
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/28_extract_h_refinement_slice.py` | Evaluate exact physical y=0.75 fields on a shared x-z grid, with masks and diagnostics. | H-study config and explicit per-case snapshot indices | NPZ arrays and JSON diagnostics in an explicit output directory | `PYENV_VERSION=research312 python scripts/28_extract_h_refinement_slice.py --snapshot N7_H=81,N7_VH=81,N7_VVH=81 --nx 101 --nz 41 --output-dir /tmp/nek_h_slice_t20` |

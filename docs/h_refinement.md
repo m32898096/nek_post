@@ -78,3 +78,103 @@ topology have not been verified. Equal bounds do not prove equal interior
 domains, and largest element count does not prove finest spacing everywhere or
 convergence. Mesh coordinate invariance over time is assumed. No field,
 front, or leading-edge comparisons are implemented.
+
+## Exact physical midspan workflow
+
+`scripts/28_extract_h_refinement_slice.py` evaluates a common **physical**
+`y = 0.75` plane. It never selects a nearest stored plane. The library entry
+point is `nek_post.h_refinement_slice.sample_h_snapshot`; call it for each
+selected group of case indices. The CLI supports repeated `--snapshot` groups.
+
+```bash
+PYENV_VERSION=research312 python scripts/28_extract_h_refinement_slice.py \
+  --snapshot N7_H=81,N7_VH=81,N7_VVH=81 \
+  --nx 101 --nz 41 --output-dir /tmp/nek_h_slice_t20
+```
+
+All configured study cases must be present in every group. Headers must contain
+coordinates and all required fields, and match the study's expected 3D order.
+Split-file dumps are rejected. Physical times must agree within `--time-atol`
+(default `1e-8`); identical file indices alone do not establish time alignment.
+There is no time interpolation. A deliberately relaxed tolerance is recorded
+along with every actual time and the resulting time spread.
+
+### Numerical method and field definitions
+
+The existing `build_spectral_slice_interpolation_plan` already supports an exact
+physical y-plane via damped Newton inversion of each candidate element's
+isoparametric map. Its additive `target_grid` argument now accepts the same
+explicit x-z coordinates for every case. The tensor-product GLL barycentric
+basis evaluates solution values at the recovered reference coordinates.
+Reference-axis orientation is inferred through the physical map, rather than
+assuming a particular array axis represents physical y.
+
+Plane restriction and final Cartesian-grid sampling are conceptually distinct:
+
+1. Restrict the continuous element interpolant to physical `y=0.75` (within the
+   inverse-map numerical tolerance).
+2. Sample that restriction at the shared Cartesian `(Xi, Zi)` targets.
+
+These operations are evaluated together directly from the 3D interpolant.
+There is **no second scattered/linear interpolation**, no projection of nearby
+y-planes, and no nearest-neighbor fill. The existing p-refinement nearest-plane
+and scattered-grid workflow retains its defaults.
+
+The real-data validation grid used 101 x coordinates and 41 z coordinates,
+including endpoints, with output shape `(nz, nx)`. For these datasets it spans
+`x=[-17,17]`, `z=[0,1]`, so `dx=0.34`, `dz=0.025`. `--nx` and `--nz` are required explicitly (also required by the library API);
+there is no default production grid. The validation resolution is not a
+convergence-qualified grid.
+Full x/y/z bounding domains must match within the configured absolute tolerance
+(`1e-6`, relative tolerance zero). The grid uses the intersection of the accepted
+bounds, preventing small tolerated boundary differences from extending targets
+outside the shared box. Equal boxes alone do not establish equal topology;
+unmapped targets, including holes, remain NaN with false geometry masks.
+
+- `C`: the existing `temp[0]`, falling back to `scal[0]`, accessor.
+- `u`, `v`, `w`: interpolated separately; `speed = sqrt(u²+v²+w²)` afterwards.
+- `p_prime`: interpolated pressure minus each case's arithmetic mean on the
+  all-case finite-pressure mask, as in existing pressure comparisons. This is
+  a Cartesian sample mean, not a volume-weighted mean. The established project
+  helper is reused, including conversion of nonfinite raw pressure to NaN in p′.
+
+At duplicated element interfaces, the existing plan assigns one owner by
+minimum inverse-map residual, then element index. Nodes are not pooled across
+elements, so duplication does not weight means or add target samples. This
+policy chooses one trace if fields are discontinuous; it does not average
+traces. Interface ambiguity counts are reported. Inverse mapping uses physical
+tolerance `1e-11` times element scale and reference tolerance `1e-8`; only
+accepted reference points in the element (with tolerance-level boundary
+clamping) are evaluated. Unsupported/unmapped targets are never extrapolated.
+
+### Artifacts and real-data validation
+
+The CLI requires an explicit output directory outside raw case directories and
+refuses existing artifact names. It writes `snapshot_001.npz` and
+`snapshot_001.json` (incrementing for additional groups). The NPZ contains `Xi`,
+`Zi`, `y_target`, `<case>_C/u/v/w/speed/p/p_prime`, per-case geometry masks, and
+common masks for C, speed, p, geometry and all fields. Arrays load with
+`allow_pickle=False`. The JSON records file provenance, actual times, grid,
+stored-plane diagnostics, inverse-map diagnostics, per-field NaN/finite
+fractions, common valid fractions, and pressure means. Apply the appropriate
+common mask before any future comparison. No convergence metrics are computed.
+
+A real-data smoke run at `f00081`, physical `t=20` in all three cases, used the
+101 x 41 grid (4,141 points):
+
+| Case | Exact stored y=0.75 layer | Nearest stored y distance | Intersecting elements | Maximum inverse residual |
+| --- | --- | ---: | ---: | ---: |
+| N7_H | Yes, in all intersecting elements | 0 | 4,352 | 5.69e-14 |
+| N7_VH | No; interpolation required | 0.00923377275466919 | 3,800 | 1.04e-13 |
+| N7_VVH | Yes, in all intersecting elements | 0 | 11,760 | 9.98e-13 |
+
+Exact stored-layer detection checks every coordinate on an entire reference
+layer for exact equality, without rounding. Even when such a layer exists,
+x/z targets generally still require interpolation. This diagnosis is performed
+for each selected snapshot, not assumed from the case label or an earlier mesh.
+
+All three cases had 100% geometry and finite-field coverage, 0% NaNs in every
+output field, zero inverse failures and zero extrapolated points. Shared masks
+also covered 100%. Ambiguous interface targets numbered 4,141, 221 and 4,141,
+respectively; these were resolved by the documented ownership rule. This
+validates the sampling workflow, not h-convergence or grid-resolution adequacy.

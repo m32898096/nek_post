@@ -300,3 +300,10 @@ The separate `config/h_refinement.yaml` study registers `N7_H`, `N7_VH`, and
 N11 reference. Run `PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py`
 for a JSON mesh/data inventory. See [the h-refinement documentation](docs/h_refinement.md)
 for measured metadata, validation limits, and configuration details.
+
+For exact physical `y=0.75` sampling on a common x-z grid, use
+`scripts/28_extract_h_refinement_slice.py` with explicit per-case snapshot indices
+and an output directory. The [h-study documentation](docs/h_refinement.md#exact-physical-midspan-workflow)
+describes field definitions, masks, interface ownership, and the real-data
+finding that N7_VH requires interpolation in y. This stage computes no
+convergence metrics.
