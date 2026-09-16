@@ -178,3 +178,144 @@ output field, zero inverse failures and zero extrapolated points. Shared masks
 also covered 100%. Ambiguous interface targets numbered 4,141, 221 and 4,141,
 respectively; these were resolved by the documented ownership rule. This
 validates the sampling workflow, not h-convergence or grid-resolution adequacy.
+
+## Field comparison by physical snapshot time
+
+`scripts/29_compare_h_refinement_fields.py` compares C, velocity magnitude, and
+pressure fluctuation using the exact-plane workflow above. It first runs the
+mesh inventory and requires common polynomial order/domain bounds and a unique
+largest-element-count reference. The reference remains provisional: local mesh
+spacing and identical simulation physics are not established by element counts.
+
+```bash
+PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py \
+  --nx 500 --nz 200 \
+  --max-time-error 0.01 --max-time-spread 0.01 \
+  --output-dir results/h_refinement/field_comparison
+```
+
+The grid dimensions remain mandatory. The executed comparison uses the
+user-selected 500 x 200 grid, matching the p-workflow's configured dimensions,
+with x in [-17,17], z in [0,1], and physical y=0.75. The same coordinates are
+required across all three cases and all selected target times. This resolution
+has not itself been shown to give grid-independent comparison errors. It is a
+fixed post-processing comparison grid, not the simulation mesh resolution and
+not evidence of grid convergence.
+
+By default, target times come from `multitime_comparison_sets` and their
+`target_time` entries in `config/cases.yaml`: 5, 10, 15, 19.5. Only those time
+conventions are borrowed; p-case membership, polynomial orders, reference, and
+artifacts are not used. `--times` can select another explicit target list.
+For every case, discovery and the existing Nek header reader supply all actual
+physical times. The nearest timestamp is selected independently; ties choose
+the earlier timestamp, then the lower index. Out-of-range targets, nonfinite
+times, and selections exceeding the target-error or group-spread limits are
+rejected. Both limits default to 0.01 and are recorded in `run.json`. There is
+no temporal interpolation: errors therefore include any effect of the recorded
+small snapshot timing offsets and must not be interpreted as pure spatial
+errors at exactly identical times.
+
+The additive `compare_sampled_grids` kernel in `nek_post.comparison` compares
+already co-located scalar grids. It reuses the established metric functions and
+does not alter the existing p-refinement kernels. For each field, one mask is
+the intersection of geometry-valid targets across **all three cases** and
+finite values of that field across **all three cases**. Every case, including
+the reference control, uses that same mask. These are per-field masks, not
+pairwise masks and not a forced intersection across unrelated fields.
+Pressure fluctuation retains the established per-case arithmetic pressure mean
+over the all-case finite-pressure mask. The normal sampling workflow ensures
+unmapped pressure targets are NaN.
+
+Reported metrics use unweighted Cartesian samples, as in the p-workflow:
+
+- relative L2 = sqrt(sum((value-reference)^2) / sum(reference^2));
+- mean absolute error = mean(abs(value-reference));
+- maximum absolute error = max(abs(value-reference)).
+
+As in the established safe relative metric helper, reference squared norm
+<= 1e-14 produces an undefined (`nan`) non-reference relative L2, flagged by
+`relative_l2_defined=False`. Absolute errors remain defined. Reference rows
+are explicit controls with zero self-error and `independent_datapoint=False`;
+they are excluded from error-history plots. No observed convergence order or
+mesh-size refinement ratio is inferred.
+
+The output directory must be new, contain `h_refinement` as a path component,
+and be outside raw case directories and `poly_order_compare`:
+
+- `inventory.json`: measured mesh inventory and reference validation evidence.
+- `run.json`: grid, targets, time tolerances, reference basis, and completion status.
+- `selected_times.csv`: target/actual time, index, signed/absolute time error,
+  and source filename for every case and target.
+- `field_errors.csv`: all three metrics, reference/control labels, mesh element
+  counts, target/actual/reference times, grid bounds/resolution, mask counts and
+  valid fractions (36 rows for four targets, three fields, three cases).
+- `error_history.png`: a field-by-metric panel of non-reference errors against
+  target physical time; no polynomial-order axis.
+- `snapshot_001/` through `snapshot_004/`: per-target CSV tables, JSON diagnostics,
+  numerical grids/components/fields and masks in `comparison_grids.npz`, and
+  six absolute-difference contour plots (two non-reference cases x three fields).
+
+Archives load with `allow_pickle=False`. JSON metadata includes exact-plane
+coverage and per-field NaN fractions. Existing artifacts are never overwritten.
+An interrupted run retains `status=running`, distinguishing it from a complete
+result set; choose a new directory for a rerun.
+
+For the 500 x 200 run, the header-based nearest selections are:
+
+| Target | Index (all cases, independently selected) | N7_H time | N7_VH time | N7_VVH time |
+| --- | ---: | ---: | ---: | ---: |
+| 5.0 | 21 | 5.000312341405 | 5.003370008996 | 5.002819980228 |
+| 10.0 | 41 | 10.003507107900 | 10.001046787750 | 10.001532502540 |
+| 15.0 | 61 | 15.001384683450 | 15.000334524640 | 15.001537138340 |
+| 19.5 | 79 | 19.502404088070 | 19.501780007520 | 19.500517542740 |
+
+The equal selected indices are a result of the header-time search, not an
+assumption. Maximum absolute target offset is 0.003507107900; maximum group
+spread is 0.003057667591. Machine-readable selections retain full precision.
+
+### Completed Step 3 real-data validation
+
+All four target groups completed on the identical 500 x 200 physical x-z grid.
+Every field at every target has 100,000/100,000 common valid points (fraction
+1.0). Every case has 0% field NaNs, zero inverse-map failures, and zero
+extrapolated targets. All 108 metric values were independently recomputed from
+saved arrays/masks and matched the CSV values exactly. Aggregate and per-target
+CSV rows agree, and selected times were checked against the raw headers.
+
+The table below summarizes all non-reference metrics; CSVs retain full precision.
+Every N7_VVH control row has zero self-error and is excluded from the plotted
+independent case series.
+
+| Target | Case | Field | Relative L2 | Mean absolute error | Maximum absolute error |
+| --- | --- | --- | ---: | ---: | ---: |
+| 5.0 | N7_H | concentration | 0.01959889 | 0.002320535 | 0.4538997 |
+| 5.0 | N7_VH | concentration | 0.01888911 | 0.002257875 | 0.2656694 |
+| 5.0 | N7_H | velocity magnitude | 0.02067503 | 0.001403914 | 0.08798031 |
+| 5.0 | N7_VH | velocity magnitude | 0.0190302 | 0.001604476 | 0.06636532 |
+| 5.0 | N7_H | pressure fluctuation | 0.01291454 | 0.0008905187 | 0.04932657 |
+| 5.0 | N7_VH | pressure fluctuation | 0.01205539 | 0.0008806743 | 0.04061313 |
+| 10.0 | N7_H | concentration | 0.07512522 | 0.01311681 | 0.7253162 |
+| 10.0 | N7_VH | concentration | 0.07537431 | 0.01092378 | 0.8464996 |
+| 10.0 | N7_H | velocity magnitude | 0.08568353 | 0.01088282 | 0.2921194 |
+| 10.0 | N7_VH | velocity magnitude | 0.08396739 | 0.009642497 | 0.3646947 |
+| 10.0 | N7_H | pressure fluctuation | 0.06958632 | 0.005502056 | 0.1821931 |
+| 10.0 | N7_VH | pressure fluctuation | 0.06914823 | 0.005061054 | 0.1552397 |
+| 15.0 | N7_H | concentration | 0.1103799 | 0.02424544 | 0.8802945 |
+| 15.0 | N7_VH | concentration | 0.1096534 | 0.02229699 | 0.9553662 |
+| 15.0 | N7_H | velocity magnitude | 0.1406609 | 0.02513713 | 0.4179674 |
+| 15.0 | N7_VH | velocity magnitude | 0.1290564 | 0.02231781 | 0.4076394 |
+| 15.0 | N7_H | pressure fluctuation | 0.1221434 | 0.01082584 | 0.2241079 |
+| 15.0 | N7_VH | pressure fluctuation | 0.1012628 | 0.009334111 | 0.2022303 |
+| 19.5 | N7_H | concentration | 0.179369 | 0.04565821 | 0.9593658 |
+| 19.5 | N7_VH | concentration | 0.1351031 | 0.03404606 | 0.85719 |
+| 19.5 | N7_H | velocity magnitude | 0.233851 | 0.04784867 | 0.6048848 |
+| 19.5 | N7_VH | velocity magnitude | 0.1944172 | 0.03893827 | 0.6872938 |
+| 19.5 | N7_H | pressure fluctuation | 0.1729274 | 0.01611294 | 0.3030742 |
+| 19.5 | N7_VH | pressure fluctuation | 0.1616507 | 0.01400353 | 0.3206982 |
+
+Errors do not decrease monotonically from H to VH for every metric and target
+(for example, concentration relative L2 near t=10 and several maximum errors).
+These outputs establish field discrepancies relative to the provisional largest
+mesh, not an observed h-convergence order. Snapshot timing offsets, unverified
+local mesh-size ratios/physics equivalence, and the untested sensitivity to
+post-processing grid resolution remain limitations. Step 4 is not implemented.

@@ -307,3 +307,10 @@ and an output directory. The [h-study documentation](docs/h_refinement.md#exact-
 describes field definitions, masks, interface ownership, and the real-data
 finding that N7_VH requires interpolation in y. This stage computes no
 convergence metrics.
+
+The field-comparison stage is available through
+`PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py --nx 500 --nz 200`.
+It selects snapshots by header time near the project targets (5, 10, 15, 19.5),
+validates the provisional reference by mesh inventory, and writes masked field
+errors and plots to `results/h_refinement/field_comparison/`. Recorded timing
+offsets remain part of the comparison; no observed convergence order is inferred.
