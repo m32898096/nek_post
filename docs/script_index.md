@@ -54,7 +54,7 @@ This index lists the repository scripts in numeric order. Run commands from the 
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/19_compute_leading_edge_evolution.py` | Evaluate concentration on a fixed-z periodic grid and extract leading-edge curves; optional `--ny` fixes a common physical-y sampling count across h meshes while the legacy N7 factor remains the default. | Configured `GC0.fNNNNN` snapshots | Legacy N7 timeseries/metadata CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/`; explicit-`ny` timeseries CSV and tagged JSON under `results/h_refinement/leading_edge/` | `python scripts/19_compute_leading_edge_evolution.py --case N7_H --nx 1000 --ny 308 --start-index 1 --end-index 1 --all-frames` |
+| `scripts/19_compute_leading_edge_evolution.py` | Evaluate concentration on a fixed-z periodic grid and extract leading-edge curves; optional `--ny` fixes a common physical-y sampling count across h meshes while the legacy N7 factor remains the default. | Configured `GC0.fNNNNN` snapshots | Legacy N7 timeseries/metadata CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/`; explicit-`ny` timeseries CSV and tagged JSON under `/data/Nek5000_data/results/h_refinement/leading_edge/` | `python scripts/19_compute_leading_edge_evolution.py --case N7_H --nx 1000 --ny 308 --start-index 1 --end-index 1 --all-frames` |
 | `scripts/20_plot_leading_edge_evolution.py` | Validate existing leading-edge CSV artifacts and render the evolution without rereading Nek snapshots. | Leading-edge timeseries and metadata CSVs | PNG/PDF evolution figures under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite` |
 | `scripts/21_benchmark_leading_edge_workers.py` | Measure isolated script-19 runs for workers 1, 2, and 4 with GNU time and require exact CSV artifact equivalence. | Configured N7 snapshots and script-19 compute workflow | Per-run logs/artifacts plus benchmark and summary CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge_benchmarks/N7/` | `python scripts/21_benchmark_leading_edge_workers.py --case N7 --start-index 37 --end-index 52 --nx 500 --worker-counts 1,2,4 --repeats 2 --all-frames --overwrite` |
 
@@ -102,14 +102,14 @@ See [h-refinement inventory](h_refinement.md) for scope, limitations, and real-d
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/28_extract_h_refinement_slice.py` | Evaluate exact physical y=0.75 fields on a shared x-z grid, with masks and diagnostics. | H-study config and explicit per-case snapshot indices | NPZ arrays and JSON diagnostics in an explicit output directory | `PYENV_VERSION=research312 python scripts/28_extract_h_refinement_slice.py --snapshot N7_H=81,N7_VH=81,N7_VVH=81 --nx 101 --nz 41 --output-dir /tmp/nek_h_slice_t20` |
-| `scripts/29_compare_h_refinement_fields.py` | Select snapshots by header time and compare exact-plane C, speed and p′ against the validated provisional reference. | H-study inventory, raw headers/fields, project target-time convention, explicit grid dimensions | CSV tables, grids/masks, JSON metadata and difference/error-history plots under `results/h_refinement/` | `PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py --nx 500 --nz 200` |
+| `scripts/28_extract_h_refinement_slice.py` | Evaluate exact physical y=0.75 fields on a shared x-z grid, with masks and diagnostics. | H-study config and explicit per-case snapshot indices | NPZ arrays and JSON diagnostics in an explicit output directory | `PYENV_VERSION=research312 python scripts/28_extract_h_refinement_slice.py --snapshot N7_H=81,N7_VH=81,N7_VVH=81 --nx 101 --nz 41 --output-dir /data/Nek5000_data/results/h_refinement/reproduction_NEW_ID/physical_slice_smoke` |
+| `scripts/29_compare_h_refinement_fields.py` | Select snapshots by header time and compare exact-plane C, speed and p′ against the validated provisional reference. | H-study inventory, raw headers/fields, project target-time convention, explicit grid dimensions | CSV tables, grids/masks, JSON metadata and difference/error-history plots under `/data/Nek5000_data/results/h_refinement/` | `PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py --nx 500 --nz 200` |
 
 ## H-refinement convergence diagnostics
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/30_analyze_h_refinement_convergence.py` | Analyze actual directional mesh widths and saved Step 3 field differences; report conditional classifications and diagnostic phase evidence. | Raw mesh coordinates and read-only Step 3 arrays/masks | Separate `results/h_refinement/convergence_analysis/` JSON, CSV and PNG artifacts | `PYENV_VERSION=research312 python scripts/30_analyze_h_refinement_convergence.py` |
+| `scripts/30_analyze_h_refinement_convergence.py` | Analyze actual directional mesh widths and saved Step 3 field differences; report conditional classifications and diagnostic phase evidence. | Raw mesh coordinates and read-only Step 3 arrays/masks | Separate `/data/Nek5000_data/results/h_refinement/convergence_analysis/` JSON, CSV and PNG artifacts | `PYENV_VERSION=research312 python scripts/30_analyze_h_refinement_convergence.py` |
 
 See [h-refinement convergence diagnostics](h_refinement_convergence.md) for definitions, real mesh evidence and limitations.
 
@@ -117,8 +117,8 @@ See [h-refinement convergence diagnostics](h_refinement_convergence.md) for defi
 
 Scripts 24 and 26 are reused directly for the H/VH/VVH Cantero workflow; no
 separate numerical implementation is maintained. The complete commands write
-under `results/h_refinement/cantero_mean_front/` and
-`results/h_refinement/cantero_re3450/`. See
+under `/data/Nek5000_data/results/h_refinement/cantero_mean_front/` and
+`/data/Nek5000_data/results/h_refinement/cantero_re3450/`. See
 [h-refinement Cantero comparison](h_refinement_cantero.md) for the validated
 definitions, real results, cross-case tables, and time-alignment semantics.
 
@@ -131,7 +131,7 @@ count, with the unchanged legacy factor route when `--ny` is omitted. See
 
 | Script | Purpose | Inputs | Outputs | Example |
 | --- | --- | --- | --- | --- |
-| `scripts/31_compare_h_refinement_leading_edges.py` | Extract full H/VH/VVH leading edges using one sampled plane for rightmost and Moore; align saved primary curves by physical time and report total, bulk and shape differences. | Configured Nek snapshots for extraction; saved raw curves for analysis | Separate raw histories, aligned tables, diagnostics and PNG/PDF figures under `results/h_refinement/leading_edge/step6b/` | `PYENV_VERSION=research312 python scripts/31_compare_h_refinement_leading_edges.py` |
+| `scripts/31_compare_h_refinement_leading_edges.py` | Extract full H/VH/VVH leading edges using one sampled plane for rightmost and Moore; align saved primary curves by physical time and report total, bulk and shape differences. | Configured Nek snapshots for extraction; saved raw curves for analysis | Separate raw histories, aligned tables, diagnostics and PNG/PDF figures under `/data/Nek5000_data/results/h_refinement/leading_edge/step6b/` | `PYENV_VERSION=research312 python scripts/31_compare_h_refinement_leading_edges.py` |
 
 See [Step 6B time alignment and mask semantics](h_refinement_leading_edge.md#step-6b-full-evolution-and-saved-curve-comparison).
 

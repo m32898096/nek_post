@@ -17,15 +17,18 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--paths-config',type=Path,default=REPO_ROOT/'config/paths.yaml')
     parser.add_argument('--study-config',type=Path,default=REPO_ROOT/'config/h_refinement.yaml')
-    parser.add_argument('--input-dir',type=Path,default=REPO_ROOT/'results/h_refinement/field_comparison')
-    parser.add_argument('--output-dir',type=Path,default=REPO_ROOT/'results/h_refinement/convergence_analysis')
+    parser.add_argument('--input-dir',type=Path,
+                        help='Default: configured h-refinement result root / field_comparison.')
+    parser.add_argument('--output-dir',type=Path,
+                        help='Default: configured h-refinement result root / convergence_analysis.')
     parser.add_argument('--change-tolerance',type=float,default=.05)
     parser.add_argument('--max-shift',type=float,default=.5)
     args=parser.parse_args()
     try:
-        source,output=args.input_dir.resolve(),args.output_dir.resolve()
         paths=ProjectPaths.from_yaml(args.paths_config)
         study=HRefinementStudy.from_yaml(args.study_config)
+        source=(args.input_dir or paths.h_refinement_field_comparison_dir).resolve()
+        output=(args.output_dir or paths.h_refinement_convergence_analysis_dir).resolve()
         if output.exists() or output.is_relative_to(source) or source.is_relative_to(output):
             raise ValueError('Output must be new and separate from all Step 3 artifacts.')
         if 'h_refinement' not in output.parts or 'poly_order_compare' in output.parts:

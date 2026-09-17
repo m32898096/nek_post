@@ -8,8 +8,8 @@ PYENV_VERSION=research312 python scripts/30_analyze_h_refinement_convergence.py
 
 The command reads the stored `GC0.f00001` geometry through the project Nek reader
 and existing GLL geometry validator. It reads Step 3 numerical fields and masks
-from `results/h_refinement/field_comparison/`, creates only
-`results/h_refinement/convergence_analysis/`, and compares SHA-256 hashes of
+from `/data/Nek5000_data/results/h_refinement/field_comparison/`, creates only
+`/data/Nek5000_data/results/h_refinement/convergence_analysis/`, and compares SHA-256 hashes of
 all Step 3 files before and after analysis. It refuses an existing output
 directory. No raw data or Step 3 artifact is modified.
 
@@ -106,7 +106,7 @@ simulations have not been demonstrated to be chaotic by this analysis.
 
 ## Real-data results
 
-The generated CSV and JSON files in `results/h_refinement/convergence_analysis/`
+The generated CSV and JSON files in `/data/Nek5000_data/results/h_refinement/convergence_analysis/`
 contain the complete per-field/per-time pairwise values, classifications,
 mesh intervals and local ratios. On the common finite mask, the RMS solution
 differences are:

@@ -19,14 +19,14 @@ def main(argv=None):
     parser.add_argument("--paths-config", type=Path, default=REPO_ROOT / "config/paths.yaml")
     parser.add_argument("--study-config", type=Path, default=REPO_ROOT / "config/h_refinement.yaml")
     parser.add_argument("--output-dir", type=Path,
-                        default=REPO_ROOT / "results/h_refinement/leading_edge/step6b")
+                        help="Default: configured h-refinement result root / leading_edge / step6b.")
     parser.add_argument("--phase", choices=("all", "extract", "analyze"), default="all")
     parser.add_argument("--case", action="append", help="Extract only this configured case; repeat as needed.")
     args = parser.parse_args(argv)
     try:
         paths = ProjectPaths.from_yaml(args.paths_config)
         study = HRefinementStudy.from_yaml(args.study_config)
-        output = args.output_dir.resolve()
+        output = (args.output_dir or paths.h_refinement_leading_edge_dir / "step6b").resolve()
         if ("h_refinement" not in output.parts or "leading_edge" not in output.parts
                 or "poly_order_compare" in output.parts
                 or any(output.is_relative_to(p.resolve()) for p in paths.case_dirs.values())):

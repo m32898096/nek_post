@@ -25,7 +25,7 @@ explicit-y route. `--ny` overrides the configured `y_upsample_factor`; when
 unchanged. The explicit route writes the existing timeseries CSV columns plus
 tagged `*_leading_edge_sampling_metadata.json`, since a single integer
 upsampling factor cannot describe all three source meshes on a shared 308-point
-grid. Its default output tree is `results/h_refinement/leading_edge/METHOD/CASE`.
+grid. Its default output tree is `/data/Nek5000_data/results/h_refinement/leading_edge/METHOD/CASE`.
 Script 20 reads only the legacy factor-based metadata CSV; it is not a reader
 for explicit-y artifacts.
 
@@ -58,7 +58,7 @@ interfaces account for the ambiguous-target counts; the interpolator selected
 one owner deterministically. No target required extrapolation.
 
 The smoke artifacts are in
-`results/h_refinement/leading_edge/step6a_smoke/`: `report.json` and twelve
+`/data/Nek5000_data/results/h_refinement/leading_edge/step6a_smoke/`: `report.json` and twelve
 small NPZ curve files, one per case, frame and method. They contain only the
 tested frames, not an 81-frame production evolution. The different late-time
 values demonstrate why future comparisons must use stored physical time, not
@@ -75,7 +75,7 @@ PYENV_VERSION=research312 python scripts/31_compare_h_refinement_leading_edges.p
 PYENV_VERSION=research312 python scripts/31_compare_h_refinement_leading_edges.py --phase analyze
 ```
 
-The default output is `results/h_refinement/leading_edge/step6b/`. Use one of
+The default output is `/data/Nek5000_data/results/h_refinement/leading_edge/step6b/`. Use one of
 these routes, not all commands consecutively: extraction refuses existing raw
 case directories and reporting refuses an existing comparison directory.
 `--phase extract --case N7_H` restricts extraction to a configured case; repeat

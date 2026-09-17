@@ -12,8 +12,9 @@ Run from the repository root:
 
 ```bash
 PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py
-# Optional report capture outside the existing p-study output tree:
-PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py > /tmp/nek_h_inventory.json
+# Optional report capture in a fresh h-study results subdirectory:
+mkdir -p /data/Nek5000_data/results/h_refinement/reproduction_NEW_ID
+PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py > /data/Nek5000_data/results/h_refinement/reproduction_NEW_ID/inventory.json
 ```
 
 The command prints JSON and creates no files itself. `--paths-config` and
@@ -90,7 +91,7 @@ selected group of case indices. The CLI supports repeated `--snapshot` groups.
 ```bash
 PYENV_VERSION=research312 python scripts/28_extract_h_refinement_slice.py \
   --snapshot N7_H=81,N7_VH=81,N7_VVH=81 \
-  --nx 101 --nz 41 --output-dir /tmp/nek_h_slice_t20
+  --nx 101 --nz 41 --output-dir /data/Nek5000_data/results/h_refinement/reproduction_NEW_ID/physical_slice_smoke
 ```
 
 All configured study cases must be present in every group. Headers must contain
@@ -194,7 +195,7 @@ unverified.
 PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py \
   --nx 500 --nz 200 \
   --max-time-error 0.01 --max-time-spread 0.01 \
-  --output-dir results/h_refinement/field_comparison
+  --output-dir /data/Nek5000_data/results/h_refinement/field_comparison
 ```
 
 The grid dimensions remain mandatory. The executed comparison uses the

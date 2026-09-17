@@ -69,7 +69,7 @@ absolute errors on one field-specific all-case geometry-and-finite mask. VVH's
 zero self-error is a control, not an independent convergence datapoint. The
 following relative L2 values summarize H/VH differences from VVH; the full
 MAE, maximum, time, and mask columns are in
-`results/h_refinement/field_comparison/field_errors.csv`.
+`/data/Nek5000_data/results/h_refinement/field_comparison/field_errors.csv`.
 
 | Target time | Field | H relative L2 | VH relative L2 |
 | ---: | --- | ---: | ---: |
@@ -155,18 +155,25 @@ demonstrated cause of any difference.
 
 ## Reproduction and artifacts
 
-The saved outputs are under `results/h_refinement/`: `field_comparison/`,
+The saved outputs are under `/data/Nek5000_data/results/h_refinement/`: `field_comparison/`,
 `convergence_analysis/`, `cantero_mean_front/`, `cantero_re3450/`, and
 `leading_edge/step6a_smoke/` and `leading_edge/step6b/`. Raw Step 6B histories
-remain separate from aligned derived tables. `results/` is Git-ignored; no
-generated artifact is tracked. These producer commands are for a **fresh**
-scratch directory because the scripts refuse existing outputs; the current
+remain separate from aligned derived tables. The canonical root is configured
+as `h_refinement_results_root` in `config/paths.yaml` and is outside Git;
+the obsolete repository-local `results/h_refinement/` tree has been removed.
+The path-only migration preserved all 364 generated files (74,836,984 bytes)
+byte for byte, verified by per-file SHA256. Two historical Cantero CSV summaries
+retain their original `front_source` strings, and two Step 6B logs retain their
+original output strings; these are provenance from the original run, not current
+reader defaults. They were left unchanged to preserve the validated artifacts.
+These producer commands are for a **fresh** subdirectory under the canonical
+root because the scripts refuse existing outputs; the current
 validated artifacts do not need to be recomputed for review. The full Step 6B
 extraction reads all 243 large Nek snapshots and is correspondingly expensive.
 
 ```bash
 export MPLCONFIGDIR=/tmp/matplotlib-nek-post
-audit_root=/tmp/nek_step7_audit/h_refinement  # choose a fresh path
+audit_root=/data/Nek5000_data/results/h_refinement/reproduction_NEW_ID  # choose a fresh name
 
 PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py
 PYENV_VERSION=research312 python scripts/28_extract_h_refinement_slice.py \
@@ -199,5 +206,6 @@ PYENV_VERSION=research312 python -m pytest -q tests/test_h_refinement*.py \
   tests/test_leading_edge_comparison*.py
 PYENV_VERSION=research312 python -m pytest -q
 git diff --check
+git ls-files results/h_refinement
 git check-ignore -v results/h_refinement/field_comparison/run.json
 ```

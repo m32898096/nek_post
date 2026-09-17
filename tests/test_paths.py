@@ -28,6 +28,40 @@ postproc_root: /tmp/nek-postproc
     return config_path
 
 
+def test_h_refinement_result_root_is_configurable_and_separate(tmp_path: Path) -> None:
+    config = _write_paths_yaml(tmp_path)
+    contents = config.read_text()
+    config.write_text(contents.replace(
+        "results_root: /tmp/nek-results\n",
+        "results_root: /tmp/nek-results\n"
+        "h_refinement_results_root: /tmp/nek-h-results\n",
+    ))
+    paths = ProjectPaths.from_yaml(config)
+
+    assert paths.results_root == Path("/tmp/nek-results")
+    assert paths.h_refinement_results_root == Path("/tmp/nek-h-results")
+    assert paths.h_refinement_field_comparison_dir == Path("/tmp/nek-h-results/field_comparison")
+    assert paths.h_refinement_convergence_analysis_dir == Path("/tmp/nek-h-results/convergence_analysis")
+    assert paths.h_refinement_cantero_mean_front_dir == Path("/tmp/nek-h-results/cantero_mean_front")
+    assert paths.h_refinement_cantero_re3450_dir == Path("/tmp/nek-h-results/cantero_re3450")
+    assert paths.h_refinement_leading_edge_dir == Path("/tmp/nek-h-results/leading_edge")
+
+
+def test_h_refinement_result_root_falls_back_to_data_root(tmp_path: Path) -> None:
+    paths = ProjectPaths.from_yaml(_write_paths_yaml(tmp_path))
+    assert paths.h_refinement_results_root == Path("/tmp/nek-data/results/h_refinement")
+
+
+def test_empty_configured_h_refinement_root_is_rejected(tmp_path: Path) -> None:
+    config = _write_paths_yaml(tmp_path)
+    config.write_text(config.read_text().replace(
+        "results_root: /tmp/nek-results\n",
+        "results_root: /tmp/nek-results\nh_refinement_results_root: ''\n",
+    ))
+    with pytest.raises(ProjectPathsConfigError, match="h_refinement_results_root"):
+        ProjectPaths.from_yaml(config)
+
+
 def test_loads_valid_yaml_and_converts_strings_to_paths(tmp_path: Path) -> None:
     paths = ProjectPaths.from_yaml(_write_paths_yaml(tmp_path))
 
@@ -103,6 +137,9 @@ def test_repository_configuration_exposes_all_paper_and_case_datasets() -> None:
     assert paths.case_dir("GC3450_N11") == Path("/data/Nek5000_data/case_N11")
     assert paths.case_dir("GC8950_N7") == Path(
         "/data/Nek5000_data/GC8950_N7"
+    )
+    assert paths.h_refinement_results_root == Path(
+        "/data/Nek5000_data/results/h_refinement"
     )
 
 

@@ -286,7 +286,7 @@ def test_cli_explicit_ny_overrides_configured_factor(cli_context):
     assert args.nx == 1000
     assert args.ny == 308
     assert args.y_upsample_factor == 2
-    assert "results/h_refinement/leading_edge" in str(args.output_dir)
+    assert args.output_dir == paths.h_refinement_leading_edge_dir / "rightmost-crossing" / "N7"
     assert script._requested_output_paths(paths.results_root, "N7_H", args.sampling_mode, args.ny)[1].suffix == ".json"
     for bad in ("0", "1", "-1", "abc"):
         with pytest.raises(SystemExit) as caught:

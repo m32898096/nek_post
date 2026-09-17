@@ -245,8 +245,8 @@ def _parse_args(
         args.contour_time_spacing = configured_spacing
     if not hasattr(args, "output_dir"):
         if args.ny is not None:
-            args.output_dir = (REPO_ROOT / "results" / "h_refinement"
-                               / "leading_edge" / args.extraction_method
+            args.output_dir = (paths.h_refinement_leading_edge_dir
+                               / args.extraction_method
                                / args.case.strip().upper())
         elif args.sampling_mode == "uniform-spectral":
             args.output_dir = _default_output_dir(paths, args.case)

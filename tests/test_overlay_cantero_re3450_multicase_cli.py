@@ -69,6 +69,18 @@ def test_cli_accepts_arbitrary_ordered_compatible_cases(tmp_path: Path) -> None:
     assert args.include_input_summary
 
 
+def test_cli_routes_h_case_set_to_configured_roots_by_default(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    h_cases = ("N7_H", "N7_VH", "N7_VVH")
+    args = overlay_script._parse_args(paths, [
+        "--cases", *h_cases, "--reference-case", "N7_VVH",
+    ], h_cases=h_cases)
+
+    assert args.front_root == paths.h_refinement_cantero_mean_front_dir
+    assert args.output_dir == paths.h_refinement_cantero_re3450_dir
+    assert overlay_script._parse_args(paths, [], h_cases=h_cases).output_dir == paths.cantero_re3450_multicase_dir
+
+
 def test_cli_successfully_skips_complete_output_set_before_work(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

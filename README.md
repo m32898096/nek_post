@@ -312,7 +312,7 @@ The field-comparison stage is available through
 `PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py --nx 500 --nz 200`.
 It selects snapshots by header time near the project targets (5, 10, 15, 19.5),
 validates the provisional reference by mesh inventory, and writes masked field
-errors and plots to `results/h_refinement/field_comparison/`. Recorded timing
+errors and plots to `/data/Nek5000_data/results/h_refinement/field_comparison/`. Recorded timing
 offsets remain part of the comparison; no observed convergence order is inferred.
 
 Step 4 directional mesh and pairwise-field diagnostics are available with

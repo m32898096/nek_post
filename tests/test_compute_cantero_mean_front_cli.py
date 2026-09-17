@@ -91,6 +91,22 @@ def _series(paths: ProjectPaths) -> CanteroMeanFrontTimeseries:
     )
 
 
+def test_cli_routes_h_case_to_configured_root_by_default(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    cases = {"reference_case": "N7", "file_prefix": "GC0"}
+    h_cases = ("N7_H", "N7_VH", "N7_VVH")
+    h_args = compute_script._parse_args(paths, cases, ["--case", "N7_H"], h_cases=h_cases)
+    p_args = compute_script._parse_args(paths, cases, ["--case", "N7"], h_cases=h_cases)
+    custom = tmp_path / "custom"
+    custom_args = compute_script._parse_args(paths, cases, [
+        "--case", "N7_H", "--output-dir", str(custom),
+    ], h_cases=h_cases)
+
+    assert h_args.output_dir == paths.h_refinement_cantero_mean_front_dir
+    assert p_args.output_dir == paths.cantero_mean_front_dir
+    assert custom_args.output_dir == custom
+
+
 def _configure(paths: ProjectPaths, monkeypatch: pytest.MonkeyPatch) -> None:
     config = {
         "paths": {},
