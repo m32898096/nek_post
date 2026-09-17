@@ -54,7 +54,7 @@ This index lists the repository scripts in numeric order. Run commands from the 
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/19_compute_leading_edge_evolution.py` | Evaluate N7 concentration on the fixed-z periodic target grid and extract selected rightmost `C=0.1` leading-edge curves; the configured compute default uses two workers for later frames. | Configured N7 `GC0.fNNNNN` snapshots | Leading-edge timeseries and metadata CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/19_compute_leading_edge_evolution.py --case N7 --workers 2 --overwrite` |
+| `scripts/19_compute_leading_edge_evolution.py` | Evaluate concentration on a fixed-z periodic grid and extract leading-edge curves; optional `--ny` fixes a common physical-y sampling count across h meshes while the legacy N7 factor remains the default. | Configured `GC0.fNNNNN` snapshots | Legacy N7 timeseries/metadata CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/`; explicit-`ny` timeseries CSV and tagged JSON under `results/h_refinement/leading_edge/` | `python scripts/19_compute_leading_edge_evolution.py --case N7_H --nx 1000 --ny 308 --start-index 1 --end-index 1 --all-frames` |
 | `scripts/20_plot_leading_edge_evolution.py` | Validate existing leading-edge CSV artifacts and render the evolution without rereading Nek snapshots. | Leading-edge timeseries and metadata CSVs | PNG/PDF evolution figures under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite` |
 | `scripts/21_benchmark_leading_edge_workers.py` | Measure isolated script-19 runs for workers 1, 2, and 4 with GNU time and require exact CSV artifact equivalence. | Configured N7 snapshots and script-19 compute workflow | Per-run logs/artifacts plus benchmark and summary CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge_benchmarks/N7/` | `python scripts/21_benchmark_leading_edge_workers.py --case N7 --start-index 37 --end-index 52 --nx 500 --worker-counts 1,2,4 --repeats 2 --all-frames --overwrite` |
 
@@ -121,3 +121,10 @@ under `results/h_refinement/cantero_mean_front/` and
 `results/h_refinement/cantero_re3450/`. See
 [h-refinement Cantero comparison](h_refinement_cantero.md) for the validated
 definitions, real results, cross-case tables, and time-alignment semantics.
+
+## H-refinement leading-edge sampling
+
+Script 19 accepts `--ny` for a shared endpoint-excluded periodic physical-y
+count, with the unchanged legacy factor route when `--ny` is omitted. See
+[Step 6A common-grid validation](h_refinement_leading_edge.md) for the
+1000 × 308 sampling definition and its limits.

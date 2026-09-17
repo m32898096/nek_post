@@ -189,6 +189,46 @@ def test_periodic_target_excludes_ymax_and_metadata_retains_period() -> None:
         metadata["dense_ny"] = 13  # type: ignore[index]
 
 
+def test_explicit_ny_overrides_factor_on_different_source_meshes() -> None:
+    coarse = _mesh(y_intervals=((0.0, 0.5), (0.5, 1.0)))
+    fine = _mesh(y_intervals=((0.0, 0.25), (0.25, 0.5),
+                              (0.5, 0.75), (0.75, 1.0)))
+    plans = [
+        build_spectral_horizontal_slice_plan(mesh, nx=9, ny=11,
+                                             y_upsample_factor=999, z_target=0.37)
+        for mesh in (coarse, fine)
+    ]
+    assert [plan.native_ny for plan in plans] == [6, 12]
+    for plan in plans:
+        assert plan.target_shape == (11, 9)
+        assert plan.dense_ny == 11
+        assert plan.y_upsample_factor is None
+        assert plan.target_valid_mask.all()
+        assert plan.inverse_mapping_diagnostics.inverse_failure_count == 0
+        assert plan.Yi[-1, 0] < plan.y_max
+        assert_allclose(apply_spectral_horizontal_slice_plan(plan, coarse if plan is plans[0] else fine),
+                        _default_field(plan.Xi, plan.Yi, np.full(plan.target_shape, 0.37)),
+                        rtol=2e-12, atol=2e-12)
+    assert_array_equal(plans[0].Xi, plans[1].Xi)
+    assert_array_equal(plans[0].Yi, plans[1].Yi)
+    assert plans[0].inverse_mapping_diagnostics.target_point_count == 99
+
+
+@pytest.mark.parametrize("ny", (0, 1, -1, True, 2.5, "11"))
+def test_explicit_ny_rejects_invalid_values(ny: object) -> None:
+    with pytest.raises(ValueError, match="ny"):
+        build_spectral_horizontal_slice_plan(_mesh(), nx=5, ny=ny, z_target=0.4)
+
+
+def test_explicit_grid_does_not_extrapolate_across_a_physical_gap() -> None:
+    data = _mesh(x_intervals=((0.0, 0.4), (0.6, 1.0)))
+    plan = build_spectral_horizontal_slice_plan(data, nx=11, ny=7, z_target=0.4)
+    result = apply_spectral_horizontal_slice_plan(plan, data)
+    assert not plan.target_valid_mask[:, 5].any()
+    assert np.isnan(result[:, 5]).all()
+    assert np.isfinite(result[:, [0, 1, 9, 10]]).all()
+
+
 def test_multiple_x_and_y_elements_have_deterministic_interface_ownership() -> None:
     data = _mesh(x_intervals=((0.0, 1.0), (1.0, 2.0)))
 

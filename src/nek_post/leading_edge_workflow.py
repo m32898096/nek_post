@@ -62,7 +62,7 @@ class LeadingEdgeEvolution:
     native_ny: int
     dense_ny: int
     y_upsample_factor: int | None
-    horizontal_plan_metadata: Mapping[str, float | int]
+    horizontal_plan_metadata: Mapping[str, float | int | None]
     periodic_endpoint_included: bool = False
     extraction_method: str = DEFAULT_LEADING_EDGE_METHOD
     extraction_x_min: float | None = None
@@ -196,7 +196,7 @@ def _horizontal_coordinates(
     return x, y
 
 
-def _plan_metadata(plan: object) -> Mapping[str, float | int]:
+def _plan_metadata(plan: object) -> Mapping[str, float | int | None]:
     metadata = dict(spectral_horizontal_plan_metadata(plan))  # type: ignore[arg-type]
     diagnostics = plan.inverse_mapping_diagnostics  # type: ignore[attr-defined]
     metadata.update(
@@ -213,6 +213,10 @@ def _plan_metadata(plan: object) -> Mapping[str, float | int]:
             "maximum_iteration_count": int(diagnostics.maximum_iteration_count),
         }
     )
+    valid = np.asarray(plan.target_valid_mask, dtype=np.bool_)
+    metadata["mapped_target_count"] = int(np.count_nonzero(valid))
+    metadata["unmapped_target_count"] = int(valid.size - np.count_nonzero(valid))
+    metadata["mapped_target_fraction"] = float(np.mean(valid))
     return MappingProxyType(metadata)
 
 
@@ -223,6 +227,7 @@ def build_leading_edge_evolution(
     z_target: float,
     threshold: float = 0.1,
     y_upsample_factor: int | None = None,
+    ny: int | None = None,
     workers: int = 1,
     extraction_method: object = DEFAULT_LEADING_EDGE_METHOD,
     x_min: float | None = None,
@@ -233,7 +238,8 @@ def build_leading_edge_evolution(
     """Read, sample, and immediately reduce each frame to one x(y) curve.
 
     Uniform-spectral remains the default, with the previous y-upsample default
-    of 2. Refined-GLL requires target_node_count and forbids nx/y_upsample_factor.
+    of 2. Explicit ny overrides that factor. Refined-GLL requires
+    target_node_count and forbids nx/ny/y_upsample_factor.
     Its native_ny counts source GLL nodes; dense_ny is the actual output count,
     and y_upsample_factor is None (not an integer uniform-grid multiplier).
     One geometry plan is built and passed to the existing process-pool initializer.
@@ -248,12 +254,16 @@ def build_leading_edge_evolution(
         if target_node_count is not None:
             raise ValueError("target_node_count is only valid for refined-gll sampling.")
         nx_value = _positive_integer(nx, "nx", 2)
-        upsample_factor = _positive_integer(
-            2 if y_upsample_factor is None else y_upsample_factor, "y_upsample_factor", 1
+        target_ny = None if ny is None else _positive_integer(ny, "ny", 2)
+        upsample_factor = (
+            _positive_integer(
+                2 if y_upsample_factor is None else y_upsample_factor,
+                "y_upsample_factor", 1,
+            ) if target_ny is None else None
         )
     else:
-        if nx is not None or y_upsample_factor is not None:
-            raise ValueError("nx and y_upsample_factor are only valid for uniform-spectral sampling.")
+        if nx is not None or ny is not None or y_upsample_factor is not None:
+            raise ValueError("nx, ny and y_upsample_factor are only valid for uniform-spectral sampling.")
         target_node_count = _positive_integer(target_node_count, "target_node_count", 2)
     z_value = _finite_float(z_target, "z_target")
     threshold_value = _finite_float(threshold, "threshold")
@@ -275,8 +285,16 @@ def build_leading_edge_evolution(
     try:
         if mode == "uniform-spectral":
             plan = build_spectral_horizontal_slice_plan(
-                first_data, nx=nx_value, z_target=z_value, y_upsample_factor=upsample_factor,
+                first_data, nx=nx_value, z_target=z_value,
+                y_upsample_factor=2 if upsample_factor is None else upsample_factor,
+                **({} if target_ny is None else {"ny": target_ny}),
             )
+            if target_ny is not None and not np.all(plan.target_valid_mask):
+                missing = int(np.size(plan.target_valid_mask) - np.count_nonzero(plan.target_valid_mask))
+                raise ValueError(
+                    f"Explicit-ny physical grid has {missing} unmapped target points; "
+                    "comparison would have incomplete domain coverage."
+                )
         else:
             plan = build_refined_gll_horizontal_slice_plan(
                 first_data, target_node_count=target_node_count, z_target=z_value,
@@ -292,7 +310,7 @@ def build_leading_edge_evolution(
         plan_metadata = _plan_metadata(plan)
         native_ny = int(plan.native_ny)
         dense_ny = int(plan.dense_ny)
-        upsample_factor = int(plan.y_upsample_factor)
+        upsample_factor = plan.y_upsample_factor
         source_node_count = None
     else:
         x, y = plan.x, plan.y
