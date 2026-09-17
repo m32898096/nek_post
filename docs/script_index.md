@@ -134,3 +134,7 @@ count, with the unchanged legacy factor route when `--ny` is omitted. See
 | `scripts/31_compare_h_refinement_leading_edges.py` | Extract full H/VH/VVH leading edges using one sampled plane for rightmost and Moore; align saved primary curves by physical time and report total, bulk and shape differences. | Configured Nek snapshots for extraction; saved raw curves for analysis | Separate raw histories, aligned tables, diagnostics and PNG/PDF figures under `results/h_refinement/leading_edge/step6b/` | `PYENV_VERSION=research312 python scripts/31_compare_h_refinement_leading_edges.py` |
 
 See [Step 6B time alignment and mask semantics](h_refinement_leading_edge.md#step-6b-full-evolution-and-saved-curve-comparison).
+
+The [final h-refinement study audit](h_refinement_study.md) connects Steps 1–6B,
+their quantitative findings, scientific limits, reproducibility commands, and
+artifact locations.

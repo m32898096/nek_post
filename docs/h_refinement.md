@@ -1,8 +1,9 @@
 # H-refinement mesh/data inventory
 
 The h-study is configured independently in `config/h_refinement.yaml`. Its case
-sequence is a candidate coarse-to-fine ordering, its expected polynomial order
-is an assertion to test, and `N7_VVH` is a provisional reference. Directories are
+sequence was initially a candidate coarse-to-fine ordering, its expected
+polynomial order is an assertion to test, and `N7_VVH` was initially a
+provisional reference. Directories are
 resolved through `ProjectPaths` and `config/paths.yaml`. The p-study's
 `config/cases.yaml`, `orders`, N11 reference, comparison sets, and output roots
 are unchanged.
@@ -67,7 +68,7 @@ comparison tolerance is `1e-6`, with relative tolerance zero. All headers carry
 `XUPT`: coordinates, three velocity components, pressure, and one temperature
 slot; no passive scalar slots. Output times are strictly increasing but
 nonuniform and differ between cases; equal file indices must not be treated as
-exactly aligned times in future work.
+exactly aligned times in downstream comparisons.
 
 The metadata confirms the same degree and bounding domain, with strictly
 increasing element counts H -> VH -> VVH. This is consistent with h-refinement,
@@ -76,8 +77,8 @@ h-refinement study is not established by this inventory alone: identical
 boundary/initial conditions, physical parameters, solver settings, and domain
 topology have not been verified. Equal bounds do not prove equal interior
 domains, and largest element count does not prove finest spacing everywhere or
-convergence. Mesh coordinate invariance over time is assumed. No field,
-front, or leading-edge comparisons are implemented.
+convergence. The inventory itself assumes mesh coordinate invariance over time
+and performs no field, front, or leading-edge comparisons.
 
 ## Exact physical midspan workflow
 
@@ -184,8 +185,10 @@ validates the sampling workflow, not h-convergence or grid-resolution adequacy.
 `scripts/29_compare_h_refinement_fields.py` compares C, velocity magnitude, and
 pressure fluctuation using the exact-plane workflow above. It first runs the
 mesh inventory and requires common polynomial order/domain bounds and a unique
-largest-element-count reference. The reference remains provisional: local mesh
-spacing and identical simulation physics are not established by element counts.
+largest-element-count reference. Element counts alone did not establish local
+spacing; [Step 4](h_refinement_convergence.md) subsequently verified VVH as
+finest by directional element widths. Identical simulation physics remains
+unverified.
 
 ```bash
 PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py \
@@ -315,7 +318,9 @@ independent case series.
 
 Errors do not decrease monotonically from H to VH for every metric and target
 (for example, concentration relative L2 near t=10 and several maximum errors).
-These outputs establish field discrepancies relative to the provisional largest
-mesh, not an observed h-convergence order. Snapshot timing offsets, unverified
-local mesh-size ratios/physics equivalence, and the untested sensitivity to
-post-processing grid resolution remain limitations. Step 4 is not implemented.
+These outputs establish field discrepancies relative to the finest available
+numerical mesh, not an observed h-convergence order. Snapshot timing offsets,
+unverified physics equivalence, and the untested sensitivity to post-processing
+grid resolution remain limitations. Directional mesh-size ratios and their
+interpretation are reported in [Step 4](h_refinement_convergence.md); the
+completed study is summarized in [the final audit](h_refinement_study.md).
