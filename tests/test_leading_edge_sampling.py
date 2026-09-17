@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 from functools import partial
 import gc
 import importlib.util
@@ -122,6 +122,77 @@ def test_default_and_explicit_uniform_artifacts_are_byte_identical(frames, tmp_p
     assert default.y_upsample_factor == 2
 
 
+def test_explicit_uniform_ny_reuses_geometry_and_writes_tagged_metadata(
+    frames, tmp_path, monkeypatch,
+):
+    builds = []
+    applied = []
+    original_build = workflow.build_spectral_horizontal_slice_plan
+    original_apply = parallel.apply_spectral_horizontal_slice_plan
+
+    def build(*args, **kwargs):
+        plan = original_build(*args, **kwargs)
+        builds.append(plan)
+        return plan
+
+    def apply(plan, data, *, source_file=None):
+        applied.append(id(plan))
+        return original_apply(plan, data, source_file=source_file)
+
+    monkeypatch.setattr(workflow, "build_spectral_horizontal_slice_plan", build)
+    monkeypatch.setattr(parallel, "apply_spectral_horizontal_slice_plan", apply)
+    result = workflow.build_leading_edge_evolution(
+        frames, nx=11, ny=31, y_upsample_factor=999, z_target=.04,
+        threshold=.1, x_min=0., workers=1,
+    )
+    assert len(builds) == 1
+    assert applied == [id(builds[0])] * 3
+    assert result.native_ny == 14
+    assert result.dense_ny == 31
+    assert result.y_upsample_factor is None
+    assert result.x_front.shape == (3, 31)
+    np.testing.assert_array_equal(result.y, np.linspace(.0, 1., 31, endpoint=False))
+    assert result.horizontal_plan_metadata["inverse_mapping_target_count"] == 31 * 11
+    assert result.horizontal_plan_metadata["mapped_target_count"] == 31 * 11
+    assert result.horizontal_plan_metadata["unmapped_target_count"] == 0
+    assert result.horizontal_plan_metadata["mapped_target_fraction"] == 1.0
+    selection = workflow.select_leading_edge_times(result, spacing=None)
+    output = write_leading_edge_csvs(tmp_path / "explicit", "N7", result, selection, False)
+    assert [path.suffix for path in output] == [".csv", ".json"]
+    metadata = json.loads(output[1].read_text())
+    assert metadata["sampling_mode"] == "uniform-spectral"
+    assert metadata["y_grid_selection"] == "explicit-ny"
+    assert metadata["dense_ny"] == 31
+    assert metadata["native_ny"] == 14
+    assert metadata["y_upsample_factor"] is None
+    assert metadata["periodic_endpoint_included"] is False
+    assert metadata["horizontal_plan_metadata"]["mapped_target_fraction"] == 1.0
+
+
+@pytest.mark.parametrize("ny", (0, 1, -1, True, 2.5, "31"))
+def test_invalid_explicit_ny_fails_before_reading(frames, ny):
+    def forbidden(_path):
+        pytest.fail("invalid ny read a frame")
+    with pytest.raises(ValueError, match="ny"):
+        workflow.build_leading_edge_evolution(
+            frames, nx=11, ny=ny, z_target=.04, _frame_reader=forbidden,
+        )
+
+
+def test_explicit_uniform_grid_rejects_unmapped_targets(frames, monkeypatch):
+    original_build = workflow.build_spectral_horizontal_slice_plan
+
+    def build(*args, **kwargs):
+        plan = original_build(*args, **kwargs)
+        valid = plan.target_valid_mask.copy()
+        valid[0, 0] = False
+        return replace(plan, target_valid_mask=valid)
+
+    monkeypatch.setattr(workflow, "build_spectral_horizontal_slice_plan", build)
+    with pytest.raises(RuntimeError, match="1 unmapped target point"):
+        workflow.build_leading_edge_evolution(frames, nx=11, ny=31, z_target=.04)
+
+
 @pytest.mark.parametrize("options", [
     {"sampling_mode": "bad"}, {"sampling_mode": None},
     {"sampling_mode": "uniform-spectral", "nx": 11, "target_node_count": 10},
@@ -207,6 +278,37 @@ def test_cli_default_and_explicit_uniform_arguments_match(cli_context):
     args = script._parse_args(paths, config, ["--sampling-mode", "refined-gll", "--target-node-count", "10"])
     assert args.nx is None and args.y_upsample_factor is None
     assert "leading_edge_gll_refinement" in str(args.output_dir)
+
+
+def test_cli_explicit_ny_overrides_configured_factor(cli_context):
+    script, paths, config = cli_context
+    args = script._parse_args(paths, config, ["--nx", "1000", "--ny", "308"])
+    assert args.nx == 1000
+    assert args.ny == 308
+    assert args.y_upsample_factor == 2
+    assert "results/h_refinement/leading_edge" in str(args.output_dir)
+    assert script._requested_output_paths(paths.results_root, "N7_H", args.sampling_mode, args.ny)[1].suffix == ".json"
+    for bad in ("0", "1", "-1", "abc"):
+        with pytest.raises(SystemExit) as caught:
+            script._parse_args(paths, config, ["--ny", bad])
+        assert caught.value.code == 2
+    with pytest.raises(SystemExit):
+        script._parse_args(paths, config, ["--sampling-mode", "refined-gll", "--target-node-count", "10", "--ny", "308"])
+
+
+def test_cli_runs_explicit_uniform_grid(frames, cli_context, monkeypatch, tmp_path):
+    script, paths, config = cli_context
+    monkeypatch.setattr(script, "load_project_paths", lambda _: paths)
+    monkeypatch.setattr(script, "load_yaml", lambda _: config)
+    output = tmp_path / "h_refinement" / "leading_edge"
+    script.main(["--nx", "11", "--ny", "31", "--workers", "1",
+                 "--all-frames", "--output-dir", str(output)])
+    metadata = json.loads((output / "N7_leading_edge_sampling_metadata.json").read_text())
+    assert metadata["sampling_mode"] == "uniform-spectral"
+    assert metadata["y_grid_selection"] == "explicit-ny"
+    assert metadata["n_input_frames"] == 3
+    assert metadata["output_ny"] == 31
+    assert (output / "N7_leading_edge_timeseries.csv").exists()
 
 
 def test_cli_runs_refined_real_synthetic_files(frames, cli_context, monkeypatch):

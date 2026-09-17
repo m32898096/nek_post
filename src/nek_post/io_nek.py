@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 
-def read_nek_file(path: str | Path) -> Any:
+def read_nek_file(
+    path: str | Path, *, skip_vars: tuple[str, ...] = (), dtype: str | type = "float64"
+) -> Any:
     """Read a Nek5000 file.
 
     Parameters
@@ -20,7 +22,14 @@ def read_nek_file(path: str | Path) -> Any:
 
     from pymech.neksuite import readnek
 
-    return readnek(str(file_path))
+    return readnek(str(file_path), dtype=dtype, skip_vars=skip_vars)
+
+
+def read_nek_header(path: str | Path) -> Any:
+    """Read field metadata through pymech without loading solution arrays."""
+    from pymech.neksuite.field import read_header
+
+    return read_header(Path(path))
 
 
 def get_nek_time(data: Any) -> Any:

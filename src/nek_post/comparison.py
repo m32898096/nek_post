@@ -407,3 +407,53 @@ def compare_pressure_slices(
         total_grid_point_count=total_grid_point_count,
         error_rows=error_rows,
     )
+
+
+@dataclass(frozen=True)
+class SampledGridComparisonResult:
+    """Errors on one all-case finite mask for already co-located scalar grids."""
+
+    common_mask: Array
+    error_rows: list[ComparisonRow]
+
+
+def compare_sampled_grids(
+    grids: Mapping[str, Array], reference_case: str, *, valid_mask: Array | None = None,
+) -> SampledGridComparisonResult:
+    """Compare scalar grids without reinterpolation or polynomial-order metadata.
+
+    Norms are unweighted Cartesian sample norms, as in the existing comparison
+    kernels. A zero reference norm makes relative L2 undefined for other cases;
+    the explicitly identified reference control always has zero self-error.
+    """
+    if reference_case not in grids:
+        raise ValueError("Reference case must be present in sampled grids.")
+    arrays = {case: np.asarray(grid, dtype=float) for case, grid in grids.items()}
+    shape = arrays[reference_case].shape
+    if len(shape) != 2 or any(a.shape != shape for a in arrays.values()):
+        raise ValueError("Sampled grids must have matching two-dimensional shapes.")
+    mask = valid_common_mask(*arrays.values())
+    if valid_mask is not None:
+        if np.shape(valid_mask) != shape:
+            raise ValueError("valid_mask shape must match the sampled grids.")
+        mask &= np.asarray(valid_mask, dtype=bool)
+    count = int(mask.sum())
+    if not count:
+        raise ValueError("No common finite-valid points for sampled-grid comparison.")
+    reference = arrays[reference_case]
+    denominator = float(np.sum(reference[mask] ** 2))
+    rows = []
+    for case, values in arrays.items():
+        is_reference = case == reference_case
+        rows.append({
+            "case": case, "reference_case": reference_case,
+            "is_reference": is_reference, "independent_datapoint": not is_reference,
+            "relative_l2_error": 0.0 if is_reference else _safe_relative_l2_error(values, reference, mask),
+            "relative_l2_defined": is_reference or denominator > 1e-14,
+            "mean_absolute_error": mean_absolute_error(values - reference, mask),
+            "maximum_absolute_error": absolute_linf_error(values, reference, mask),
+            "valid_point_count": count, "total_grid_point_count": int(mask.size),
+            "valid_mask_fraction": float(count / mask.size),
+            "reference_squared_l2_norm": denominator,
+        })
+    return SampledGridComparisonResult(mask, rows)

@@ -16,6 +16,7 @@ from nek_post.cantero_equivalent_height import (
     CanteroEquivalentHeightPlan,
     apply_cantero_equivalent_height_plan,
     build_cantero_equivalent_height_plan,
+    validate_cantero_equivalent_height_plan_geometry,
 )
 from nek_post.io_nek import get_nek_time, read_nek_file
 
@@ -323,12 +324,28 @@ def compute_cantero_mean_front_timeseries(
     threshold: object = DEFAULT_CANTERO_MEAN_FRONT_THRESHOLD,
     reference_x: object = DEFAULT_CANTERO_MEAN_FRONT_REFERENCE_X,
     reader: Callable[[str | Path], Any] = read_nek_file,
+    subsequent_reader: Callable[[str | Path], Any] | None = None,
+    stationary_geometry_check_reader: Callable[[str | Path], Any] | None = None,
+    validate_geometry_each_frame: bool = True,
 ) -> CanteroMeanFrontTimeseries:
-    """Process ordered snapshots with one reusable equivalent-height plan."""
+    """Process ordered snapshots with one reusable equivalent-height plan.
+
+    The default validates full coordinate signatures on every frame.  A caller
+    may explicitly use a field-only ``subsequent_reader`` together with
+    ``validate_geometry_each_frame=False`` after independently establishing a
+    stationary mesh; element count and scalar shapes remain checked.
+    """
     if not isinstance(case, str) or not case.strip():
         raise ValueError("case must be a non-empty string.")
     if not callable(reader):
         raise ValueError("reader must be callable.")
+    if subsequent_reader is not None and not callable(subsequent_reader):
+        raise ValueError("subsequent_reader must be callable when supplied.")
+    if (stationary_geometry_check_reader is not None
+            and not callable(stationary_geometry_check_reader)):
+        raise ValueError("stationary_geometry_check_reader must be callable when supplied.")
+    if not isinstance(validate_geometry_each_frame, (bool, np.bool_)):
+        raise ValueError("validate_geometry_each_frame must be boolean.")
     threshold_value = _positive_threshold(threshold)
     reference_value = _finite_float(reference_x, "reference_x")
     resolved_frames = tuple(_frame_values(frame) for frame in frames)
@@ -344,14 +361,17 @@ def compute_cantero_mean_front_timeseries(
     records: list[dict[str, object]] = []
     previous_time: float | None = None
     for frame_position, (file_index, source_path) in enumerate(resolved_frames):
-        data = first_data if frame_position == 0 else reader(source_path)
+        data = (first_data if frame_position == 0 else
+                (subsequent_reader or reader)(source_path))
         time = _finite_float(get_nek_time(data), f"Nek time for frame {file_index}")
         if previous_time is not None and time <= previous_time:
             raise ValueError("Nek frame times must be strictly increasing in file-index order.")
         previous_time = time
+        apply_kwargs = {"source_file": source_path}
+        if frame_position > 0 and not validate_geometry_each_frame:
+            apply_kwargs["validate_geometry"] = False
         equivalent_height = apply_cantero_equivalent_height_plan(
-            plan, data, source_file=source_path
-        )
+            plan, data, **apply_kwargs)
         try:
             detection = detect_cantero_mean_front(
                 equivalent_height.x_coordinates,
@@ -393,6 +413,10 @@ def compute_cantero_mean_front_timeseries(
                 "status": STATUS_SUCCESS,
             }
         )
+    if stationary_geometry_check_reader is not None and len(resolved_frames) > 1:
+        last_path = resolved_frames[-1][1]
+        validate_cantero_equivalent_height_plan_geometry(
+            plan, stationary_geometry_check_reader(last_path), source_file=last_path)
     successful_positions = [
         position
         for position, record in enumerate(records)
@@ -521,6 +545,11 @@ def read_cantero_mean_front_timeseries_csv(path: str | Path) -> dict[str, object
     if not csv_path.exists():
         raise FileNotFoundError(f"Cantero mean-front CSV not found: {csv_path}")
     successful: list[dict[str, object]] = []
+    input_count = 0
+    failed_file_indices: list[int] = []
+    failed_statuses: list[str] = []
+    first_time: float | None = None
+    last_time: float | None = None
     previous_time: float | None = None
     previous_index: int | None = None
     threshold: float | None = None
@@ -533,6 +562,7 @@ def read_cantero_mean_front_timeseries_csv(path: str | Path) -> dict[str, object
                 f"{csv_path} is missing required column(s): {', '.join(sorted(missing))}."
             )
         for line, row in enumerate(reader, start=2):
+            input_count += 1
             index = _csv_integer(row, "file_index", csv_path, line)
             time = _csv_float(row, "time", csv_path, line)
             row_threshold = _positive_threshold(_csv_float(row, "threshold", csv_path, line))
@@ -542,11 +572,17 @@ def read_cantero_mean_front_timeseries_csv(path: str | Path) -> dict[str, object
             if previous_time is not None and time <= previous_time:
                 raise ValueError(f"{csv_path}:{line} time is not strictly increasing.")
             previous_index, previous_time = index, time
+            if first_time is None:
+                first_time = time
+            last_time = time
             if threshold is None:
                 threshold, reference_x = row_threshold, row_reference
             elif row_threshold != threshold or row_reference != reference_x:
                 raise ValueError(f"{csv_path}:{line} has inconsistent threshold or reference_x.")
-            if (row.get("status") or "").strip() != STATUS_SUCCESS:
+            status = (row.get("status") or "").strip()
+            if status != STATUS_SUCCESS:
+                failed_file_indices.append(index)
+                failed_statuses.append(status)
                 continue
             left_index = _csv_integer(row, "left_index", csv_path, line)
             right_index = _csv_integer(row, "right_index", csv_path, line)
@@ -579,6 +615,13 @@ def read_cantero_mean_front_timeseries_csv(path: str | Path) -> dict[str, object
         ),
         "threshold": threshold,
         "reference_x": reference_x,
+        "n_input_frames": input_count,
+        "n_successful_frames": len(successful),
+        "n_failed_frames": input_count - len(successful),
+        "input_time_start": first_time,
+        "input_time_end": last_time,
+        "failed_file_indices": tuple(failed_file_indices),
+        "failed_statuses": tuple(failed_statuses),
     }
 
 

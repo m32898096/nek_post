@@ -292,3 +292,38 @@ Postprocessed slices and interpolated files are written under:
 Final tables and figures are written under:
 
 - `/data/Nek5000_data/results/poly_order_compare`
+
+## H-refinement inventory
+
+The separate `config/h_refinement.yaml` study registers `N7_H`, `N7_VH`, and
+`N7_VVH` without adding them to the p-study's `cases.orders` or changing its
+N11 reference. Run `PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py`
+for a JSON mesh/data inventory. See [the h-refinement documentation](docs/h_refinement.md)
+for measured metadata, validation limits, and configuration details.
+
+For exact physical `y=0.75` sampling on a common x-z grid, use
+`scripts/28_extract_h_refinement_slice.py` with explicit per-case snapshot indices
+and an output directory. The [h-study documentation](docs/h_refinement.md#exact-physical-midspan-workflow)
+describes field definitions, masks, interface ownership, and the real-data
+finding that N7_VH requires interpolation in y. This stage computes no
+convergence metrics.
+
+The field-comparison stage is available through
+`PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py --nx 500 --nz 200`.
+It selects snapshots by header time near the project targets (5, 10, 15, 19.5),
+validates the provisional reference by mesh inventory, and writes masked field
+errors and plots to `results/h_refinement/field_comparison/`. Recorded timing
+offsets remain part of the comparison; no observed convergence order is inferred.
+
+Step 4 directional mesh and pairwise-field diagnostics are available with
+`PYENV_VERSION=research312 python scripts/30_analyze_h_refinement_convergence.py`.
+The [Step 4 documentation](docs/h_refinement_convergence.md) explains the
+measured anisotropy, classification criteria and why no global observed order
+is reported for these meshes.
+
+Step 5 reuses the validated Cantero equivalent-height, mean-front, velocity,
+smoothing, and reconstruction kernels for `N7_H`, `N7_VH`, and `N7_VVH`.
+The generalized multicase wrapper keeps the existing N5/N7/N9 defaults and can
+write time-aligned differences against a selected finest numerical reference.
+See [the h-refinement Cantero documentation](docs/h_refinement_cantero.md) for
+commands, real-data results, temporal-alignment semantics, and limitations.

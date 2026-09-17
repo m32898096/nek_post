@@ -7,7 +7,7 @@ from functools import lru_cache
 from hashlib import blake2b
 from numbers import Integral
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -547,11 +547,16 @@ def build_spectral_slice_interpolation_plan(
     nx: int,
     nz: int,
     y_target: float | None = None,
+    target_grid: tuple[object, object] | None = None,
     physical_tolerance_factor: float = 1.0e-11,
     reference_tolerance: float = 1.0e-8,
     max_iterations: int = 30,
 ) -> SpectralSliceInterpolationPlan:
-    """Build a reusable element-aware plan for a fixed physical x-z slice."""
+    """Build a plan for a physical x-z slice, optionally on an explicit grid.
+
+    Explicit grids must have shape ``(nz, nx)``. Targets without an enclosing
+    element stay invalid; there is no nearest-neighbor extrapolation.
+    """
     nx_value = _grid_size(nx, "nx")
     nz_value = _grid_size(nz, "nz")
     elements, geometry, element_shape, signatures = _validated_snapshot(
@@ -616,6 +621,11 @@ def build_spectral_slice_interpolation_plan(
         np.linspace(x_min, x_max, nx_value, dtype=np.float64),
         np.linspace(z_min, z_max, nz_value, dtype=np.float64),
     )
+    if target_grid is not None:
+        Xi, Zi = (np.array(a, dtype=np.float64, copy=True) for a in target_grid)
+        if (Xi.shape != (nz_value, nx_value) or Zi.shape != Xi.shape
+                or not np.all(np.isfinite(Xi)) or not np.all(np.isfinite(Zi))):
+            raise ValueError("target_grid must contain finite arrays of shape (nz, nx).")
     target_shape = tuple(int(value) for value in Xi.shape)
 
     x_bins, z_bins = _bin_shape(
@@ -804,6 +814,38 @@ def apply_spectral_slice_interpolation_plan(
             optimize=True,
         )
     return result.reshape(plan.target_shape)
+
+
+def apply_spectral_slice_fields(
+    plan: SpectralSliceInterpolationPlan,
+    data: object,
+    field_getters: Mapping[str, Callable[[Any], object]],
+    *,
+    source_file: object | None = None,
+) -> dict[str, NDArray[np.float64]]:
+    """Apply the same geometry/basis to scalar fields, validating geometry once.
+
+    Interface ownership follows the plan (minimum inverse residual, then element
+    index); duplicated interface nodes do not create additional target samples.
+    """
+    validate_spectral_geometry(plan, data, source_file=source_file)
+    elements = _elements(data)
+    results = {name: np.full(np.prod(plan.target_shape), np.nan, dtype=np.float64)
+               for name in field_getters}
+    valid_owner = plan.owner_element_index.ravel()[plan.valid_target_flat_indices]
+    for element_index in np.unique(valid_owner):
+        owned_rows = np.flatnonzero(valid_owner == element_index)
+        target_indices = plan.valid_target_flat_indices[owned_rows]
+        for name, getter in field_getters.items():
+            values = np.asarray(getter(elements[int(element_index)]), dtype=np.float64)
+            if values.shape != plan.element_shape:
+                raise ValueError(f"Element {element_index} {name} shape mismatch: {values.shape}.")
+            results[name][target_indices] = np.einsum(
+                "pa,pb,pc,abc->p", plan.basis_q0[owned_rows],
+                plan.basis_q1[owned_rows], plan.basis_q2[owned_rows], values,
+                optimize=True,
+            )
+    return {name: result.reshape(plan.target_shape) for name, result in results.items()}
 
 
 def spectral_plan_metadata(

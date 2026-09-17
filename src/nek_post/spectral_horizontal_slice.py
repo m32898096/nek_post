@@ -49,7 +49,7 @@ class SpectralHorizontalSlicePlan:
     y_max: float
     native_ny: int
     dense_ny: int
-    y_upsample_factor: int
+    y_upsample_factor: int | None
     element_count: int
     element_shape: tuple[int, int, int]
     polynomial_order: tuple[int, int, int]
@@ -386,14 +386,18 @@ def build_spectral_horizontal_slice_plan(
     nx: int,
     z_target: float,
     y_upsample_factor: int = 2,
+    ny: int | None = None,
     physical_tolerance_factor: float = 1.0e-11,
     reference_tolerance: float = 1.0e-8,
     max_iterations: int = 30,
 ) -> SpectralHorizontalSlicePlan:
     """Build an element-aware reusable plan for a uniform physical x-y grid."""
     nx_value = _positive_grid_size(nx, "nx", 2)
-    upsample_factor = _positive_grid_size(
-        y_upsample_factor, "y_upsample_factor", 1
+    # An explicit physical-grid count supersedes the source-dependent factor.
+    target_ny = None if ny is None else _positive_grid_size(ny, "ny", 2)
+    upsample_factor = (
+        _positive_grid_size(y_upsample_factor, "y_upsample_factor", 1)
+        if target_ny is None else None
     )
     try:
         resolved_z = float(z_target)
@@ -415,7 +419,7 @@ def build_spectral_horizontal_slice_plan(
         geometry,
         tolerance_factor=physical_tolerance_factor,
     )
-    dense_ny = upsample_factor * native_ny
+    dense_ny = target_ny if target_ny is not None else upsample_factor * native_ny
 
     aabbs = np.asarray(
         [
@@ -675,7 +679,7 @@ def apply_spectral_horizontal_slice_plan(
 
 def spectral_horizontal_plan_metadata(
     plan: SpectralHorizontalSlicePlan,
-) -> Mapping[str, float | int]:
+) -> Mapping[str, float | int | None]:
     """Return immutable numeric metadata for a horizontal interpolation plan."""
     return MappingProxyType(
         {
@@ -686,7 +690,7 @@ def spectral_horizontal_plan_metadata(
             "nx": int(plan.target_shape[1]),
             "native_ny": int(plan.native_ny),
             "dense_ny": int(plan.dense_ny),
-            "y_upsample_factor": int(plan.y_upsample_factor),
+            "y_upsample_factor": plan.y_upsample_factor,
             "z_target": float(plan.z_target),
             "spectral_element_n0": int(plan.element_shape[0]),
             "spectral_element_n1": int(plan.element_shape[1]),

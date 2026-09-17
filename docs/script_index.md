@@ -54,7 +54,7 @@ This index lists the repository scripts in numeric order. Run commands from the 
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/19_compute_leading_edge_evolution.py` | Evaluate N7 concentration on the fixed-z periodic target grid and extract selected rightmost `C=0.1` leading-edge curves; the configured compute default uses two workers for later frames. | Configured N7 `GC0.fNNNNN` snapshots | Leading-edge timeseries and metadata CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/19_compute_leading_edge_evolution.py --case N7 --workers 2 --overwrite` |
+| `scripts/19_compute_leading_edge_evolution.py` | Evaluate concentration on a fixed-z periodic grid and extract leading-edge curves; optional `--ny` fixes a common physical-y sampling count across h meshes while the legacy N7 factor remains the default. | Configured `GC0.fNNNNN` snapshots | Legacy N7 timeseries/metadata CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/`; explicit-`ny` timeseries CSV and tagged JSON under `results/h_refinement/leading_edge/` | `python scripts/19_compute_leading_edge_evolution.py --case N7_H --nx 1000 --ny 308 --start-index 1 --end-index 1 --all-frames` |
 | `scripts/20_plot_leading_edge_evolution.py` | Validate existing leading-edge CSV artifacts and render the evolution without rereading Nek snapshots. | Leading-edge timeseries and metadata CSVs | PNG/PDF evolution figures under `/data/Nek5000_data/results/poly_order_compare/leading_edge/N7/` | `python scripts/20_plot_leading_edge_evolution.py --case N7 --overwrite` |
 | `scripts/21_benchmark_leading_edge_workers.py` | Measure isolated script-19 runs for workers 1, 2, and 4 with GNU time and require exact CSV artifact equivalence. | Configured N7 snapshots and script-19 compute workflow | Per-run logs/artifacts plus benchmark and summary CSVs under `/data/Nek5000_data/results/poly_order_compare/leading_edge_benchmarks/N7/` | `python scripts/21_benchmark_leading_edge_workers.py --case N7 --start-index 37 --end-index 52 --nx 500 --worker-counts 1,2,4 --repeats 2 --all-frames --overwrite` |
 
@@ -74,7 +74,7 @@ This index lists the repository scripts in numeric order. Run commands from the 
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/24_compute_cantero_mean_front.py` | Reuse Phase 1 Cantero Eq. (4.1)–(4.2) composite-GLL equivalent-height preprocessing for each configured snapshot, then locate the first positive-x physical-GLL threshold crossing where `h_bar < delta`; default `delta=0.01`. No uniform-grid interpolation, paper comparison, or reconstruction is performed. | Configured `GC0.fNNNNN` field snapshots | `/data/Nek5000_data/results/poly_order_compare/cantero_mean_front/<case>/<case>_cantero_mean_front_timeseries.csv` | `PYENV_VERSION=research312 python scripts/24_compute_cantero_mean_front.py --case N7 --threshold 0.01 --reference-x 0` |
+| `scripts/24_compute_cantero_mean_front.py` | Reuse Phase 1 Cantero Eq. (4.1)–(4.2) composite-GLL equivalent-height preprocessing for each configured snapshot, then locate the first positive-x physical-GLL threshold crossing where `h_bar < delta`; default `delta=0.01`. The optional stationary-geometry fast path retains the same plan and numerical kernels, validates first/last coordinate signatures, and reads only concentration between them. No uniform-grid interpolation, paper comparison, or reconstruction is performed. | Configured `GC0.fNNNNN` field snapshots | Explicit output root, defaulting to `/data/Nek5000_data/results/poly_order_compare/cantero_mean_front/<case>/` | `PYENV_VERSION=research312 python scripts/24_compute_cantero_mean_front.py --case N7 --threshold 0.01 --reference-x 0` |
 
 ## Cantero reconstructed x-t comparison
 
@@ -86,8 +86,55 @@ This index lists the repository scripts in numeric order. Run commands from the 
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/26_overlay_cantero_re3450_multicase.py` | Formal Re3450 comparison with Cantero Figure 5a plus independently reconstructed N5, N7, and N9 fronts together on one linear four-curve overlay and one log-log four-curve overlay. Only reconstructed numerical fronts are compared with paper; raw mean-front trajectories are not overlaid. Log-log inputs are masked independently to strictly positive finite time/displacement without epsilon substitution or coordinate shifts. Smoothing retains the established moving-average window `11`; no fitting or tuning to paper data is performed. | Three formal Phase-2 Cantero mean-front CSVs and configured Re3450 Figure-5a CSV | `/data/Nek5000_data/results/poly_order_compare/cantero_re3450_multicase/` | `PYENV_VERSION=research312 python scripts/26_overlay_cantero_re3450_multicase.py` |
+| `scripts/26_overlay_cantero_re3450_multicase.py` | Re=3450 comparison for an arbitrary ordered compatible case set. The no-argument validated N5/N7/N9 workflow, filenames, and numerical behavior are preserved. Optional finest-reference tables interpolate only the reference at actual case times within overlap, without extrapolation. Only reconstructed numerical fronts are compared with paper; smoothing remains the established moving-average window `11`. | Per-case Phase-2 Cantero mean-front CSVs and configured Re=3450 Figure-5a CSV | Explicit output directory, defaulting to `/data/Nek5000_data/results/poly_order_compare/cantero_re3450_multicase/` | `PYENV_VERSION=research312 python scripts/26_overlay_cantero_re3450_multicase.py` |
 
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation
 commands.
+
+## H-refinement inspection
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/27_inventory_h_refinement.py` | Inventory field headers and representative mesh coordinates; check candidate h-study ordering and reference. | `config/paths.yaml`, `config/h_refinement.yaml`, raw field files (read-only) | JSON to stdout; no default artifact writes | `PYENV_VERSION=research312 python scripts/27_inventory_h_refinement.py` |
+
+See [h-refinement inventory](h_refinement.md) for scope, limitations, and real-data findings.
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/28_extract_h_refinement_slice.py` | Evaluate exact physical y=0.75 fields on a shared x-z grid, with masks and diagnostics. | H-study config and explicit per-case snapshot indices | NPZ arrays and JSON diagnostics in an explicit output directory | `PYENV_VERSION=research312 python scripts/28_extract_h_refinement_slice.py --snapshot N7_H=81,N7_VH=81,N7_VVH=81 --nx 101 --nz 41 --output-dir /tmp/nek_h_slice_t20` |
+| `scripts/29_compare_h_refinement_fields.py` | Select snapshots by header time and compare exact-plane C, speed and p′ against the validated provisional reference. | H-study inventory, raw headers/fields, project target-time convention, explicit grid dimensions | CSV tables, grids/masks, JSON metadata and difference/error-history plots under `results/h_refinement/` | `PYENV_VERSION=research312 python scripts/29_compare_h_refinement_fields.py --nx 500 --nz 200` |
+
+## H-refinement convergence diagnostics
+
+| Script | Purpose | Main input | Main output | Example command |
+| --- | --- | --- | --- | --- |
+| `scripts/30_analyze_h_refinement_convergence.py` | Analyze actual directional mesh widths and saved Step 3 field differences; report conditional classifications and diagnostic phase evidence. | Raw mesh coordinates and read-only Step 3 arrays/masks | Separate `results/h_refinement/convergence_analysis/` JSON, CSV and PNG artifacts | `PYENV_VERSION=research312 python scripts/30_analyze_h_refinement_convergence.py` |
+
+See [h-refinement convergence diagnostics](h_refinement_convergence.md) for definitions, real mesh evidence and limitations.
+
+## H-refinement Cantero comparison
+
+Scripts 24 and 26 are reused directly for the H/VH/VVH Cantero workflow; no
+separate numerical implementation is maintained. The complete commands write
+under `results/h_refinement/cantero_mean_front/` and
+`results/h_refinement/cantero_re3450/`. See
+[h-refinement Cantero comparison](h_refinement_cantero.md) for the validated
+definitions, real results, cross-case tables, and time-alignment semantics.
+
+## H-refinement leading-edge sampling
+
+Script 19 accepts `--ny` for a shared endpoint-excluded periodic physical-y
+count, with the unchanged legacy factor route when `--ny` is omitted. See
+[Step 6A common-grid validation](h_refinement_leading_edge.md) for the
+1000 × 308 sampling definition and its limits.
+
+| Script | Purpose | Inputs | Outputs | Example |
+| --- | --- | --- | --- | --- |
+| `scripts/31_compare_h_refinement_leading_edges.py` | Extract full H/VH/VVH leading edges using one sampled plane for rightmost and Moore; align saved primary curves by physical time and report total, bulk and shape differences. | Configured Nek snapshots for extraction; saved raw curves for analysis | Separate raw histories, aligned tables, diagnostics and PNG/PDF figures under `results/h_refinement/leading_edge/step6b/` | `PYENV_VERSION=research312 python scripts/31_compare_h_refinement_leading_edges.py` |
+
+See [Step 6B time alignment and mask semantics](h_refinement_leading_edge.md#step-6b-full-evolution-and-saved-curve-comparison).
+
+The [final h-refinement study audit](h_refinement_study.md) connects Steps 1–6B,
+their quantitative findings, scientific limits, reproducibility commands, and
+artifact locations.

@@ -82,11 +82,12 @@ def _requested_output_paths(
     output_dir: str | Path,
     case: str,
     sampling_mode: str = "uniform-spectral",
+    ny: int | None = None,
 ) -> list[Path]:
     return [
         leading_edge_timeseries_path(output_dir, case),
         (leading_edge_sampling_metadata_path(output_dir, case)
-         if sampling_mode == "refined-gll"
+         if sampling_mode == "refined-gll" or ny is not None
          else leading_edge_metadata_path(output_dir, case)),
     ]
 
@@ -160,6 +161,11 @@ def _parse_args(
         help="Multiplier from native_ny to the uniform periodic target count.",
     )
     parser.add_argument(
+        "--ny",
+        type=_integer_at_least(2),
+        help="Explicit endpoint-excluded periodic physical-y point count; overrides --y-upsample-factor.",
+    )
+    parser.add_argument(
         "--extraction-method",
         choices=SUPPORTED_LEADING_EDGE_METHODS,
         default=configured_method,
@@ -225,8 +231,8 @@ def _parse_args(
         if not hasattr(args, "y_upsample_factor"):
             args.y_upsample_factor = _mapping_value(leading_edge, "y_upsample_factor", "leading_edge")
     else:
-        if hasattr(args, "nx") or hasattr(args, "y_upsample_factor"):
-            parser.error("--nx and --y-upsample-factor belong to uniform-spectral sampling.")
+        if hasattr(args, "nx") or args.ny is not None or hasattr(args, "y_upsample_factor"):
+            parser.error("--nx, --ny and --y-upsample-factor belong to uniform-spectral sampling.")
         if args.target_node_count is None:
             parser.error("refined-gll requires --target-node-count.")
         args.nx = args.y_upsample_factor = None
@@ -238,7 +244,11 @@ def _parse_args(
     if not spacing_was_explicit:
         args.contour_time_spacing = configured_spacing
     if not hasattr(args, "output_dir"):
-        if args.sampling_mode == "uniform-spectral":
+        if args.ny is not None:
+            args.output_dir = (REPO_ROOT / "results" / "h_refinement"
+                               / "leading_edge" / args.extraction_method
+                               / args.case.strip().upper())
+        elif args.sampling_mode == "uniform-spectral":
             args.output_dir = _default_output_dir(paths, args.case)
         else:
             args.output_dir = (paths.results_root / "leading_edge_gll_refinement"
@@ -266,7 +276,7 @@ def main(argv: list[str] | None = None) -> None:
             start_index=args.start_index,
             end_index=args.end_index,
         )
-        requested_paths = _requested_output_paths(output_dir, case, args.sampling_mode)
+        requested_paths = _requested_output_paths(output_dir, case, args.sampling_mode, args.ny)
         preflight_output_paths(requested_paths, args.overwrite)
 
         sampling_options = ({} if args.sampling_mode == "uniform-spectral" else
@@ -277,12 +287,13 @@ def main(argv: list[str] | None = None) -> None:
             z_target=args.z_target,
             threshold=args.threshold,
             y_upsample_factor=args.y_upsample_factor,
+            ny=args.ny,
             workers=args.workers,
             extraction_method=args.extraction_method,
             x_min=args.x_min,
             **sampling_options,
         )
-        if args.sampling_mode == "uniform-spectral":
+        if args.sampling_mode == "uniform-spectral" and args.ny is None:
             expected_dense_ny = evolution.y_upsample_factor * evolution.native_ny
             if evolution.dense_ny != expected_dense_ny:
                 raise ValueError(
@@ -290,6 +301,9 @@ def main(argv: list[str] | None = None) -> None:
                     f"dense_ny={evolution.dense_ny}, but "
                     f"y_upsample_factor * native_ny={expected_dense_ny}."
                 )
+        elif args.ny is not None:
+            if evolution.dense_ny != args.ny or evolution.y_upsample_factor is not None:
+                raise ValueError("Explicit --ny was not preserved by the spectral plan.")
         selection = select_leading_edge_times(
             evolution,
             spacing=None if args.all_frames else args.contour_time_spacing,
@@ -332,6 +346,9 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Target node count: {evolution.target_node_count}")
             print(f"Plan build seconds: {evolution.plan_build_seconds:.6f}")
             print(f"Processing runtime seconds: {evolution.processing_runtime_seconds:.6f}")
+        elif args.ny is not None:
+            print("Sampling mode: uniform-spectral with explicit periodic ny")
+            print(f"target_ny: {args.ny}")
         else:
             print(f"y_upsample_factor: {evolution.y_upsample_factor}")
             print(
@@ -347,7 +364,7 @@ def main(argv: list[str] | None = None) -> None:
             f"{evolution.periodic_endpoint_included}"
         )
         print(f"Output directory: {output_dir}")
-        print("Written artifacts:" if args.sampling_mode == "refined-gll" else "Written CSV artifacts:")
+        print("Written artifacts:" if args.sampling_mode == "refined-gll" or args.ny is not None else "Written CSV artifacts:")
         for path in csv_paths:
             print(f"  {path}")
     except Exception as exc:

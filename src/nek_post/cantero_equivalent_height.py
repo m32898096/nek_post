@@ -17,6 +17,7 @@ from nek_post.gll_directional_integration import (
     apply_gll_directional_integration_plan,
     build_gll_directional_integration_plan,
     composite_physical_axis_quadrature_weights,
+    validate_gll_directional_integration_plan_geometry,
 )
 
 
@@ -212,6 +213,7 @@ def apply_cantero_equivalent_height_plan(
     data: object,
     *,
     source_file: object | None = None,
+    validate_geometry: bool = True,
 ) -> CanteroEquivalentHeightResult:
     """Apply a reusable plan to concentration on compatible stationary geometry."""
     if not isinstance(plan, CanteroEquivalentHeightPlan):
@@ -221,6 +223,7 @@ def apply_cantero_equivalent_height_plan(
         data,
         field_getter=get_concentration,
         source_file=source_file,
+        validate_geometry=validate_geometry,
     )
     if (
         not np.array_equal(z_result.horizontal_coordinates, plan.x_coordinates)
@@ -243,6 +246,19 @@ def apply_cantero_equivalent_height_plan(
         span_averaged_height=span_averaged_height,
         spanwise_length=plan.spanwise_length,
     )
+
+
+def validate_cantero_equivalent_height_plan_geometry(
+    plan: CanteroEquivalentHeightPlan,
+    data: object,
+    *,
+    source_file: object | None = None,
+) -> None:
+    """Check all coordinates and element ordering against an established plan."""
+    if not isinstance(plan, CanteroEquivalentHeightPlan):
+        raise ValueError("plan must be a CanteroEquivalentHeightPlan.")
+    validate_gll_directional_integration_plan_geometry(
+        plan.z_integration_plan, data, source_file=source_file)
 
 
 def compute_cantero_equivalent_height(
@@ -461,4 +477,5 @@ __all__ = (
     "compute_cantero_equivalent_height",
     "load_cantero_equivalent_height_npz",
     "save_cantero_equivalent_height_npz",
+    "validate_cantero_equivalent_height_plan_geometry",
 )

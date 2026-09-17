@@ -6,6 +6,9 @@ case_dirs:
   N9: /data/Nek5000_data/case_N9
   N11: /data/Nek5000_data/case_N11
   GC8950_N7: /data/Nek5000_data/GC8950_N7
+  N7_H: /data/Nek5000_data/case_N7_H
+  N7_VH: /data/Nek5000_data/case_N7_VH
+  N7_VVH: /data/Nek5000_data/case_N7_VVH
 
 postproc_root: /data/Nek5000_data/postproc/poly_order_compare
 results_root: /data/Nek5000_data/results/poly_order_compare

@@ -1,4 +1,4 @@
-"""Overlay reconstructed N5/N7/N9 Re3450 fronts with Cantero Figure 5a."""
+"""Overlay reconstructed compatible Re=3450 fronts with Cantero Figure 5a."""
 
 from __future__ import annotations
 
@@ -28,17 +28,31 @@ from nek_post.paths import ProjectPaths, load_project_paths
 def _parse_args(paths: ProjectPaths, argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Create the formal four-dataset Cantero Re3450 overlays from independently "
-            "reconstructed N5, N7, and N9 mean fronts."
+            "Create Cantero Re=3450 overlays from independently reconstructed "
+            "mean fronts. The validated N5/N7/N9 workflow remains the default."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--cases",
-        nargs=3,
-        choices=FORMAL_RE3450_CASES,
+        nargs="+",
         default=list(FORMAL_RE3450_CASES),
-        help="Formal case set; must contain N5, N7, and N9.",
+        help="Ordered compatible case labels.",
+    )
+    parser.add_argument(
+        "--front-root",
+        type=Path,
+        default=paths.cantero_mean_front_dir,
+        help="Root containing CASE/CASE_cantero_mean_front_timeseries.csv.",
+    )
+    parser.add_argument(
+        "--reference-case",
+        help="Optional finest numerical reference for time-aligned cross-case tables.",
+    )
+    parser.add_argument(
+        "--include-input-summary",
+        action="store_true",
+        help="Write frame success/failure and extraction-definition metadata.",
     )
     parser.add_argument(
         "--paper-csv",
@@ -72,9 +86,11 @@ def main(argv: list[str] | None = None) -> None:
     paths = load_project_paths(REPO_ROOT / "config" / "paths.yaml")
     try:
         args = _parse_args(paths, argv)
-        front_csvs = cantero_re3450_front_csvs(paths.cantero_mean_front_dir)
+        front_csvs = cantero_re3450_front_csvs(args.front_root, args.cases)
         outputs = cantero_re3450_multicase_output_paths(
-            args.output_dir, include_plots=not args.no_plots
+            args.output_dir, include_plots=not args.no_plots, cases=args.cases,
+            include_input_summary=args.include_input_summary,
+            reference_case=args.reference_case,
         )
         if not args.overwrite and all(path.exists() for path in outputs.all_paths()):
             print(
@@ -95,11 +111,18 @@ def main(argv: list[str] | None = None) -> None:
             slump_tmax=args.slump_tmax,
             overwrite=args.overwrite,
             no_plots=args.no_plots,
+            reference_case=args.reference_case,
+            include_input_summary=args.include_input_summary,
         )
         for case in run.cases:
             print(f"{case} Phase-2 CSV: {run.front_csvs[case]}")
         print(f"Paper CSV: {run.paper_csv}")
         print(f"Combined summary: {run.outputs.summary_csv}")
+        if run.outputs.input_summary_csv is not None:
+            print(f"Input summary: {run.outputs.input_summary_csv}")
+        if run.outputs.reference_timeseries_csv is not None:
+            print(f"Reference-aligned timeseries: {run.outputs.reference_timeseries_csv}")
+            print(f"Reference-aligned summary: {run.outputs.reference_summary_csv}")
         if run.outputs.linear_overlay is None:
             print("Combined figures: skipped (--no-plots)")
         else:

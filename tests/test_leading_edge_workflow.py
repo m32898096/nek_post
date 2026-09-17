@@ -46,6 +46,7 @@ def _fake_plan() -> SimpleNamespace:
         native_ny=2,
         dense_ny=4,
         y_upsample_factor=2,
+        target_valid_mask=np.ones((4, 3), dtype=np.bool_),
         inverse_mapping_diagnostics=diagnostics,
     )
 

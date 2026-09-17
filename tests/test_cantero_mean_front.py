@@ -273,6 +273,40 @@ def test_timeseries_reuses_one_phase_one_plan_and_keeps_failed_frames(
     np.testing.assert_array_equal(loaded["file_index"], [1, 2])
     np.testing.assert_allclose(loaded["x_front"], [1.5, 0.99])
     np.testing.assert_allclose(loaded["x_front_minus_initial"], [0.0, -0.51])
+    assert loaded["n_input_frames"] == 3
+    assert loaded["n_successful_frames"] == 2
+    assert loaded["n_failed_frames"] == 1
+    assert loaded["input_time_start"] == pytest.approx(.5)
+    assert loaded["input_time_end"] == pytest.approx(1.5)
+    assert loaded["failed_file_indices"] == (3,)
+    assert loaded["failed_statuses"] == (STATUS_REFERENCE_BELOW_THRESHOLD,)
+
+
+def test_stationary_fast_path_checks_last_frame_geometry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    frames = tuple(SimpleNamespace(index=i, path=tmp_path / f"f{i}") for i in (1, 2))
+    first = SimpleNamespace(time=0.0)
+    second = SimpleNamespace(time=1.0)
+    final_geometry = object()
+    plan = object()
+    checks: list[tuple[object, object, Path]] = []
+    monkeypatch.setattr(mean_front, "build_cantero_equivalent_height_plan", lambda data: plan)
+    def apply(_plan: object, data: object, **_kwargs: object) -> object:
+        return SimpleNamespace(x_coordinates=np.array([0., 1., 2.]),
+                               span_averaged_height=np.array([1., .02, 0.]))
+    monkeypatch.setattr(mean_front, "apply_cantero_equivalent_height_plan", apply)
+    monkeypatch.setattr(mean_front, "validate_cantero_equivalent_height_plan_geometry",
+                        lambda p, d, *, source_file: checks.append((p, d, source_file)))
+
+    result = compute_cantero_mean_front_timeseries(
+        frames, case="N7", reader=lambda _path: first,
+        subsequent_reader=lambda _path: second,
+        stationary_geometry_check_reader=lambda _path: final_geometry,
+        validate_geometry_each_frame=False)
+
+    assert result.time.tolist() == [0.0, 1.0]
+    assert checks == [(plan, final_geometry, frames[-1].path)]
 
 
 def test_timeseries_rejects_nonincreasing_frame_times(

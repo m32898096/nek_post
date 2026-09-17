@@ -47,6 +47,26 @@ def test_cli_defaults_are_formal_re3450_configuration(tmp_path: Path) -> None:
     assert args.savgol_polyorder == 3
     assert args.slump_tmin == 3.0
     assert args.slump_tmax == 12.0
+    assert args.front_root == paths.cantero_mean_front_dir
+    assert args.reference_case is None
+    assert not args.include_input_summary
+
+
+def test_cli_accepts_arbitrary_ordered_compatible_cases(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    front_root = tmp_path / "h-fronts"
+    output = tmp_path / "h-output"
+    args = overlay_script._parse_args(paths, [
+        "--cases", "N7_H", "N7_VH", "N7_VVH",
+        "--front-root", str(front_root), "--output-dir", str(output),
+        "--reference-case", "N7_VVH", "--include-input-summary",
+    ])
+
+    assert args.cases == ["N7_H", "N7_VH", "N7_VVH"]
+    assert args.front_root == front_root
+    assert args.output_dir == output
+    assert args.reference_case == "N7_VVH"
+    assert args.include_input_summary
 
 
 def test_cli_successfully_skips_complete_output_set_before_work(
