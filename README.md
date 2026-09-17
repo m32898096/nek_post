@@ -320,3 +320,10 @@ Step 4 directional mesh and pairwise-field diagnostics are available with
 The [Step 4 documentation](docs/h_refinement_convergence.md) explains the
 measured anisotropy, classification criteria and why no global observed order
 is reported for these meshes.
+
+Step 5 reuses the validated Cantero equivalent-height, mean-front, velocity,
+smoothing, and reconstruction kernels for `N7_H`, `N7_VH`, and `N7_VVH`.
+The generalized multicase wrapper keeps the existing N5/N7/N9 defaults and can
+write time-aligned differences against a selected finest numerical reference.
+See [the h-refinement Cantero documentation](docs/h_refinement_cantero.md) for
+commands, real-data results, temporal-alignment semantics, and limitations.

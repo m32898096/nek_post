@@ -111,11 +111,15 @@ def test_cli_writes_timeseries_to_output_root(
     paths = _paths(tmp_path)
     _configure(paths, monkeypatch)
     frames = (object(), object())
+    calls: list[dict[str, object]] = []
     monkeypatch.setattr(compute_script, "discover_nek_frame_paths", lambda *_args, **_kwargs: frames)
+    def compute(supplied_frames: object, **kwargs: object) -> CanteroMeanFrontTimeseries:
+        calls.append(kwargs)
+        return _series(paths)
     monkeypatch.setattr(
         compute_script,
         "compute_cantero_mean_front_timeseries",
-        lambda supplied_frames, **_kwargs: _series(paths),
+        compute,
     )
 
     output_root = tmp_path / "artifacts"
@@ -125,6 +129,38 @@ def test_cli_writes_timeseries_to_output_root(
     loaded = read_cantero_mean_front_timeseries_csv(path)
     np.testing.assert_array_equal(loaded["file_index"], [1, 2])
     np.testing.assert_allclose(loaded["x_front"], [1.5, 2.0])
+    reader = calls[0]["reader"]
+    assert getattr(reader, "keywords")["skip_vars"] == ("ux", "uy", "uz", "pressure")
+    assert calls[0]["subsequent_reader"] is None
+    assert calls[0]["stationary_geometry_check_reader"] is None
+    assert calls[0]["validate_geometry_each_frame"] is True
+
+
+def test_stationary_fast_path_uses_field_only_subsequent_reader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _paths(tmp_path)
+    _configure(paths, monkeypatch)
+    monkeypatch.setattr(compute_script, "discover_nek_frame_paths",
+                        lambda *_args, **_kwargs: (object(), object()))
+    calls: list[dict[str, object]] = []
+    def compute(_frames: object, **kwargs: object) -> CanteroMeanFrontTimeseries:
+        calls.append(kwargs)
+        return _series(paths)
+    monkeypatch.setattr(compute_script, "compute_cantero_mean_front_timeseries", compute)
+
+    compute_script.main(["--case", "N7", "--output-dir", str(tmp_path / "out"),
+                         "--stationary-geometry-fast-path"])
+
+    assert calls[0]["validate_geometry_each_frame"] is False
+    first = calls[0]["reader"]
+    later = calls[0]["subsequent_reader"]
+    check = calls[0]["stationary_geometry_check_reader"]
+    assert getattr(first, "keywords")["dtype"] == "float32"
+    assert getattr(later, "keywords")["skip_vars"] == (
+        "x", "y", "z", "ux", "uy", "uz", "pressure")
+    assert getattr(check, "keywords")["skip_vars"] == (
+        "ux", "uy", "uz", "pressure", "temperature")
 
 
 def test_cli_existing_output_skips_before_expensive_processing(

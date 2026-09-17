@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 from pathlib import Path
 import sys
 from typing import Any, Mapping
@@ -21,6 +22,7 @@ from nek_post.cantero_mean_front import (
 )
 from nek_post.config import load_project_config
 from nek_post.front_detection_io import discover_nek_frame_paths
+from nek_post.io_nek import read_nek_file
 from nek_post.paths import ProjectPaths
 
 
@@ -108,6 +110,12 @@ def _parse_args(
         action="store_true",
         help="Replace an existing CSV artifact.",
     )
+    parser.add_argument(
+        "--stationary-geometry-fast-path",
+        action="store_true",
+        help=("Validate full geometry on the first frame, then read concentration only; "
+              "requires an independently established stationary mesh."),
+    )
     return parser.parse_args(argv)
 
 
@@ -134,11 +142,27 @@ def main(argv: list[str] | None = None) -> None:
             start_index=args.start_index,
             end_index=args.end_index,
         )
+        first_reader = partial(
+            read_nek_file, skip_vars=("ux", "uy", "uz", "pressure"),
+            **({"dtype": "float32"} if args.stationary_geometry_fast_path else {}),
+        )
+        subsequent_reader = (partial(
+            read_nek_file, dtype="float32",
+            skip_vars=("x", "y", "z", "ux", "uy", "uz", "pressure"),
+        ) if args.stationary_geometry_fast_path else None)
+        geometry_check_reader = (partial(
+            read_nek_file, dtype="float32",
+            skip_vars=("ux", "uy", "uz", "pressure", "temperature"),
+        ) if args.stationary_geometry_fast_path else None)
         series = compute_cantero_mean_front_timeseries(
             frames,
             case=case,
             threshold=args.threshold,
             reference_x=args.reference_x,
+            reader=first_reader,
+            subsequent_reader=subsequent_reader,
+            stationary_geometry_check_reader=geometry_check_reader,
+            validate_geometry_each_frame=not args.stationary_geometry_fast_path,
         )
         written_path = write_cantero_mean_front_timeseries_csv(
             output_path, series, overwrite=args.overwrite

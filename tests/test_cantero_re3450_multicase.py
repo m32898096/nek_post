@@ -17,6 +17,7 @@ from nek_post.cantero_re3450_multicase import (
     build_cantero_re3450_overlay_series,
     cantero_re3450_front_csvs,
     cantero_re3450_multicase_output_paths,
+    compare_cantero_reconstructions_to_reference,
     run_cantero_re3450_multicase,
     write_cantero_re3450_multicase_overlays,
 )
@@ -60,6 +61,8 @@ def test_formal_cases_and_independent_phase_two_paths() -> None:
             f"/results/cantero_mean_front/{case}/{case}_cantero_mean_front_timeseries.csv"
         )
     assert len(set(paths.values())) == 3
+    assert tuple(cantero_re3450_front_csvs(
+        "/results/cantero_mean_front", ("N9", "N5", "N7"))) == FORMAL_RE3450_CASES
 
 
 def test_run_reconstructs_each_absolute_front_once_and_writes_ordered_summary(
@@ -253,6 +256,101 @@ def test_outputs_have_no_raw_comparison_artifacts() -> None:
     assert all("raw" not in path.name.lower() for path in outputs.all_paths())
     assert len(outputs.timeseries_csvs) == 3
     assert len(outputs.comparison_csvs) == 3
+
+
+def test_arbitrary_case_paths_preserve_order_and_add_reference_tables() -> None:
+    cases = ("N7_H", "N7_VH", "N7_VVH")
+    fronts = cantero_re3450_front_csvs("/results/h_refinement/mean_front", cases)
+    outputs = cantero_re3450_multicase_output_paths(
+        "/results/h_refinement/reconstruction", cases=cases,
+        include_input_summary=True, reference_case="N7_VVH")
+
+    assert tuple(fronts) == cases
+    assert outputs.cases == cases
+    assert tuple(outputs.timeseries_csvs) == cases
+    assert outputs.input_summary_csv is not None
+    assert outputs.reference_timeseries_csv is not None
+    assert "N7_VVH" in outputs.reference_timeseries_csv.name
+    assert len(outputs.all_paths()) == 12
+    # Historical defaults remain byte-for-byte path compatible.
+    assert len(cantero_re3450_multicase_output_paths("/tmp/p").all_paths()) == 9
+
+
+def test_reference_comparison_uses_actual_case_times_without_extrapolation() -> None:
+    def reconstruction(time: np.ndarray, slope: float) -> CanteroFrontReconstruction:
+        absolute = 10.0 + slope * time
+        relative = absolute - absolute[0]
+        return CanteroFrontReconstruction(
+            time=time, file_index=np.arange(1, time.size + 1), x_front=absolute,
+            x_front_relative=relative, v_raw=np.full(time.size, slope),
+            v_smooth=np.full(time.size, slope), x_reconstructed=absolute,
+            x_reconstructed_relative=relative,
+            x_reconstruction_difference=np.zeros(time.size),
+        )
+
+    cases = ("N7_H", "N7_VH", "N7_VVH")
+    values = {
+        "N7_H": reconstruction(np.array([-1.0, 0.5, 1.5, 3.0]), 2.0),
+        "N7_VH": reconstruction(np.array([0.25, 1.25]), 1.5),
+        "N7_VVH": reconstruction(np.array([0.0, 1.0, 2.0]), 1.0),
+    }
+    rows, summaries = compare_cantero_reconstructions_to_reference(
+        values, cases=cases, reference_case="N7_VVH")
+
+    h_rows = [row for row in rows if row["case"] == "N7_H"]
+    assert [row["time"] for row in h_rows] == [0.5, 1.5]
+    assert [row["file_index"] for row in h_rows] == [2, 3]
+    assert all(0.0 <= row["time"] <= 2.0 for row in rows)
+    ref_rows = [row for row in rows if row["case"] == "N7_VVH"]
+    assert all(row["front_position_difference"] == 0.0 for row in ref_rows)
+    assert all(row["raw_velocity_difference"] == 0.0 for row in ref_rows)
+    ref_summary = next(row for row in summaries if row["case"] == "N7_VVH")
+    assert ref_summary["is_reference"] is True
+    assert ref_summary["max_absolute_reconstructed_front_difference"] == 0.0
+    assert "no extrapolation" in ref_summary["time_alignment"]
+
+
+def test_generic_run_writes_input_and_reference_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cases = ("N7_H", "N7_VH", "N7_VVH")
+    front_csvs = {case: tmp_path / f"{case}.csv" for case in cases}
+    time = np.array([0.0, 1.0, 2.0])
+    slopes = dict(zip(cases, (1.2, 1.1, 1.0), strict=True))
+
+    def read_front(path: Path) -> dict[str, object]:
+        case = next(case for case, candidate in front_csvs.items() if candidate == Path(path))
+        x = 8.0 + slopes[case] * time
+        return {
+            "time": time, "file_index": np.array([1, 2, 3]), "x_front": x,
+            "x_front_minus_initial": x - x[0], "threshold": .01,
+            "reference_x": 0.0, "n_input_frames": 4,
+            "n_successful_frames": 3, "n_failed_frames": 1,
+            "input_time_start": 0.0, "input_time_end": 3.0,
+            "failed_file_indices": (4,), "failed_statuses": ("no_downward_crossing",),
+        }
+
+    monkeypatch.setattr(multicase_module, "read_cantero_mean_front_timeseries_csv", read_front)
+    monkeypatch.setattr(multicase_module, "read_digitized_paper_csv",
+                        lambda *_args, **_kwargs: {"time": time, "x": time})
+    run = run_cantero_re3450_multicase(
+        front_csvs=front_csvs, paper_csv=tmp_path / "paper.csv",
+        output_dir=tmp_path / "out", cases=cases, smooth_window=1,
+        no_plots=True, reference_case="N7_VVH", include_input_summary=True)
+
+    assert run.outputs.input_summary_csv is not None
+    assert run.outputs.reference_timeseries_csv is not None
+    assert run.outputs.reference_summary_csv is not None
+    assert all(path.is_file() for path in run.outputs.all_paths())
+    with run.outputs.input_summary_csv.open(newline="", encoding="utf-8") as handle:
+        inputs = list(csv.DictReader(handle))
+    assert [row["case"] for row in inputs] == list(cases)
+    assert all(row["threshold"] == "0.01" and row["reference_x"] == "0" for row in inputs)
+    assert all(row["n_failed_frames"] == "1" and row["failed_file_indices"] == "4" for row in inputs)
+    with run.outputs.reference_summary_csv.open(newline="", encoding="utf-8") as handle:
+        summary = list(csv.DictReader(handle))
+    assert summary[-1]["case"] == "N7_VVH"
+    assert summary[-1]["max_absolute_front_position_difference"] == "0"
 
 
 def test_partial_output_preflight_stops_before_reads(

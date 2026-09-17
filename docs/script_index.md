@@ -74,7 +74,7 @@ This index lists the repository scripts in numeric order. Run commands from the 
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/24_compute_cantero_mean_front.py` | Reuse Phase 1 Cantero Eq. (4.1)–(4.2) composite-GLL equivalent-height preprocessing for each configured snapshot, then locate the first positive-x physical-GLL threshold crossing where `h_bar < delta`; default `delta=0.01`. No uniform-grid interpolation, paper comparison, or reconstruction is performed. | Configured `GC0.fNNNNN` field snapshots | `/data/Nek5000_data/results/poly_order_compare/cantero_mean_front/<case>/<case>_cantero_mean_front_timeseries.csv` | `PYENV_VERSION=research312 python scripts/24_compute_cantero_mean_front.py --case N7 --threshold 0.01 --reference-x 0` |
+| `scripts/24_compute_cantero_mean_front.py` | Reuse Phase 1 Cantero Eq. (4.1)–(4.2) composite-GLL equivalent-height preprocessing for each configured snapshot, then locate the first positive-x physical-GLL threshold crossing where `h_bar < delta`; default `delta=0.01`. The optional stationary-geometry fast path retains the same plan and numerical kernels, validates first/last coordinate signatures, and reads only concentration between them. No uniform-grid interpolation, paper comparison, or reconstruction is performed. | Configured `GC0.fNNNNN` field snapshots | Explicit output root, defaulting to `/data/Nek5000_data/results/poly_order_compare/cantero_mean_front/<case>/` | `PYENV_VERSION=research312 python scripts/24_compute_cantero_mean_front.py --case N7 --threshold 0.01 --reference-x 0` |
 
 ## Cantero reconstructed x-t comparison
 
@@ -86,7 +86,7 @@ This index lists the repository scripts in numeric order. Run commands from the 
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
-| `scripts/26_overlay_cantero_re3450_multicase.py` | Formal Re3450 comparison with Cantero Figure 5a plus independently reconstructed N5, N7, and N9 fronts together on one linear four-curve overlay and one log-log four-curve overlay. Only reconstructed numerical fronts are compared with paper; raw mean-front trajectories are not overlaid. Log-log inputs are masked independently to strictly positive finite time/displacement without epsilon substitution or coordinate shifts. Smoothing retains the established moving-average window `11`; no fitting or tuning to paper data is performed. | Three formal Phase-2 Cantero mean-front CSVs and configured Re3450 Figure-5a CSV | `/data/Nek5000_data/results/poly_order_compare/cantero_re3450_multicase/` | `PYENV_VERSION=research312 python scripts/26_overlay_cantero_re3450_multicase.py` |
+| `scripts/26_overlay_cantero_re3450_multicase.py` | Re=3450 comparison for an arbitrary ordered compatible case set. The no-argument validated N5/N7/N9 workflow, filenames, and numerical behavior are preserved. Optional finest-reference tables interpolate only the reference at actual case times within overlap, without extrapolation. Only reconstructed numerical fronts are compared with paper; smoothing remains the established moving-average window `11`. | Per-case Phase-2 Cantero mean-front CSVs and configured Re=3450 Figure-5a CSV | Explicit output directory, defaulting to `/data/Nek5000_data/results/poly_order_compare/cantero_re3450_multicase/` | `PYENV_VERSION=research312 python scripts/26_overlay_cantero_re3450_multicase.py` |
 
 See [leading_edge_evolution.md](leading_edge_evolution.md) for the physical
 definition, spectral-element sampling method, output schemas, and validation
@@ -112,3 +112,12 @@ See [h-refinement inventory](h_refinement.md) for scope, limitations, and real-d
 | `scripts/30_analyze_h_refinement_convergence.py` | Analyze actual directional mesh widths and saved Step 3 field differences; report conditional classifications and diagnostic phase evidence. | Raw mesh coordinates and read-only Step 3 arrays/masks | Separate `results/h_refinement/convergence_analysis/` JSON, CSV and PNG artifacts | `PYENV_VERSION=research312 python scripts/30_analyze_h_refinement_convergence.py` |
 
 See [h-refinement convergence diagnostics](h_refinement_convergence.md) for definitions, real mesh evidence and limitations.
+
+## H-refinement Cantero comparison
+
+Scripts 24 and 26 are reused directly for the H/VH/VVH Cantero workflow; no
+separate numerical implementation is maintained. The complete commands write
+under `results/h_refinement/cantero_mean_front/` and
+`results/h_refinement/cantero_re3450/`. See
+[h-refinement Cantero comparison](h_refinement_cantero.md) for the validated
+definitions, real results, cross-case tables, and time-alignment semantics.

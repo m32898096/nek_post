@@ -807,6 +807,18 @@ def _validate_plan_geometry(
     return elements
 
 
+def validate_gll_directional_integration_plan_geometry(
+    plan: GLLDirectionalIntegrationPlan,
+    data: object,
+    *,
+    source_file: object | None = None,
+) -> None:
+    """Validate a snapshot's full coordinate signatures against a saved plan."""
+    if not isinstance(plan, GLLDirectionalIntegrationPlan):
+        raise ValueError("plan must be a GLLDirectionalIntegrationPlan.")
+    _validate_plan_geometry(plan, data, source_file)
+
+
 def _validated_scalar_fields(
     elements: tuple[Any, ...],
     field_getter: Callable[[Any], object],
@@ -842,18 +854,37 @@ def apply_gll_directional_integration_plan(
     *,
     field_getter: Callable[[Any], object],
     source_file: object | None = None,
+    validate_geometry: bool = True,
 ) -> GLLDirectionalIntegrationResult:
     """Apply a stationary-geometry directional integration plan.
 
     A plan is reusable only for identical stationary geometry in the same
     element ordering used to build it.  A reordered snapshot is intentionally
     rejected by coordinate-signature validation rather than remapped silently.
+    ``validate_geometry=False`` is an explicit stationary-mesh fast path for
+    callers that have independently established geometry invariance; it still
+    validates element count and every scalar-field shape before applying the
+    unchanged quadrature and assembly plan.
     """
     if not isinstance(plan, GLLDirectionalIntegrationPlan):
         raise ValueError("plan must be a GLLDirectionalIntegrationPlan.")
     if not callable(field_getter):
         raise ValueError("field_getter must be callable.")
-    elements = _validate_plan_geometry(plan, data, source_file)
+    if not isinstance(validate_geometry, (bool, np.bool_)):
+        raise ValueError("validate_geometry must be boolean.")
+    if validate_geometry:
+        elements = _validate_plan_geometry(plan, data, source_file)
+    else:
+        try:
+            elements = tuple(data.elem)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError) as exc:
+            raise ValueError("Data must provide an iterable elem collection.") from exc
+        context = "" if source_file is None else f" for {source_file}"
+        if len(elements) != plan.element_count:
+            raise ValueError(
+                f"Incompatible layout{context}: expected {plan.element_count} "
+                f"elements, found {len(elements)}."
+            )
     fields = _validated_scalar_fields(
         elements, field_getter, plan.element_shape
     )
@@ -966,4 +997,5 @@ __all__ = (
     "build_gll_directional_integration_plan",
     "composite_physical_axis_quadrature_weights",
     "normalize_integration_direction",
+    "validate_gll_directional_integration_plan_geometry",
 )

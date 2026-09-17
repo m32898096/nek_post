@@ -522,6 +522,29 @@ def test_changed_geometry_is_rejected_when_reusing_plan() -> None:
         )
 
 
+def test_explicit_stationary_geometry_fast_path_reuses_unchanged_plan_math() -> None:
+    data = _make_mesh()
+    plan = build_gll_directional_integration_plan(data, direction="x")
+    expected = apply_gll_directional_integration_plan(
+        plan, data, field_getter=lambda element: element.scalar)
+    field_only = deepcopy(data)
+    for element in field_only.elem:
+        element.pos = None
+
+    result = apply_gll_directional_integration_plan(
+        plan, field_only, field_getter=lambda element: element.scalar,
+        validate_geometry=False)
+
+    np.testing.assert_array_equal(result.values, expected.values)
+    np.testing.assert_array_equal(result.horizontal_coordinates,
+                                  expected.horizontal_coordinates)
+    field_only.elem.pop()
+    with pytest.raises(ValueError, match="Incompatible layout"):
+        apply_gll_directional_integration_plan(
+            plan, field_only, field_getter=lambda element: element.scalar,
+            validate_geometry=False)
+
+
 def test_disagreeing_transverse_field_replicas_are_rejected() -> None:
     data = _make_mesh(
         x_edges=(0.0, 1.0),

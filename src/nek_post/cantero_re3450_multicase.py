@@ -1,4 +1,10 @@
-"""Formal Re3450 reconstructed-front comparison for N5, N7, and N9."""
+"""Re=3450 reconstructed-front comparison for compatible case sets.
+
+The historical N5/N7/N9 configuration remains the default.  Case selection,
+labels, output routing, and optional numerical-reference diagnostics are
+orchestration concerns; every case still uses the validated single-case
+Cantero reconstruction kernels.
+"""
 
 from __future__ import annotations
 
@@ -41,6 +47,34 @@ CASE_LABELS = MappingProxyType(
     {case: f"{case} reconstructed" for case in FORMAL_RE3450_CASES}
 )
 
+REFERENCE_COMPARISON_COLUMNS = (
+    "case", "reference_case", "time", "file_index",
+    "x_front", "reference_x_front_interp", "front_position_difference",
+    "v_raw", "reference_v_raw_interp", "raw_velocity_difference",
+    "v_smooth", "reference_v_smooth_interp", "smoothed_velocity_difference",
+    "x_reconstructed_relative", "reference_x_reconstructed_relative_interp",
+    "reconstructed_front_difference",
+)
+
+REFERENCE_SUMMARY_COLUMNS = (
+    "case", "reference_case", "is_reference", "n_comparison_points",
+    "time_start", "time_end", "time_alignment",
+    "mean_absolute_front_position_difference", "rms_front_position_difference",
+    "max_absolute_front_position_difference",
+    "mean_absolute_raw_velocity_difference", "rms_raw_velocity_difference",
+    "max_absolute_raw_velocity_difference",
+    "mean_absolute_smoothed_velocity_difference", "rms_smoothed_velocity_difference",
+    "max_absolute_smoothed_velocity_difference",
+    "mean_absolute_reconstructed_front_difference", "rms_reconstructed_front_difference",
+    "max_absolute_reconstructed_front_difference",
+)
+
+INPUT_SUMMARY_COLUMNS = (
+    "case", "front_source", "threshold", "reference_x", "n_input_frames",
+    "n_successful_frames", "n_failed_frames", "time_start", "time_end",
+    "failed_file_indices", "failed_statuses",
+)
+
 MULTICASE_SUMMARY_COLUMNS = (
     "case",
     "front_source",
@@ -79,25 +113,36 @@ MULTICASE_SUMMARY_COLUMNS = (
 )
 
 
-def _formal_cases(cases: Sequence[str]) -> tuple[str, str, str]:
-    normalized = tuple(str(case).strip().upper() for case in cases)
-    if len(normalized) != len(FORMAL_RE3450_CASES) or set(normalized) != set(
-        FORMAL_RE3450_CASES
-    ):
-        raise ValueError("cases must contain exactly N5, N7, and N9 once each.")
-    return FORMAL_RE3450_CASES
+def _validated_cases(cases: Sequence[str]) -> tuple[str, ...]:
+    if isinstance(cases, (str, bytes)):
+        raise ValueError("cases must be a sequence of case labels.")
+    normalized = tuple(str(case).strip() for case in cases)
+    if not normalized or any(not case for case in normalized):
+        raise ValueError("cases must contain non-empty case labels.")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("cases must not contain duplicate labels.")
+    if any(Path(case).name != case or case == ".." for case in normalized):
+        raise ValueError("case labels must not contain path components.")
+    # Preserve the original formal p-study behavior: any accepted permutation
+    # was normalized to canonical N5/N7/N9 order.
+    upper = tuple(case.upper() for case in normalized)
+    if len(upper) == 3 and set(upper) == set(FORMAL_RE3450_CASES):
+        return FORMAL_RE3450_CASES
+    return normalized
 
 
 def cantero_re3450_front_csvs(
     cantero_mean_front_dir: str | Path,
+    cases: Sequence[str] = FORMAL_RE3450_CASES,
 ) -> Mapping[str, Path]:
-    """Return each formal case's own deterministic Phase-2 CSV."""
+    """Return each selected case's own deterministic Phase-2 CSV."""
+    selected = _validated_cases(cases)
     return MappingProxyType(
         {
             case: cantero_mean_front_timeseries_path(
                 cantero_mean_front_dir, case
             )
-            for case in FORMAL_RE3450_CASES
+            for case in selected
         }
     )
 
@@ -106,17 +151,22 @@ def cantero_re3450_front_csvs(
 class CanteroRe3450MulticaseOutputPaths:
     """Every deterministic CSV and optional combined-figure output."""
 
+    cases: tuple[str, ...]
     timeseries_csvs: Mapping[str, Path]
     comparison_csvs: Mapping[str, Path]
     summary_csv: Path
     linear_overlay: Path | None
     loglog_overlay: Path | None
+    input_summary_csv: Path | None = None
+    reference_timeseries_csv: Path | None = None
+    reference_summary_csv: Path | None = None
 
     def __post_init__(self) -> None:
-        if tuple(self.timeseries_csvs) != FORMAL_RE3450_CASES:
-            raise ValueError("timeseries_csvs must be ordered N5, N7, N9.")
-        if tuple(self.comparison_csvs) != FORMAL_RE3450_CASES:
-            raise ValueError("comparison_csvs must be ordered N5, N7, N9.")
+        cases = _validated_cases(self.cases)
+        if tuple(self.timeseries_csvs) != cases:
+            raise ValueError("timeseries_csvs must follow the selected case order.")
+        if tuple(self.comparison_csvs) != cases:
+            raise ValueError("comparison_csvs must follow the selected case order.")
         if (self.linear_overlay is None) != (self.loglog_overlay is None):
             raise ValueError("Both multicase figures must be enabled or disabled together.")
         object.__setattr__(
@@ -125,34 +175,46 @@ class CanteroRe3450MulticaseOutputPaths:
         object.__setattr__(
             self, "comparison_csvs", MappingProxyType(dict(self.comparison_csvs))
         )
+        object.__setattr__(self, "cases", cases)
 
     def all_paths(self) -> tuple[Path, ...]:
         csv_paths = (
-            *(self.timeseries_csvs[case] for case in FORMAL_RE3450_CASES),
-            *(self.comparison_csvs[case] for case in FORMAL_RE3450_CASES),
+            *(self.timeseries_csvs[case] for case in self.cases),
+            *(self.comparison_csvs[case] for case in self.cases),
             self.summary_csv,
         )
+        optional = tuple(path for path in (
+            self.input_summary_csv, self.reference_timeseries_csv,
+            self.reference_summary_csv,
+        ) if path is not None)
         if self.linear_overlay is None:
-            return csv_paths
+            return (*csv_paths, *optional)
         assert self.loglog_overlay is not None
-        return (*csv_paths, self.linear_overlay, self.loglog_overlay)
+        return (*csv_paths, *optional, self.linear_overlay, self.loglog_overlay)
 
 
 def cantero_re3450_multicase_output_paths(
     output_dir: str | Path,
     *,
     include_plots: bool = True,
+    cases: Sequence[str] = FORMAL_RE3450_CASES,
+    include_input_summary: bool = False,
+    reference_case: str | None = None,
 ) -> CanteroRe3450MulticaseOutputPaths:
-    """Build exact flat-layout outputs for the formal comparison."""
+    """Build flat-layout outputs, preserving historical defaults exactly."""
     directory = Path(output_dir)
+    selected = _validated_cases(cases)
+    if reference_case is not None and reference_case not in selected:
+        raise ValueError("reference_case must be one of the selected cases.")
     return CanteroRe3450MulticaseOutputPaths(
+        cases=selected,
         timeseries_csvs={
             case: directory / f"{case}_cantero_reconstruction_timeseries.csv"
-            for case in FORMAL_RE3450_CASES
+            for case in selected
         },
         comparison_csvs={
             case: directory / f"{case}_cantero_reconstruction_comparison.csv"
-            for case in FORMAL_RE3450_CASES
+            for case in selected
         },
         summary_csv=directory / "cantero_re3450_multicase_summary.csv",
         linear_overlay=(
@@ -164,6 +226,16 @@ def cantero_re3450_multicase_output_paths(
             directory / "cantero_re3450_multicase_loglog_overlay.png"
             if include_plots
             else None
+        ),
+        input_summary_csv=(directory / "cantero_re3450_input_summary.csv"
+                           if include_input_summary else None),
+        reference_timeseries_csv=(
+            directory / f"cantero_re3450_relative_to_{reference_case}_timeseries.csv"
+            if reference_case is not None else None
+        ),
+        reference_summary_csv=(
+            directory / f"cantero_re3450_relative_to_{reference_case}_summary.csv"
+            if reference_case is not None else None
         ),
     )
 
@@ -199,19 +271,23 @@ def build_cantero_re3450_overlay_series(
     reconstructions: Mapping[str, CanteroFrontReconstruction],
     *,
     loglog: bool,
+    cases: Sequence[str] = FORMAL_RE3450_CASES,
+    case_labels: Mapping[str, str] | None = None,
 ) -> tuple[OverlaySeries, ...]:
-    """Return paper plus N5/N7/N9 reconstructed series for one axis mode."""
+    """Return paper plus selected reconstructed series for one axis mode."""
+    selected = _validated_cases(cases)
+    labels = CASE_LABELS if case_labels is None else case_labels
     paper_time = np.asarray(paper["time"], dtype=np.float64)
     paper_x = np.asarray(
         paper["x"] if "x" in paper else paper["paper_x"], dtype=np.float64
     )
     raw_series = [("paper", PAPER_LABEL, paper_time, paper_x)]
-    for case in FORMAL_RE3450_CASES:
+    for case in selected:
         reconstruction = reconstructions[case]
         raw_series.append(
             (
                 case,
-                CASE_LABELS[case],
+                labels.get(case, f"{case} reconstructed"),
                 reconstruction.time,
                 reconstruction.x_reconstructed_relative,
             )
@@ -260,7 +336,7 @@ def _write_multicase_csvs(
     comparisons: Mapping[str, CanteroFrontComparison],
     summary_rows: Sequence[Mapping[str, object]],
 ) -> None:
-    for case in FORMAL_RE3450_CASES:
+    for case in outputs.cases:
         reconstruction = reconstructions[case]
         _write_array_columns(
             outputs.timeseries_csvs[case],
@@ -391,7 +467,8 @@ def _plot_series(
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-nek-post")
     import matplotlib.pyplot as plt
 
-    colors = {"N5": "tab:blue", "N7": "tab:orange", "N9": "tab:red"}
+    colors = {"N5": "tab:blue", "N7": "tab:orange", "N9": "tab:red",
+              "N7_H": "tab:blue", "N7_VH": "tab:orange", "N7_VVH": "tab:red"}
     figure, axis = plt.subplots(figsize=(7.2, 4.8))
     try:
         for values in series:
@@ -410,7 +487,7 @@ def _plot_series(
                     values.time,
                     values.displacement,
                     linewidth=1.35,
-                    color=colors[values.key],
+                    color=colors.get(values.key),
                     label=values.label,
                 )
         axis.set_xscale("log" if loglog else "linear")
@@ -432,15 +509,17 @@ def write_cantero_re3450_multicase_overlays(
     *,
     paper: Mapping[str, object],
     reconstructions: Mapping[str, CanteroFrontReconstruction],
+    cases: Sequence[str] = FORMAL_RE3450_CASES,
+    case_labels: Mapping[str, str] | None = None,
 ) -> tuple[Path, Path]:
-    """Write one four-dataset linear and one four-dataset log-log overlay."""
+    """Write linear and log-log overlays for paper plus selected cases."""
     if outputs.linear_overlay is None or outputs.loglog_overlay is None:
         raise ValueError("Multicase plot outputs are disabled.")
     linear_series = build_cantero_re3450_overlay_series(
-        paper, reconstructions, loglog=False
+        paper, reconstructions, loglog=False, cases=cases, case_labels=case_labels
     )
     loglog_series = build_cantero_re3450_overlay_series(
-        paper, reconstructions, loglog=True
+        paper, reconstructions, loglog=True, cases=cases, case_labels=case_labels
     )
     return (
         _plot_series(outputs.linear_overlay, linear_series, loglog=False),
@@ -448,17 +527,117 @@ def write_cantero_re3450_multicase_overlays(
     )
 
 
+def _error_statistics(values: NDArray[np.float64], prefix: str) -> dict[str, float]:
+    absolute = np.abs(values)
+    return {
+        f"mean_absolute_{prefix}_difference": float(np.mean(absolute)),
+        f"rms_{prefix}_difference": float(np.sqrt(np.mean(values * values))),
+        f"max_absolute_{prefix}_difference": float(np.max(absolute)),
+    }
+
+
+def compare_cantero_reconstructions_to_reference(
+    reconstructions: Mapping[str, CanteroFrontReconstruction],
+    *,
+    cases: Sequence[str],
+    reference_case: str,
+) -> tuple[tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]:
+    """Compare case series at actual case times against an interpolated reference.
+
+    The finest available numerical reference is linearly interpolated only at
+    selected-case times inside its closed time range.  No extrapolation or
+    temporal modification of either reconstruction is performed.
+    """
+    selected = _validated_cases(cases)
+    if reference_case not in selected:
+        raise ValueError("reference_case must be one of the selected cases.")
+    if set(selected) - set(reconstructions):
+        raise ValueError("reconstructions are missing one or more selected cases.")
+    reference = reconstructions[reference_case]
+    fields = (
+        ("x_front", "front_position"),
+        ("v_raw", "raw_velocity"),
+        ("v_smooth", "smoothed_velocity"),
+        ("x_reconstructed_relative", "reconstructed_front"),
+    )
+    rows: list[Mapping[str, object]] = []
+    summaries: list[Mapping[str, object]] = []
+    alignment = "linear reference interpolation at case times within overlap; no extrapolation"
+    for case in selected:
+        values = reconstructions[case]
+        mask = ((values.time >= reference.time[0])
+                & (values.time <= reference.time[-1]))
+        if not np.any(mask):
+            raise ValueError(f"{case} and {reference_case} have no overlapping times.")
+        time = values.time[mask]
+        file_index = values.file_index[mask]
+        interpolated: dict[str, NDArray[np.float64]] = {}
+        differences: dict[str, NDArray[np.float64]] = {}
+        for attribute, _name in fields:
+            source = np.asarray(getattr(values, attribute), dtype=np.float64)[mask]
+            reference_values = np.asarray(getattr(reference, attribute), dtype=np.float64)
+            interp = np.interp(time, reference.time, reference_values)
+            interpolated[attribute] = interp
+            differences[attribute] = source - interp
+        for position, (current_time, current_index) in enumerate(
+            zip(time, file_index, strict=True)
+        ):
+            rows.append({
+                "case": case, "reference_case": reference_case,
+                "time": float(current_time), "file_index": int(current_index),
+                "x_front": float(values.x_front[mask][position]),
+                "reference_x_front_interp": float(interpolated["x_front"][position]),
+                "front_position_difference": float(differences["x_front"][position]),
+                "v_raw": float(values.v_raw[mask][position]),
+                "reference_v_raw_interp": float(interpolated["v_raw"][position]),
+                "raw_velocity_difference": float(differences["v_raw"][position]),
+                "v_smooth": float(values.v_smooth[mask][position]),
+                "reference_v_smooth_interp": float(interpolated["v_smooth"][position]),
+                "smoothed_velocity_difference": float(differences["v_smooth"][position]),
+                "x_reconstructed_relative": float(values.x_reconstructed_relative[mask][position]),
+                "reference_x_reconstructed_relative_interp": float(
+                    interpolated["x_reconstructed_relative"][position]),
+                "reconstructed_front_difference": float(
+                    differences["x_reconstructed_relative"][position]),
+            })
+        summary: dict[str, object] = {
+            "case": case, "reference_case": reference_case,
+            "is_reference": case == reference_case,
+            "n_comparison_points": int(time.size),
+            "time_start": float(time[0]), "time_end": float(time[-1]),
+            "time_alignment": alignment,
+        }
+        for attribute, name in fields:
+            summary.update(_error_statistics(differences[attribute], name))
+        summaries.append(summary)
+    return tuple(rows), tuple(summaries)
+
+
+def _write_mapping_rows(path: Path, columns: tuple[str, ...], rows: Sequence[Mapping[str, object]]) -> None:
+    if not rows:
+        raise ValueError(f"Cannot write empty table {path}.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({column: format_numeric_value(row[column]) for column in columns})
+
+
 @dataclass(frozen=True)
 class CanteroRe3450MulticaseRun:
     """Completed independent reconstructions and shared-paper comparisons."""
 
-    cases: tuple[str, str, str]
+    cases: tuple[str, ...]
     front_csvs: Mapping[str, Path]
     paper_csv: Path
     reconstructions: Mapping[str, CanteroFrontReconstruction]
     comparisons: Mapping[str, CanteroFrontComparison]
     summary_rows: tuple[Mapping[str, object], ...]
     outputs: CanteroRe3450MulticaseOutputPaths
+    input_summary_rows: tuple[Mapping[str, object], ...] = ()
+    reference_timeseries_rows: tuple[Mapping[str, object], ...] = ()
+    reference_summary_rows: tuple[Mapping[str, object], ...] = ()
 
 
 def run_cantero_re3450_multicase(
@@ -474,15 +653,24 @@ def run_cantero_re3450_multicase(
     slump_tmax: float = DEFAULT_SLUMP_TMAX,
     overwrite: bool = False,
     no_plots: bool = False,
+    reference_case: str | None = None,
+    include_input_summary: bool = False,
+    case_labels: Mapping[str, str] | None = None,
 ) -> CanteroRe3450MulticaseRun:
-    """Run the formal shared-Re3450 comparison with one reconstruction per case."""
-    formal_cases = _formal_cases(cases)
+    """Run the shared-Re=3450 comparison with one reconstruction per case."""
+    selected_cases = _validated_cases(cases)
+    if reference_case is not None and reference_case not in selected_cases:
+        raise ValueError("reference_case must be one of the selected cases.")
+    missing = set(selected_cases) - set(front_csvs)
+    if missing:
+        raise ValueError("front_csvs are missing case(s): " + ", ".join(sorted(missing)))
     resolved_front_csvs = MappingProxyType(
-        {case: Path(front_csvs[case]) for case in formal_cases}
+        {case: Path(front_csvs[case]) for case in selected_cases}
     )
     resolved_paper_csv = Path(paper_csv)
     outputs = cantero_re3450_multicase_output_paths(
-        output_dir, include_plots=not no_plots
+        output_dir, include_plots=not no_plots, cases=selected_cases,
+        include_input_summary=include_input_summary, reference_case=reference_case,
     )
     preflight_output_paths(outputs.all_paths(), overwrite)
 
@@ -490,10 +678,25 @@ def run_cantero_re3450_multicase(
     reconstructions: dict[str, CanteroFrontReconstruction] = {}
     comparisons: dict[str, CanteroFrontComparison] = {}
     summary_rows: list[Mapping[str, object]] = []
-    for case in formal_cases:
+    input_summary_rows: list[Mapping[str, object]] = []
+    for case in selected_cases:
         mean_front = read_cantero_mean_front_timeseries_csv(
             resolved_front_csvs[case]
         )
+        if include_input_summary:
+            failed_indices = tuple(int(value) for value in mean_front["failed_file_indices"])
+            failed_statuses = tuple(str(value) for value in mean_front["failed_statuses"])
+            input_summary_rows.append({
+                "case": case, "front_source": str(resolved_front_csvs[case]),
+                "threshold": mean_front["threshold"], "reference_x": mean_front["reference_x"],
+                "n_input_frames": mean_front["n_input_frames"],
+                "n_successful_frames": mean_front["n_successful_frames"],
+                "n_failed_frames": mean_front["n_failed_frames"],
+                "time_start": mean_front["input_time_start"],
+                "time_end": mean_front["input_time_end"],
+                "failed_file_indices": ";".join(map(str, failed_indices)),
+                "failed_statuses": ";".join(failed_statuses),
+            })
         reconstruction = reconstruct_cantero_mean_front(
             mean_front,
             smooth_method=smooth_method,
@@ -524,21 +727,41 @@ def run_cantero_re3450_multicase(
     _write_multicase_csvs(
         outputs, frozen_reconstructions, frozen_comparisons, summary_rows
     )
+    reference_timeseries_rows: tuple[Mapping[str, object], ...] = ()
+    reference_summary_rows: tuple[Mapping[str, object], ...] = ()
+    if outputs.input_summary_csv is not None:
+        _write_mapping_rows(outputs.input_summary_csv, INPUT_SUMMARY_COLUMNS, input_summary_rows)
+    if reference_case is not None:
+        reference_timeseries_rows, reference_summary_rows = (
+            compare_cantero_reconstructions_to_reference(
+                frozen_reconstructions, cases=selected_cases,
+                reference_case=reference_case)
+        )
+        assert outputs.reference_timeseries_csv is not None
+        assert outputs.reference_summary_csv is not None
+        _write_mapping_rows(outputs.reference_timeseries_csv,
+                            REFERENCE_COMPARISON_COLUMNS, reference_timeseries_rows)
+        _write_mapping_rows(outputs.reference_summary_csv,
+                            REFERENCE_SUMMARY_COLUMNS, reference_summary_rows)
     if not no_plots:
         written = write_cantero_re3450_multicase_overlays(
-            outputs, paper=paper, reconstructions=frozen_reconstructions
+            outputs, paper=paper, reconstructions=frozen_reconstructions,
+            cases=selected_cases, case_labels=case_labels,
         )
         expected = (outputs.linear_overlay, outputs.loglog_overlay)
         if written != expected:
             raise RuntimeError("Multicase overlay paths did not match preflight.")
     return CanteroRe3450MulticaseRun(
-        cases=formal_cases,
+        cases=selected_cases,
         front_csvs=resolved_front_csvs,
         paper_csv=resolved_paper_csv,
         reconstructions=frozen_reconstructions,
         comparisons=frozen_comparisons,
         summary_rows=tuple(summary_rows),
         outputs=outputs,
+        input_summary_rows=tuple(input_summary_rows),
+        reference_timeseries_rows=reference_timeseries_rows,
+        reference_summary_rows=reference_summary_rows,
     )
 
 
@@ -546,6 +769,9 @@ __all__ = (
     "CASE_LABELS",
     "FORMAL_RE3450_CASES",
     "MULTICASE_SUMMARY_COLUMNS",
+    "INPUT_SUMMARY_COLUMNS",
+    "REFERENCE_COMPARISON_COLUMNS",
+    "REFERENCE_SUMMARY_COLUMNS",
     "PAPER_LABEL",
     "CanteroRe3450MulticaseOutputPaths",
     "CanteroRe3450MulticaseRun",
@@ -553,6 +779,7 @@ __all__ = (
     "build_cantero_re3450_overlay_series",
     "cantero_re3450_front_csvs",
     "cantero_re3450_multicase_output_paths",
+    "compare_cantero_reconstructions_to_reference",
     "run_cantero_re3450_multicase",
     "write_cantero_re3450_multicase_overlays",
 )
