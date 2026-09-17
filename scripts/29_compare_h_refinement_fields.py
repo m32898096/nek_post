@@ -29,11 +29,14 @@ def main():
     parser.add_argument("--nz", type=int, required=True)
     parser.add_argument("--max-time-error", type=float, default=.01)
     parser.add_argument("--max-time-spread", type=float, default=.01)
-    parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "results/h_refinement/field_comparison")
+    parser.add_argument("--output-dir", type=Path,
+                        help="Default: configured h-refinement result root / field_comparison.")
     args = parser.parse_args()
     try:
         study = HRefinementStudy.from_yaml(args.study_config)
         paths = ProjectPaths.from_yaml(args.paths_config)
+        if args.output_dir is None:
+            args.output_dir = paths.h_refinement_field_comparison_dir
         config = load_yaml(args.cases_config)
         targets = args.times if args.times is not None else [
             float(config["comparison_sets"][name]["target_time"]) for name in config["multitime_comparison_sets"]]

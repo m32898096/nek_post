@@ -27,14 +27,14 @@ The h-refinement artifacts were generated from the repository root with:
 for case in N7_H N7_VH N7_VVH; do
   PYENV_VERSION=research312 python scripts/24_compute_cantero_mean_front.py \
     --case "$case" \
-    --output-dir results/h_refinement/cantero_mean_front \
+    --output-dir /data/Nek5000_data/results/h_refinement/cantero_mean_front \
     --stationary-geometry-fast-path
 done
 
 PYENV_VERSION=research312 python scripts/26_overlay_cantero_re3450_multicase.py \
   --cases N7_H N7_VH N7_VVH \
-  --front-root results/h_refinement/cantero_mean_front \
-  --output-dir results/h_refinement/cantero_re3450 \
+  --front-root /data/Nek5000_data/results/h_refinement/cantero_mean_front \
+  --output-dir /data/Nek5000_data/results/h_refinement/cantero_re3450 \
   --reference-case N7_VVH \
   --include-input-summary
 ```
@@ -97,8 +97,8 @@ literature comparison rather than an exact solution.
 
 ## Artifacts
 
-`results/h_refinement/cantero_mean_front/` contains one full Phase-2 CSV per
-case. `results/h_refinement/cantero_re3450/` contains reconstructed timeseries,
+`/data/Nek5000_data/results/h_refinement/cantero_mean_front/` contains one full Phase-2 CSV per
+case. `/data/Nek5000_data/results/h_refinement/cantero_re3450/` contains reconstructed timeseries,
 per-case Cantero comparison tables, the combined summary, input success/failure
 summary, time-aligned VVH comparison tables, and linear/log-log overlays. The
 N5/N7/N9 canonical result tree is not read for writing or modified.

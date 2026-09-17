@@ -22,10 +22,12 @@ from nek_post.cantero_re3450_multicase import (
     cantero_re3450_multicase_output_paths,
     run_cantero_re3450_multicase,
 )
+from nek_post.h_refinement import HRefinementStudy
 from nek_post.paths import ProjectPaths, load_project_paths
 
 
-def _parse_args(paths: ProjectPaths, argv: list[str] | None = None) -> argparse.Namespace:
+def _parse_args(paths: ProjectPaths, argv: list[str] | None = None, *,
+                h_cases: tuple[str, ...] = ()) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Create Cantero Re=3450 overlays from independently reconstructed "
@@ -42,8 +44,7 @@ def _parse_args(paths: ProjectPaths, argv: list[str] | None = None) -> argparse.
     parser.add_argument(
         "--front-root",
         type=Path,
-        default=paths.cantero_mean_front_dir,
-        help="Root containing CASE/CASE_cantero_mean_front_timeseries.csv.",
+        help="Root containing CASE/CASE_cantero_mean_front_timeseries.csv; defaults by case set.",
     )
     parser.add_argument(
         "--reference-case",
@@ -63,8 +64,7 @@ def _parse_args(paths: ProjectPaths, argv: list[str] | None = None) -> argparse.
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=paths.cantero_re3450_multicase_dir,
-        help="Directory for per-case CSVs, combined summary, and combined figures.",
+        help="Directory for per-case CSVs, summary and figures; defaults by case set.",
     )
     parser.add_argument(
         "--smooth-method",
@@ -79,13 +79,22 @@ def _parse_args(paths: ProjectPaths, argv: list[str] | None = None) -> argparse.
     parser.add_argument("--slump-tmax", type=float, default=DEFAULT_SLUMP_TMAX)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-plots", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    h_study = bool(args.cases) and all(case in h_cases for case in args.cases)
+    if args.front_root is None:
+        args.front_root = (paths.h_refinement_cantero_mean_front_dir
+                           if h_study else paths.cantero_mean_front_dir)
+    if args.output_dir is None:
+        args.output_dir = (paths.h_refinement_cantero_re3450_dir
+                           if h_study else paths.cantero_re3450_multicase_dir)
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:
     paths = load_project_paths(REPO_ROOT / "config" / "paths.yaml")
     try:
-        args = _parse_args(paths, argv)
+        h_cases = HRefinementStudy.from_yaml(REPO_ROOT / "config" / "h_refinement.yaml").cases
+        args = _parse_args(paths, argv, h_cases=h_cases)
         front_csvs = cantero_re3450_front_csvs(args.front_root, args.cases)
         outputs = cantero_re3450_multicase_output_paths(
             args.output_dir, include_plots=not args.no_plots, cases=args.cases,

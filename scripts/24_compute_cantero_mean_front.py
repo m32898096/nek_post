@@ -22,6 +22,7 @@ from nek_post.cantero_mean_front import (
 )
 from nek_post.config import load_project_config
 from nek_post.front_detection_io import discover_nek_frame_paths
+from nek_post.h_refinement import HRefinementStudy
 from nek_post.io_nek import read_nek_file
 from nek_post.paths import ProjectPaths
 
@@ -64,6 +65,8 @@ def _parse_args(
     paths: ProjectPaths,
     cases: Mapping[str, Any],
     argv: list[str] | None = None,
+    *,
+    h_cases: tuple[str, ...] = (),
 ) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -102,8 +105,7 @@ def _parse_args(
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=paths.cantero_mean_front_dir,
-        help="CSV root; the case subdirectory is added.",
+        help="CSV root; defaults to the configured h root for h cases and the existing p root otherwise.",
     )
     parser.add_argument(
         "--overwrite",
@@ -116,7 +118,11 @@ def _parse_args(
         help=("Validate full geometry on the first frame, then read concentration only; "
               "requires an independently established stationary mesh."),
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.output_dir is None:
+        args.output_dir = (paths.h_refinement_cantero_mean_front_dir
+                           if args.case in h_cases else paths.cantero_mean_front_dir)
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -127,7 +133,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     paths = ProjectPaths.from_mapping(config["paths"])
     try:
-        args = _parse_args(paths, config["cases"], argv)
+        h_cases = HRefinementStudy.from_yaml(REPO_ROOT / "config" / "h_refinement.yaml").cases
+        args = _parse_args(paths, config["cases"], argv, h_cases=h_cases)
         case = str(args.case)
         output_path = cantero_mean_front_timeseries_path(args.output_dir, case)
         if output_path.exists() and not args.overwrite:

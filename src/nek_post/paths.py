@@ -45,6 +45,7 @@ class ProjectPaths:
     results_root: Path
     cantero_fig5a_re3450_csv: Path
     cantero_fig5a_re8950_csv: Path
+    h_refinement_results_root: Path | None = None
 
     def __post_init__(self) -> None:
         converted_case_dirs = MappingProxyType(
@@ -54,6 +55,11 @@ class ProjectPaths:
         object.__setattr__(self, "case_dirs", converted_case_dirs)
         object.__setattr__(self, "postproc_root", Path(self.postproc_root))
         object.__setattr__(self, "results_root", Path(self.results_root))
+        object.__setattr__(
+            self, "h_refinement_results_root",
+            Path(self.h_refinement_results_root) if self.h_refinement_results_root is not None
+            else Path(self.data_root) / "results" / "h_refinement",
+        )
         object.__setattr__(self, "cantero_fig5a_re3450_csv", Path(self.cantero_fig5a_re3450_csv))
         object.__setattr__(self, "cantero_fig5a_re8950_csv", Path(self.cantero_fig5a_re8950_csv))
 
@@ -73,6 +79,8 @@ class ProjectPaths:
             case_dirs={str(label): Path(directory) for label, directory in case_dirs.items()},
             postproc_root=Path(_required(config, "postproc_root")),
             results_root=Path(_required(config, "results_root")),
+            h_refinement_results_root=Path(_required(config, "h_refinement_results_root"))
+            if "h_refinement_results_root" in config else None,
             cantero_fig5a_re3450_csv=Path(
                 _required(paper_data, "cantero_fig5a_re3450_csv", "paper_data")
             ),
@@ -167,6 +175,26 @@ class ProjectPaths:
     def cantero_re3450_multicase_dir(self) -> Path:
         """Root directory for the formal N5/N7/N9 Re3450 overlay."""
         return self.results_root / "cantero_re3450_multicase"
+
+    @property
+    def h_refinement_field_comparison_dir(self) -> Path:
+        return self.h_refinement_results_root / "field_comparison"
+
+    @property
+    def h_refinement_convergence_analysis_dir(self) -> Path:
+        return self.h_refinement_results_root / "convergence_analysis"
+
+    @property
+    def h_refinement_cantero_mean_front_dir(self) -> Path:
+        return self.h_refinement_results_root / "cantero_mean_front"
+
+    @property
+    def h_refinement_cantero_re3450_dir(self) -> Path:
+        return self.h_refinement_results_root / "cantero_re3450"
+
+    @property
+    def h_refinement_leading_edge_dir(self) -> Path:
+        return self.h_refinement_results_root / "leading_edge"
 
 
 def load_project_paths(path: str | Path = DEFAULT_PATHS_FILE) -> ProjectPaths:
