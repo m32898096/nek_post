@@ -227,6 +227,56 @@ def test_dynamic_output_directory_uses_final_case(tmp_path: Path) -> None:
     assert args.output_dir == paths.results_root / "leading_edge" / "CUSTOM"
 
 
+@pytest.mark.parametrize("method", ("rightmost-crossing", "moore-boundary"))
+def test_h_refined_gll_defaults_to_separate_configured_tree(
+    tmp_path: Path, method: str,
+) -> None:
+    paths = _paths(tmp_path)
+    h_cases = ("N7_H", "N7_VH", "N7_VVH")
+    args = compute_script._parse_args(
+        paths, _cases_config(), [
+            "--case", "N7_VH", "--sampling-mode", "refined-gll",
+            "--target-node-count", "10", "--extraction-method", method,
+            "--all-frames",
+        ], h_cases=h_cases,
+    )
+    assert args.sampling_mode == "refined-gll"
+    assert args.target_node_count == 10
+    assert args.nx is None and args.y_upsample_factor is None
+    assert args.output_dir == (
+        paths.h_refinement_refined_gll_leading_edge_dir(10)
+        / method / "N7_VH"
+    )
+
+
+def test_p_refined_gll_default_tree_is_unchanged(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    args = compute_script._parse_args(
+        paths, _cases_config(), [
+            "--case", "N7", "--sampling-mode", "refined-gll",
+            "--target-node-count", "10",
+        ], h_cases=("N7_H", "N7_VH", "N7_VVH"),
+    )
+    assert args.output_dir == (
+        paths.results_root / "leading_edge_gll_refinement"
+        / "rightmost-crossing" / "nodes_10" / "N7"
+    )
+
+
+def test_repeatable_exact_file_indices_support_sparse_smoke_selection(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    args = compute_script._parse_args(
+        paths, _cases_config(),
+        ["--file-index", "1", "--file-index", "79", "--all-frames"],
+    )
+    assert args.file_index == [1, 79]
+    with pytest.raises(SystemExit):
+        compute_script._parse_args(
+            paths, _cases_config(),
+            ["--file-index", "1", "--start-index", "1"],
+        )
+
+
 def test_compute_preflights_and_writes_only_two_csvs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

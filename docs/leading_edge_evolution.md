@@ -132,6 +132,16 @@ The factor-of-two y operation only provides denser post-processing samples of
 the existing spectral-element interpolant. It does not add physical modes,
 recover unresolved scales, or increase the DNS resolution.
 
+The optional `--sampling-mode refined-gll --target-node-count 10` route uses
+the same original-element P7 polynomial and evaluates it at 10 GLL nodes per
+element direction. It preserves non-uniform physical refined-GLL coordinates,
+deduplicates element interfaces, and excludes the periodic upper-y endpoint.
+For configured h-refinement cases its dynamic output is routed to the separate
+canonical h-study tree. The legacy N7 and uniform-spectral defaults are
+unchanged. See [the h-refinement leading-edge page](h_refinement_leading_edge.md#case-native-refined-gll-representation)
+for the H/VH/VVH workflow and its prohibition on pointwise comparison across
+unmatched case-native y grids.
+
 ## Periodic endpoint policy
 
 The computational target coordinates use a periodic interval with the upper
@@ -208,6 +218,7 @@ are:
 | `--file-prefix` | Exact prefix before `.fNNNNN`; default `GC0`. |
 | `--start-index` | Optional inclusive first snapshot index. |
 | `--end-index` | Optional inclusive final snapshot index. |
+| `--file-index` | Exact snapshot index; repeat for sparse smoke selections and do not combine with index bounds. |
 | `--nx` | Uniform physical-x target count; default `1000`. |
 | `--z-target` | Fixed physical horizontal-plane coordinate; default `0.04`. |
 | `--threshold` | Leading-edge concentration contour; default `0.1`. |
@@ -219,6 +230,8 @@ are:
 | `--all-frames` | Select all processed snapshots instead of spaced targets. |
 | `--output-dir` | Override the dynamic CSV artifact directory. |
 | `--overwrite` | Permit replacement of both CSV artifacts. |
+| `--sampling-mode` | `uniform-spectral` (default) or case-native `refined-gll`. |
+| `--target-node-count` | Required only for refined-GLL; 10 evaluates the original P7 polynomial on a 10-node nodal set. |
 
 `--all-frames` and an explicitly supplied `--contour-time-spacing` are mutually
 exclusive. Both CSV paths are preflighted before any Nek snapshot is read or

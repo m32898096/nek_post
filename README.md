@@ -327,3 +327,11 @@ The generalized multicase wrapper keeps the existing N5/N7/N9 defaults and can
 write time-aligned differences against a selected finest numerical reference.
 See [the h-refinement Cantero documentation](docs/h_refinement_cantero.md) for
 commands, real-data results, temporal-alignment semantics, and limitations.
+
+The h-refinement leading edge now also supports the final N7-style 10-node
+refined-GLL representation for H, VH, and VVH. It keeps each case's non-uniform
+physical x/y sampling and writes under
+`/data/Nek5000_data/results/h_refinement/leading_edge/refined_gll_nodes10/`.
+This representation is for per-case evolution and extraction-method validation;
+Step 6B remains the common-grid quantitative cross-case workflow. See
+[the leading-edge documentation](docs/h_refinement_leading_edge.md#case-native-refined-gll-representation).

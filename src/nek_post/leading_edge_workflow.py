@@ -321,7 +321,13 @@ def build_leading_edge_evolution(
         upsample_factor = None
         plan_metadata = MappingProxyType({
             "ymin": float(y[0]), "ymax_periodic_endpoint": float(y[0] + plan.y_period),
+            "source_element_count": plan.source_element_count,
+            "selected_element_count": int(plan.element_indices.size),
+            "element_interval_counts": tuple(plan.element_interval_counts),
+            "duplicated_internal_x_nodes_removed": plan.duplicated_internal_x_nodes_removed,
+            "duplicated_internal_y_nodes_removed": plan.duplicated_internal_y_nodes_removed,
             "maximum_tensor_separability_deviation": plan.maximum_tensor_separability_deviation,
+            "maximum_repeated_profile_mismatch": plan.maximum_repeated_profile_mismatch,
             "maximum_shared_interface_coordinate_mismatch": plan.maximum_shared_interface_coordinate_mismatch,
             "reference_q_z_min": float(plan.reference_q_z.min()),
             "reference_q_z_max": float(plan.reference_q_z.max()),

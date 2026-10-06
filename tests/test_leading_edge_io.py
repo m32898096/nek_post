@@ -155,6 +155,29 @@ def test_io_module_has_no_matplotlib_dependency() -> None:
     assert "matplotlib" not in leading_edge_io.__dict__
 
 
+def test_refined_gll_metadata_records_sampling_and_source_identity() -> None:
+    evolution, _selection = _outputs()
+    refined = replace(
+        evolution,
+        sampling_mode="refined-gll",
+        source_node_count=8,
+        target_node_count=10,
+        y_upsample_factor=None,
+    )
+    selection = select_leading_edge_times(refined, spacing=None)
+    metadata = leading_edge_io.leading_edge_metadata("N7_H", refined, selection)
+
+    assert metadata["sampling_mode"] == "refined-gll"
+    assert metadata["source_node_count"] == 8
+    assert metadata["target_node_count"] == 10
+    assert metadata["periodic_y"] is True
+    assert metadata["periodic_endpoint_included"] is False
+    assert metadata["spatial_extrapolation"] is False
+    assert metadata["source_file_indices"] == [12, 18]
+    assert metadata["stored_physical_times"] == [1.0, 1.4]
+    assert metadata["source_files"] == ["GC0.f00012", "GC0.f00018"]
+
+
 def test_moore_method_is_metadata_only_and_timeseries_schema_is_unchanged(
     tmp_path: Path,
 ) -> None:
