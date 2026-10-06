@@ -15,6 +15,7 @@ from nek_post.front_detection_io import (
     discover_nek_frame_paths,
     preflight_output_paths,
 )
+from nek_post.h_refinement import HRefinementStudy
 from nek_post.leading_edge_io import (
     leading_edge_metadata_path,
     leading_edge_sampling_metadata_path,
@@ -96,6 +97,8 @@ def _parse_args(
     paths: ProjectPaths,
     cases_config: Mapping[str, Any],
     argv: list[str] | None = None,
+    *,
+    h_cases: tuple[str, ...] = (),
 ) -> argparse.Namespace:
     leading_edge = _mapping_value(cases_config, "leading_edge", "cases")
     if not isinstance(leading_edge, Mapping):
@@ -135,6 +138,12 @@ def _parse_args(
         "--end-index",
         type=_integer_at_least(0),
         help="Inclusive last Nek file index; omit for no upper bound.",
+    )
+    parser.add_argument(
+        "--file-index",
+        type=_integer_at_least(0),
+        action="append",
+        help="Process exactly this file index; repeat as needed. Incompatible with index bounds.",
     )
     parser.add_argument(
         "--nx",
@@ -205,8 +214,8 @@ def _parse_args(
         type=Path,
         default=argparse.SUPPRESS,
         help=(
-            "CSV artifact directory. Dynamic default: "
-            f"{paths.results_root}/leading_edge/CASE."
+            "CSV artifact directory. Dynamic default follows the sampling mode, "
+            "case study, extraction method, and target node count."
         ),
     )
     parser.add_argument(
@@ -223,6 +232,10 @@ def _parse_args(
         help="Refined-GLL nodes per element direction, >= source node count; not a new solution order.",
     )
     args = parser.parse_args(argv)
+    if args.file_index is not None and (args.start_index is not None or args.end_index is not None):
+        parser.error("--file-index cannot be combined with --start-index or --end-index.")
+    if args.file_index is not None and len(set(args.file_index)) != len(args.file_index):
+        parser.error("--file-index values must be distinct.")
     if args.sampling_mode == "uniform-spectral":
         if args.target_node_count is not None:
             parser.error("--target-node-count requires --sampling-mode refined-gll.")
@@ -250,6 +263,10 @@ def _parse_args(
                                / args.case.strip().upper())
         elif args.sampling_mode == "uniform-spectral":
             args.output_dir = _default_output_dir(paths, args.case)
+        elif args.case.strip().upper() in h_cases:
+            args.output_dir = (paths.h_refinement_refined_gll_leading_edge_dir(
+                                   args.target_node_count)
+                               / args.extraction_method / args.case.strip().upper())
         else:
             args.output_dir = (paths.results_root / "leading_edge_gll_refinement"
                                / args.extraction_method / f"nodes_{args.target_node_count}"
@@ -260,7 +277,8 @@ def _parse_args(
 def main(argv: list[str] | None = None) -> None:
     paths = load_project_paths(REPO_ROOT / "config" / "paths.yaml")
     cases_config = load_yaml(REPO_ROOT / "config" / "cases.yaml")
-    args = _parse_args(paths, cases_config, argv)
+    h_cases = HRefinementStudy.from_yaml(REPO_ROOT / "config" / "h_refinement.yaml").cases
+    args = _parse_args(paths, cases_config, argv, h_cases=h_cases)
     try:
         case = args.case.strip().upper()
         if not case:
@@ -276,6 +294,16 @@ def main(argv: list[str] | None = None) -> None:
             start_index=args.start_index,
             end_index=args.end_index,
         )
+        if args.file_index is not None:
+            requested_indices = set(args.file_index)
+            frames = tuple(frame for frame in frames if frame.index in requested_indices)
+            found_indices = {frame.index for frame in frames}
+            missing = sorted(requested_indices - found_indices)
+            if missing:
+                raise FileNotFoundError(
+                    "Requested Nek file indices were not found: "
+                    + ", ".join(str(index) for index in missing)
+                )
         requested_paths = _requested_output_paths(output_dir, case, args.sampling_mode, args.ny)
         preflight_output_paths(requested_paths, args.overwrite)
 

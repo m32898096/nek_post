@@ -196,6 +196,15 @@ class ProjectPaths:
     def h_refinement_leading_edge_dir(self) -> Path:
         return self.h_refinement_results_root / "leading_edge"
 
+    def h_refinement_refined_gll_leading_edge_dir(
+        self, target_node_count: int,
+    ) -> Path:
+        """Return the case-native refined-GLL result root for one sampling count."""
+        if (not isinstance(target_node_count, int) or isinstance(target_node_count, bool)
+                or target_node_count < 2):
+            raise ValueError("target_node_count must be an integer greater than or equal to 2.")
+        return self.h_refinement_leading_edge_dir / f"refined_gll_nodes{target_node_count}"
+
 
 def load_project_paths(path: str | Path = DEFAULT_PATHS_FILE) -> ProjectPaths:
     """Load the project's fixed and derived filesystem paths."""

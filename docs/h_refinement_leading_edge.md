@@ -206,3 +206,91 @@ differences are zero, and there are no differing y positions. Their candidate
 crossing counts differ at 79 H, 93 VH and 48 VVH y/frame locations because
 the two methods count candidates differently; these count differences do not
 change the extracted fronts.
+
+## Case-native refined-GLL representation
+
+The separate refined-GLL workflow evaluates each original N=7/P7 solution at
+10 GLL nodes per element direction before applying the same leading-edge
+extractors. This is post-processing resampling of the stored P7 polynomial. It
+is not a P9 simulation, adds no physical modes, and does not replace the Step
+6B common-grid comparison.
+
+Each mesh retains its actual non-uniform refined-GLL physical coordinates.
+Shared element-interface nodes are deduplicated, periodic y retains its lower
+seam and excludes its upper seam, and the three cases are not remapped to a
+common y grid. Consequently this representation supports per-case evolution
+figures and same-case rightmost/Moore method diagnostics, but no direct
+pointwise H/VH/VVH RMS differences.
+
+Use a fresh temporary directory for the required early/late smoke test:
+
+```bash
+smoke_root=/tmp/nek_h_refined_gll_smoke_NEW_ID
+for method in rightmost-crossing moore-boundary; do
+  for case in N7_H N7_VH N7_VVH; do
+    PYENV_VERSION=research312 python scripts/19_compute_leading_edge_evolution.py \
+      --case "$case" --sampling-mode refined-gll --target-node-count 10 \
+      --file-index 1 --file-index 79 --all-frames \
+      --z-target 0.04 --threshold 0.1 --x-min 0.0 --workers 1 \
+      --extraction-method "$method" --output-dir "$smoke_root/$method/$case"
+  done
+done
+PYENV_VERSION=research312 python scripts/32_plot_h_refinement_refined_gll_leading_edges.py \
+  --input-root "$smoke_root" --output-dir "$smoke_root/figures" \
+  --expected-frame-count 2
+```
+
+After the smoke test passes, the full 81-frame producer commands are:
+
+```bash
+for method in rightmost-crossing moore-boundary; do
+  for case in N7_H N7_VH N7_VVH; do
+    PYENV_VERSION=research312 python scripts/19_compute_leading_edge_evolution.py \
+      --case "$case" --sampling-mode refined-gll --target-node-count 10 \
+      --all-frames --z-target 0.04 --threshold 0.1 --x-min 0.0 \
+      --workers 2 --extraction-method "$method"
+  done
+done
+PYENV_VERSION=research312 python scripts/32_plot_h_refinement_refined_gll_leading_edges.py
+```
+
+The configured output root is
+`/data/Nek5000_data/results/h_refinement/leading_edge/refined_gll_nodes10/`.
+Each `METHOD/CASE/` directory contains the reusable timeseries CSV and sampling
+metadata JSON. `figures/` contains one unsmoothed 81-frame PNG/PDF evolution
+pair per case and method plus a JSON validation and method-sensitivity report.
+The metadata records source and target node counts, the physical definition,
+the case-native x/y arrays, source indices/files, stored times, periodic policy,
+plan diagnostics, and the fact that spatial extrapolation is disabled.
+
+The two-frame real-data smoke test used indices 1 and 79. It produced refined
+x/y counts of 2449/108 (H), 3421/153 (VH), and 4411/198 (VVH). All coordinates
+were finite and strictly increasing, both axes were non-uniform, the periodic
+upper seam was absent, and all y positions succeeded for both methods. Stored
+late times were 19.50240408807, 19.50178000752, and 19.50051754274,
+respectively. Rightmost and Moore were numerically identical on all six smoke
+curves. Tensor-separability and interface-coordinate mismatches were zero;
+plane application rejects any geometry change or non-finite assembled value.
+
+The completed production run used all 81 stored frames from time 0 through 20.
+Every case and extraction method succeeded at every case-native spanwise
+position:
+
+| Case | Refined x/y grid | Frames | Successful crossings per method | Failures per method |
+| --- | ---: | ---: | ---: | ---: |
+| N7_H | 2449 / 108 | 81 | 8,748 | 0 |
+| N7_VH | 3421 / 153 | 81 | 12,393 | 0 |
+| N7_VVH | 4411 / 198 | 81 | 16,038 | 0 |
+
+Within every case, rightmost-crossing and Moore produced identical `x_front`
+arrays and success masks in all 81 of 81 frames. The maximum per-frame RMS
+difference and maximum absolute `x_front` difference were both zero. Their
+`crossing_count` diagnostics differed at 50 samples over 25 frames for N7_H,
+85 samples over 31 frames for N7_VH, and 72 samples over 28 frames for N7_VVH.
+These differences reflect the methods' distinct candidate-count semantics;
+they do not change any extracted front position.
+
+These refined-GLL curves remain a morphology representation of the original
+P7/N=7 solution: eight source GLL nodes are evaluated at ten GLL nodes per
+element, without creating a P9 simulation or adding physical modes. Step 6B's
+1000 x 308 common grid remains the quantitative cross-case comparison route.

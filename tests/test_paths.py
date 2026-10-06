@@ -45,6 +45,9 @@ def test_h_refinement_result_root_is_configurable_and_separate(tmp_path: Path) -
     assert paths.h_refinement_cantero_mean_front_dir == Path("/tmp/nek-h-results/cantero_mean_front")
     assert paths.h_refinement_cantero_re3450_dir == Path("/tmp/nek-h-results/cantero_re3450")
     assert paths.h_refinement_leading_edge_dir == Path("/tmp/nek-h-results/leading_edge")
+    assert paths.h_refinement_refined_gll_leading_edge_dir(10) == Path(
+        "/tmp/nek-h-results/leading_edge/refined_gll_nodes10"
+    )
 
 
 def test_h_refinement_result_root_falls_back_to_data_root(tmp_path: Path) -> None:

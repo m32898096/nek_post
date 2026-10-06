@@ -6,7 +6,6 @@ Existing figures and the comparison report are never overwritten.
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from pathlib import Path
 
@@ -14,8 +13,8 @@ import numpy as np
 
 from nek_post.config import load_yaml
 from nek_post.front_detection_io import preflight_output_paths
-from nek_post.leading_edge_io import LEADING_EDGE_TIMESERIES_COLUMNS
 from nek_post.leading_edge_plotting import _write_leading_edge_plot_arrays
+from nek_post.refined_gll_leading_edge_artifacts import read_refined_gll_run
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 METHODS = ("rightmost-crossing", "moore-boundary")
@@ -24,60 +23,9 @@ METHODS = ("rightmost-crossing", "moore-boundary")
 def read_run(root: Path, method: str) -> dict:
     """Validate the saved route and reconstruct complete frames in time order."""
     directory = root / method / "nodes_10" / "N7"
-    csv_path = directory / "N7_leading_edge_timeseries.csv"
-    metadata_path = directory / "N7_leading_edge_sampling_metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    expected = {
-        "metadata_format_version": 1, "case": "N7",
-        "sampling_mode": "refined-gll", "target_node_count": 10,
-        "extraction_method": method, "threshold": 0.1, "z_target": 0.04,
-        "periodic_endpoint_included": False, "n_input_frames": 81,
-        "n_selected_frames": 81, "y_upsample_factor": None,
-    }
-    for key, value in expected.items():
-        if key not in metadata or metadata[key] != value:
-            raise ValueError(f"{metadata_path}: expected {key}={value!r}")
-    with csv_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        if tuple(reader.fieldnames or ()) != LEADING_EDGE_TIMESERIES_COLUMNS:
-            raise ValueError(f"Unexpected timeseries schema: {csv_path}")
-        rows = list(reader)
-    frames: dict[int, list[dict[str, str]]] = {}
-    for row in rows:
-        for key in ("case", "threshold", "z_target", "nx", "native_ny", "dense_ny"):
-            value = row[key] if key == "case" else float(row[key])
-            if value != metadata[key]:
-                raise ValueError(f"CSV/metadata mismatch for {key}: {csv_path}")
-        if row["y_upsample_factor"] != "":
-            raise ValueError("Refined-GLL rows must not specify y upsampling.")
-        frames.setdefault(int(row["file_index"]), []).append(row)
-    ordered = sorted(frames.items(), key=lambda item: float(item[1][0]["actual_time"]))
-    y = np.asarray(metadata["y"], dtype=float)
-    if len(ordered) != 81 or len(y) != metadata["output_ny"]:
-        raise ValueError("Expected 81 complete frames on the recorded y grid.")
-    curves, times, indices = [], [], []
-    for index, frame in ordered:
-        frame.sort(key=lambda row: float(row["y"]))
-        frame_y = np.array([float(row["y"]) for row in frame])
-        if frame_y.shape != y.shape or not np.allclose(frame_y, y, rtol=0, atol=1e-14):
-            raise ValueError(f"Incomplete or mismatched y grid in frame {index}")
-        for key in ("actual_time", "target_time", "time_error", "source_file"):
-            if len({row[key] for row in frame}) != 1:
-                raise ValueError(f"Inconsistent {key} in frame {index}")
-        curve = np.array([float(row["x_front"]) for row in frame])
-        if np.any(np.isinf(curve)) or any(
-            row["success"] != str(bool(np.isfinite(value)))
-            for row, value in zip(frame, curve)
-        ):
-            raise ValueError(f"Invalid front/success values in frame {index}")
-        curves.append(curve)
-        times.append(float(frame[0]["actual_time"]))
-        indices.append(index)
-    if np.any(np.diff(times) <= 0) or times[0] != metadata["actual_time_start"] or times[-1] != metadata["actual_time_end"]:
-        raise ValueError("Invalid full-run time coverage.")
-    return dict(metadata=metadata, y=y, x_front=np.array(curves),
-                times=np.array(times), indices=np.array(indices),
-                inputs=[str(csv_path), str(metadata_path)])
+    return read_refined_gll_run(
+        directory, case="N7", method=method, expected_frame_count=81,
+    )
 
 
 def main() -> None:

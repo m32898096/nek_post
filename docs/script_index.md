@@ -132,8 +132,10 @@ count, with the unchanged legacy factor route when `--ny` is omitted. See
 | Script | Purpose | Inputs | Outputs | Example |
 | --- | --- | --- | --- | --- |
 | `scripts/31_compare_h_refinement_leading_edges.py` | Extract full H/VH/VVH leading edges using one sampled plane for rightmost and Moore; align saved primary curves by physical time and report total, bulk and shape differences. | Configured Nek snapshots for extraction; saved raw curves for analysis | Separate raw histories, aligned tables, diagnostics and PNG/PDF figures under `/data/Nek5000_data/results/h_refinement/leading_edge/step6b/` | `PYENV_VERSION=research312 python scripts/31_compare_h_refinement_leading_edges.py` |
+| `scripts/32_plot_h_refinement_refined_gll_leading_edges.py` | Validate and plot case-native 10-node refined-GLL H/VH/VVH artifacts; report same-case rightmost/Moore sensitivity without cross-case pointwise RMS. | Script-19 refined-GLL CSV/JSON artifacts for both methods and all three h cases | Unsmoothed per-case PNG/PDF figures and JSON report under `.../leading_edge/refined_gll_nodes10/figures/` | `PYENV_VERSION=research312 python scripts/32_plot_h_refinement_refined_gll_leading_edges.py` |
 
-See [Step 6B time alignment and mask semantics](h_refinement_leading_edge.md#step-6b-full-evolution-and-saved-curve-comparison).
+See [Step 6B time alignment and mask semantics](h_refinement_leading_edge.md#step-6b-full-evolution-and-saved-curve-comparison)
+and the [case-native refined-GLL workflow](h_refinement_leading_edge.md#case-native-refined-gll-representation).
 
 The [final h-refinement study audit](h_refinement_study.md) connects Steps 1–6B,
 their quantitative findings, scientific limits, reproducibility commands, and
