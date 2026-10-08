@@ -149,6 +149,33 @@ def barycentric_basis_and_derivative(
 
 
 @lru_cache(maxsize=None)
+def _cached_gll_differentiation_matrix(node_count: int) -> NDArray[np.float64]:
+    nodes = gll_nodes(node_count)
+    weights = barycentric_weights(nodes)
+    matrix = np.vstack(
+        [barycentric_basis_and_derivative(nodes, weights, q)[1] for q in nodes]
+    )
+    if matrix.shape != (node_count, node_count) or not np.all(np.isfinite(matrix)):
+        raise FloatingPointError("GLL differentiation matrix is invalid or non-finite.")
+    return _readonly(matrix)
+
+
+def gll_differentiation_matrix(node_count: int) -> NDArray[np.float64]:
+    """Return ``D[i, j] = dL_j(xi_i)/dxi`` on ascending GLL nodes.
+
+    The count is the number of nodes, not the polynomial order: P7 uses 8.
+    Rows are target nodes and columns are source basis functions, so ``D @ f``
+    differentiates nodal values. Each row reuses the existing barycentric basis
+    derivative at a GLL node; no finite differences are used. The cached
+    float64 operator and its returned view are read-only.
+    """
+    gll_nodes(node_count)  # Apply the existing integer/count validation.
+    result = _cached_gll_differentiation_matrix(int(node_count)).view()
+    result.setflags(write=False)
+    return result
+
+
+@lru_cache(maxsize=None)
 def _cached_gll_interpolation_matrix(
     source_node_count: int,
     target_node_count: int,
