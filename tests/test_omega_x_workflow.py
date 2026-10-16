@@ -253,20 +253,24 @@ def test_direct_validator_gates_reader_and_retained_readback_field(tmp_path,monk
             config=plan['configuration'],source_sha256=metadata['source_sha256'],expected_field=expected)
 
 
-def predecessor_frame(tmp_path):
+def predecessor_frame(tmp_path,workflow_digest=None):
     import nek_post.omega_x_workflow as module
     case,root=case_files(tmp_path)
     initial=run(case,root,indices=[1])
     paths={k:Path(v) for k,v in initial['frames'][0]['output_paths'].items()}
     metadata=json.loads(paths['metadata'].read_text())
-    metadata['numerical_software_signature']['omega_x_workflow.py']=module._RAM_PREFLIGHT_PREDECESSOR_SHA256
+    metadata['numerical_software_signature']['omega_x_workflow.py']=workflow_digest or module._RAM_PREFLIGHT_PREDECESSOR_SHA256
     paths['metadata'].write_text(json.dumps(metadata))
     return case,root,paths,metadata
 
 
-def test_exact_ram_predecessor_resumes_without_metadata_rewrite(tmp_path,monkeypatch):
+@pytest.mark.parametrize('workflow_digest',[
+    '9f261baadf8e888ef216f83dc5cdcd2f9a4336e33c5b200340c60e22551d3736',
+    '91e50314111ed4a4048ab445af41be57d7268eacdd1066251e74ee42434f713f',
+])
+def test_exact_ram_predecessor_resumes_without_metadata_rewrite(tmp_path,monkeypatch,workflow_digest):
     import nek_post.omega_x_workflow as module
-    case,root,paths,metadata=predecessor_frame(tmp_path)
+    case,root,paths,metadata=predecessor_frame(tmp_path,workflow_digest)
     before={p:p.read_bytes() for p in root.rglob('*') if p.is_file()}
     assert module._approved_ram_workflow(module._signature()['omega_x_workflow.py'])
     monkeypatch.setattr(module,'read_nek_file',lambda *a,**k:pytest.fail('legacy resume loaded native velocities'))

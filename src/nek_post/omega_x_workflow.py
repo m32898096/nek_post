@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from nek_post.io_nek import read_nek_file, read_nek_header
-from nek_post.l2_projection import build_l2_projection_operator, structured_global_node_shape, _positive_integer
+from nek_post.l2_projection import build_l2_projection_operator, structured_global_node_shape, _positive_integer, _periodic_axes
 from nek_post.lambda_ci_export import write_single_frame_pvd
 from nek_post.lambda_ci_series import expand_frame_indices, _publish_directory
 from nek_post.lambda_ci_slice_export import _pvd_update_lock
@@ -25,11 +25,12 @@ from nek_post.vorticity import compute_projected_omega_x
 DEFAULT_OUTPUT_ROOT = Path('/data/Nek5000_data/results/h_refinement/omega_x')
 RAM_SAFETY_MARGIN_BYTES = 1024**3
 VTR_VALIDATION_PAYLOAD_COPIES = 4
-# One explicitly reviewed orchestration-only transition. The successor digest
+# Explicitly reviewed orchestration-only transitions. The successor digest
 # normalizes only its own 64-hex literal to zeros, avoiding a self-hash cycle.
 # Any further workflow edit must fail closed until separately reviewed.
 _RAM_PREFLIGHT_PREDECESSOR_SHA256 = '9f261baadf8e888ef216f83dc5cdcd2f9a4336e33c5b200340c60e22551d3736'
-_RAM_PREFLIGHT_WORKFLOW_SHA256 = '021e1873b9fb9ca7103e119294d3eef99b0f7d5b955cabf9ef8bd310da0425c7'
+_CACHE_PREDECESSOR_SHA256 = '91e50314111ed4a4048ab445af41be57d7268eacdd1066251e74ee42434f713f'
+_RAM_PREFLIGHT_WORKFLOW_SHA256 = '3b68a0982eb3dab6d3f15f83dc3770fce2a854e9b59007110f77fb163575e42f'
 
 
 def _available_ram():
@@ -62,6 +63,34 @@ def _validation_ram_bytes(shape, file_bytes, *, retained_bytes=0):
     """
     payload = 8 * (prod(shape) + sum(shape))
     return retained_bytes + VTR_VALIDATION_PAYLOAD_COPIES * max(int(file_bytes), payload) + RAM_SAFETY_MARGIN_BYTES
+
+
+def _operator_ram_bytes(local_nodes, global_nodes, element_count, visual_shape):
+    """One weights/mass payload plus compact mapping and Python signatures."""
+    return 8*(local_nodes + global_nodes + sum(visual_shape)) + element_count*(3*8 + 3 + 256)
+
+
+def _mesh_validation_ram_bytes(element_count, element_shape):
+    # validate_mesh forms an element-reference tuple and hashes one element:
+    # three float64 coordinate arrays plus one contiguous byte buffer.
+    return element_count*8 + 4*prod(element_shape)*8
+
+
+def _validate_cached_operator(operator, data, config):
+    """Exact element-order geometry signatures preserve the prepared mapping."""
+    mapping = operator.node_map
+    if (mapping.periodic_axes != _periodic_axes(config['periodic_axes'])
+            or mapping.element_interval_counts != tuple(config['expected_element_counts'])
+            or mapping.element_shape != tuple(reversed(config['expected_orders']))):
+        raise ValueError('Cached omega_x operator configuration/order differs.')
+    nodes_xyz = tuple(mapping.element_shape[a] for a in mapping.physical_to_array_axes)
+    expected_shape = structured_global_node_shape(mapping.element_interval_counts, nodes_xyz,
+                                                   periodic_axes=config['periodic_axes'])
+    if mapping.global_shape_xyz != expected_shape:
+        raise ValueError('Cached omega_x global node mapping differs.')
+    _require_ram(_mesh_validation_ram_bytes(mapping.element_count, mapping.element_shape) + RAM_SAFETY_MARGIN_BYTES,
+                 'Validating cached omega_x mesh')
+    mapping.validate_mesh(data)
 
 
 def resolve_case(case):
@@ -104,7 +133,7 @@ def _resume_signature_matches(stored):
     if not isinstance(stored, dict) or set(stored) != set(current):
         return False
     workflow = 'omega_x_workflow.py'
-    return (stored[workflow] == _RAM_PREFLIGHT_PREDECESSOR_SHA256
+    return (stored[workflow] in (_RAM_PREFLIGHT_PREDECESSOR_SHA256, _CACHE_PREDECESSOR_SHA256)
             and all(stored[name] == digest for name, digest in current.items() if name != workflow)
             and _approved_ram_workflow(current[workflow]))
 
@@ -115,16 +144,16 @@ def _coordinate_hash(vector):
 
 
 def validate_omega_x_frame(directory, *, case, index, time_value, config, source_sha256,
-                           expected_field=None):
+                           expected_field=None, retained_operator_bytes=0):
     """Checksum and VTK-reader validation; existence alone never means completed."""
     paths = _paths(directory, case, index)
     if any(not p.is_file() or p.is_symlink() or not p.stat().st_size for p in paths.values()):
         raise ValueError('Incomplete omega_x frame outputs.')
     shape = structured_global_node_shape(config['expected_element_counts'], config['expected_orders'], periodic_axes=())
-    retained = 0
+    retained = _positive_integer(retained_operator_bytes, 'retained_operator_bytes', 0)
     if expected_field is not None:
         shape = tuple(len(v) for v in expected_field.coordinates)
-        retained = expected_field.values.nbytes + sum(v.nbytes for v in expected_field.coordinates)
+        retained += expected_field.values.nbytes + sum(v.nbytes for v in expected_field.coordinates)
     _require_ram(_validation_ram_bytes(shape, paths['vtr'].stat().st_size, retained_bytes=retained),
                  f'Validating omega_x frame {index}')
     from vtkmodules.vtkIOXML import vtkXMLRectilinearGridReader
@@ -191,7 +220,7 @@ def inspect_omega_x_series(case, indices, output_dir=None, *, resume=False, over
     structured_global_node_shape(expected_element_counts, expected_orders, periodic_axes=periodic_axes)
     config = {'periodic_axes':list(periodic_axes), 'expected_element_counts':list(expected_element_counts),
               'expected_orders':list(expected_orders)}
-    frames = [];times = []
+    frames = [];times = [];operator_retained = False
     for index in selection:
         source = case_dir/f'GC0.f{index:05d}';header = read_nek_header(source)
         if (header.nb_dims != 3 or header.nb_vars[0] != 3 or header.nb_vars[1] != 3
@@ -224,18 +253,28 @@ def inspect_omega_x_series(case, indices, output_dir=None, *, resume=False, over
         projection_nodes = int(np.prod(structured_global_node_shape(expected_element_counts,expected_orders,periodic_axes=periodic_axes)))
         visual_nodes = int(np.prod(visual_shape))
         computation_ram = local_nodes*(sum(header.nb_vars)*header.wdsz + 3*8) + source.stat().st_size + projection_nodes*8*2 + visual_nodes*8*3 + RAM_SAFETY_MARGIN_BYTES
+        cache_bytes = _operator_ram_bytes(local_nodes, projection_nodes, header.nb_elems, visual_shape)
+        mesh_scratch = _mesh_validation_ram_bytes(header.nb_elems, header.orders)
+        # The existing computation formula already includes weights + mass.
+        # Add signature/mapping overhead and explicit validation scratch, not
+        # a second full operator. Keep one operator through later read-back.
+        computation_ram += cache_bytes - 8*(local_nodes + projection_nodes) + mesh_scratch
+        if action != 'reused':operator_retained = True
+        retained_operator = cache_bytes if operator_retained else 0
         vtr = paths['vtr']
         if action == 'reused' and (not vtr.is_file() or vtr.is_symlink()):
             raise ValueError('Incomplete omega_x frame outputs.')
         output_bytes = visual_nodes*8 + 2*1024**2
         file_bytes = vtr.stat().st_size if action == 'reused' else output_bytes
-        retained = 0 if action == 'reused' else 8 * (visual_nodes + sum(visual_shape))
+        retained = retained_operator + (0 if action == 'reused' else 8 * (visual_nodes + sum(visual_shape)))
         validation_ram = _validation_ram_bytes(visual_shape, file_bytes, retained_bytes=retained)
         estimated_ram = validation_ram if action == 'reused' else max(computation_ram, validation_ram)
         frames.append({'index':index,'time':float(header.time),'istep':int(header.istep),'source_file':str(source),
                        'action':action,'output_paths':{k:str(p) for k,p in paths.items()},
                        'estimated_ram_bytes':estimated_ram,'estimated_computation_ram_bytes':0 if action == 'reused' else computation_ram,
                        'estimated_validation_ram_bytes':validation_ram,'retained_validation_bytes':retained,
+                       'estimated_operator_cache_bytes':retained_operator,
+                       'estimated_mesh_validation_scratch_bytes':0 if action == 'reused' else mesh_scratch,
                        'resume_validation':'pending' if action == 'reused' else 'not_applicable',
                        'estimated_output_bytes':output_bytes,
                        'estimated_visual_shape_xyz':list(visual_shape)})
@@ -253,6 +292,7 @@ def inspect_omega_x_series(case, indices, output_dir=None, *, resume=False, over
             'available_ram_bytes':memory,'estimated_ram_bytes':required_ram,
             'estimated_computation_ram_bytes':max(f['estimated_computation_ram_bytes'] for f in frames),
             'estimated_validation_ram_bytes':max(f['estimated_validation_ram_bytes'] for f in frames),
+            'estimated_operator_cache_bytes':max(f['estimated_operator_cache_bytes'] for f in frames),
             'available_disk_bytes':disk,'required_disk_bytes':required_disk,
             'resource_errors':errors,'resources_acceptable':not errors}
     if errors:
@@ -292,6 +332,7 @@ def run_omega_x_series(case='N7_H', output_dir=None, *, indices=None,start_index
     if dry_run:return plan
     if not plan['resources_acceptable']:raise MemoryError('; '.join(plan['resource_errors']))
     root = Path(plan['output_root']);started = time.perf_counter();frames = []
+    operator = None;operator_build_count = 0;operator_bytes = 0
     def notify(message):
         if progress:progress(message)
     with _pvd_update_lock(root/'omega_x'):
@@ -304,7 +345,8 @@ def run_omega_x_series(case='N7_H', output_dir=None, *, indices=None,start_index
             source_hash = _file_hash(source)
             if item['action'] == 'reused':
                 metadata = validate_omega_x_frame(final,case=Path(plan['case_dir']).name,index=index,
-                    time_value=item['time'],config=plan['configuration'],source_sha256=source_hash)
+                    time_value=item['time'],config=plan['configuration'],source_sha256=source_hash,
+                    retained_operator_bytes=operator_bytes)
                 frames.append({'index':index,'time':item['time'],'status':'reused','omega_x':metadata['omega_x'],
                                'output_paths':item['output_paths']});continue
             tick = time.perf_counter();frame_started = tick
@@ -314,13 +356,23 @@ def run_omega_x_series(case='N7_H', output_dir=None, *, indices=None,start_index
             data = read_nek_file(source,dtype=f'float{header.wdsz*8}',skip_vars=skip)
             if data.time != item['time'] or len(data.elem) != header.nb_elems:raise ValueError('Snapshot reader/header mismatch.')
             timings = {'read':time.perf_counter()-tick};tick = time.perf_counter()
-            notify(f'Frame {index}, actual time {item["time"]}: prepare scalar L2 operator')
-            operator = build_l2_projection_operator(data,periodic_axes=periodic_axes,expected_element_counts=expected_element_counts,chunk_size=chunk_size)
+            reused_operator = operator is not None
+            if operator is None:
+                notify(f'Frame {index}, actual time {item["time"]}: prepare scalar L2 operator')
+                operator = build_l2_projection_operator(data,periodic_axes=periodic_axes,expected_element_counts=expected_element_counts,chunk_size=chunk_size)
+                operator_build_count += 1
+                operator_bytes = operator.storage_bytes + operator.node_map.element_count*256
+                if operator_bytes > item['estimated_operator_cache_bytes']:
+                    raise MemoryError('Prepared omega_x operator exceeds the preflight cache budget.')
+            else:
+                notify(f'Frame {index}, actual time {item["time"]}: validate cached scalar L2 operator')
             timings['projection_preparation'] = time.perf_counter()-tick;tick = time.perf_counter()
+            _validate_cached_operator(operator, data, plan['configuration'])
+            timings['mesh_validation'] = time.perf_counter()-tick;tick = time.perf_counter()
             values = compute_projected_omega_x(data,operator,chunk_size=chunk_size,progress=progress)
             timings['local_curl_and_scalar_projection'] = time.perf_counter()-tick;tick = time.perf_counter()
             field = assemble_rectilinear_scalar_field(data,operator.node_map,values,name='omega_x',chunk_size=chunk_size)
-            del values,data,operator
+            del values,data
             timings['native_visualization_assembly'] = time.perf_counter()-tick
             staging = root/'.omega-x-staging';staging.mkdir(exist_ok=True)
             stage = Path(tempfile.mkdtemp(prefix=f'f{index:05d}.',dir=staging))
@@ -340,10 +392,13 @@ def run_omega_x_series(case='N7_H', output_dir=None, *, indices=None,start_index
                     'native_gll':True,'periodic_endpoints_preserved':True,'interpolation':'none'},
                 'output_paths':item['output_paths'],'output_sha256':{k:_file_hash(paths[k]) for k in ('vtr','pvd')},
                 'stage_seconds':timings,'total_seconds':time.perf_counter()-frame_started,
+                'operator_reused':reused_operator,'operator_build_count':operator_build_count,
+                'operator_storage_bytes':operator_bytes,
                 'peak_rss_bytes':int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024)}
             with paths['metadata'].open('x') as stream:json.dump(metadata,stream,indent=2,allow_nan=False);stream.write('\n')
             validate_omega_x_frame(stage,case=metadata['case'],index=index,time_value=item['time'],
-                config=plan['configuration'],source_sha256=source_hash,expected_field=field)
+                config=plan['configuration'],source_sha256=source_hash,expected_field=field,
+                retained_operator_bytes=operator_bytes)
             del field
             backup = None
             if item['action'] == 'overwritten':
@@ -357,7 +412,10 @@ def run_omega_x_series(case='N7_H', output_dir=None, *, indices=None,start_index
             record = {'index':index,'time':item['time'],'status':item['action'],'omega_x':metadata['omega_x'],
                       'runtime_seconds':time.perf_counter()-frame_started,'peak_rss_bytes':metadata['peak_rss_bytes'],
                       'visualization':metadata['visualization'],'output_paths':item['output_paths'],'validation':'passed'}
+            record.update(operator_reused=reused_operator,operator_build_count=operator_build_count,
+                          operator_storage_bytes=operator_bytes,stage_seconds=timings)
             if backup is not None:record['preserved_previous_frame'] = str(backup)
             frames.append(record);notify(json.dumps(record,allow_nan=False))
     return {'status':'completed','frames':frames,'preflight':plan,'total_seconds':time.perf_counter()-started,
+            'operator_build_count':operator_build_count,
             'peak_rss_bytes':int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024)}

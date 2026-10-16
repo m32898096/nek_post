@@ -121,8 +121,8 @@ is used until the actual file size is available. The validation budget is
 
 ```text
 M_validation = 4*B + R + 1 GiB
-R = 0 for reused frames
-R = bytes of the retained native field and coordinates for staging read-back
+R = retained operator bytes (zero until a frame requires computation)
+R += bytes of the native field and coordinates for staging read-back
 M_frame = M_validation                             (reused frame)
 M_frame = max(M_computation, M_validation)          (new/overwrite frame)
 M_batch = max(M_frame over requested frames)
@@ -132,9 +132,10 @@ The four-payload allowance covers file/decode buffers, VTK dataset arrays,
 NumPy conversion and validation scratch. `vtk_to_numpy` often returns views;
 the conservative estimate does not require zero-copy behavior. The existing
 1-GiB margin covers bounded checksum buffers, library overhead and uncertainty.
-The unchanged computation estimate includes reader/source buffers, local raw
+The original computation estimate includes reader/source buffers, local raw
 and projected scalars, local mass weights, assembled mass/RHS, visualization
-storage and its original safety margin. The batch takes a maximum because
+storage and its original safety margin. The cache extension below adds mapping
+overhead and mesh-validation scratch. The batch takes a maximum because
 frames are processed and released sequentially, not held together in memory.
 
 The existing host/cgroup availability probe is reused. Probe errors or invalid
@@ -150,7 +151,7 @@ processes, and power-loss/allocator behavior is not guaranteed by the estimate.
 `--resume` validates completed source/output checksums, configuration, signatures,
 VTR topology/coordinates/scalars/time and the single-frame PVD before reuse.
 An incomplete or incompatible final directory is never silently skipped.
-The RAM fix permits one explicitly reviewed omega_x workflow transition:
+Before operator caching, the RAM fix permitted one explicitly reviewed omega_x workflow transition:
 the predecessor SHA-256
 `9f261baadf8e888ef216f83dc5cdcd2f9a4336e33c5b200340c60e22551d3736`
 may be reused only with the exact reviewed RAM-fix successor source, whose
@@ -296,8 +297,177 @@ root avoids reusing historical records. The slice-series implementation and
 its guard remain unchanged. The narrow omega_x RAM-fix exception above does
 not apply to lambda_ci.
 
-Projection operators are still rebuilt per new frame (previously measured at
-about 28-29 seconds); persistent operator caching is outside this RAM fix.
+The initial RAM-only fix rebuilt projection operators per new frame. The
+subsequent invocation-local cache described below removes that repeated work;
+it does not introduce a persistent cache.
+
+## Invocation-local projection operator reuse
+
+`run_omega_x_series` starts with no operator. It builds one for the first
+frame requiring computation, retains it through later frame reads and VTR
+read-back, and releases it when the invocation exits. Reused completed frames
+do not cause construction; an entirely completed resume builds zero operators.
+There is no disk serialization, global cache or reuse across invocations.
+New metadata records `operator_build_count`, `operator_reused`,
+`operator_storage_bytes` and separate preparation/mesh-validation stage times.
+
+The prepared node map, element GLL mass weights and assembled diagonal mass
+depend on geometry, node ordering and explicit periodic configuration, not
+velocity. Previously every frame repeated node-map construction and
+`element_gll_weights` for all 26,112 elements, then assembled mass again.
+The first uncached benchmark measured 8.73-8.79 s for mapping, 19.53-19.82 s
+for element weights (GLL coordinate derivatives, Jacobian validation and
+quadrature), and 28.38-28.75 s for total operator construction.
+
+Before each numerical use, the workflow checks periodic axes, element interval
+counts, polynomial/node shape and global node dimensions. The existing
+`validate_mesh` compares coordinate signatures for every element in sequence:
+all three full coordinate arrays and their shape must agree exactly after
+the established float64 canonicalization. It accepts no coordinate tolerance
+for reuse. Changed geometry, element order, local orientation or array-axis
+layout is rejected. These exact coordinates preserve the original physical
+axis mapping, node IDs, shared/periodic connectivity and geometry weights.
+Mismatch raises an error; the workflow never silently rebuilds and continues.
+The independent validation already inside curl computation and visualization
+assembly remains in place. Only one operator is retained.
+
+GLL differentiation, Jacobian transformations, signed `dw/dy-dv/dz`, scalar
+mass-lumped projection and export kernels are unchanged. The new cache tests
+compare fresh and cached weights, mass and complete float64 projected arrays
+exactly, including a second snapshot with different velocities. No smoothing,
+interpolation or arithmetic reordering is introduced.
+
+### Retained memory
+
+For `L` local nodes, `G` periodic global nodes, `E` elements and native
+visualization dimensions `Nx,Ny,Nz`, the operator budget is
+
+```text
+C = 8*(L + G + Nx + Ny + Nz) + E*(3*8 + 3 + 256)
+S = 8*E + 4*8*(nodes per element)
+```
+
+`C` covers float64 weights/mass, int64 element cells, boolean orientations,
+physical coordinate vectors and 256 bytes/element for Python signature and
+mapping overhead. `S` covers an element-reference tuple plus one element's
+three float64 coordinate conversions and contiguous hash buffer. The existing
+computation estimate already includes weights and mass; it adds only the
+remaining `C` overhead and `S`, without counting a second operator. Actual
+prepared storage plus the signature allowance is checked against this budget.
+
+After the first computed frame, VTR validation adds `C` to retained bytes,
+including completed frames interleaved with new ones. Staging adds both the
+native field/coordinates and the retained operator. Entirely reused batches
+retain no operator. Batch RAM remains the maximum of sequential frame peaks.
+The existing 1-GiB safety margin, host/cgroup probe, unknown-memory rejection,
+pre-reader gates and live availability checks are preserved. The cache's mesh
+validator also checks availability before its temporary allocation. Estimates
+are conservative; runtime available memory already reflects retained arrays,
+so repeated gates may reject earlier rather than reserve memory optimistically.
+
+### Cache-version provenance
+
+Legacy compatibility is restricted to the two exact historical workflow
+digests listed above (`9f261b...` and `91e503...`) and the specifically reviewed
+cache successor, full-file SHA-256
+`8b7b441f7eb45d7deeb3159b98d256502231b0377151ae1fa7214997241d6176`
+(normalized successor fingerprint
+`3b68a0982eb3dab6d3f15f83dc3770fce2a854e9b59007110f77fb163575e42f`).
+All five other signature modules must still match byte for
+byte. The full-file/normalized-successor check includes the guard itself;
+unreviewed future source edits disable this legacy exception. Current results
+record the actual full-file SHA-256. Configuration, source hashes, VTR/PVD
+checksums and physical-data validation are not bypassed. No historical metadata
+or production output is rewritten. The lambda_ci signature guard is unchanged.
+
+### N7_H benchmark and real-data verification
+
+The uncached baseline is the exact committed RAM-fix workflow (`91e503...`).
+It and the final cache successor were run in separate Python processes on
+the same frames 41/55/79 with identical native-grid, chunk-size, periodic and
+output settings. All new calculation outputs are under
+`/tmp/omega-x-operator-cache-review/uncached-outputs/` and
+`/tmp/omega-x-operator-cache-review/cached-final-outputs/`. A preliminary
+cached measurement is retained separately in `cached-outputs/`; the table
+uses only the final reviewed source. No production output was replaced.
+Both paths were observed with the same timing wrappers around existing
+functions; numerical kernels were not changed for instrumentation.
+
+| Stage (seconds; frames 41 / 55 / 79) | Uncached | Cached, final |
+| --- | --- | --- |
+| Operator construction | 28.750 / 28.538 / 28.385 | 28.610 / 0 / 0 |
+| Explicit cache compatibility check | none | 0.422 / 0.428 / 0.421 |
+| All mesh checks combined | 0.844 / 0.852 / 0.849 | 1.278 / 1.272 / 1.265 |
+| GLL/Jacobian derivatives and local curl | 25.195 / 24.734 / 25.136 | 25.002 / 24.753 / 24.812 |
+| Scalar L2 projection | 0.128 / 0.124 / 0.122 | 0.125 / 0.128 / 0.124 |
+| VTR writer | 0.117 / 0.101 / 0.082 | 0.113 / 0.102 / 0.084 |
+| Complete frame | 57.108 / 56.264 / 56.423 | 57.090 / 28.307 / 28.143 |
+
+The explicit check is part of the combined mesh-check row, which also includes
+the unchanged checks in curl and visualization assembly; these rows must not
+be added twice. The local-curl timer includes GLL differentiation, Jacobian
+validation/transformation and curl arithmetic, not just matrix differentiation.
+Complete frame time additionally includes native reads, visualization assembly,
+source/output hashes, VTR/PVD read-back and publication. Batch wall time is
+measured around the entire workflow call after imports and includes preflight.
+
+Three-frame wall time decreases from **170.710 s to 114.455 s**, an actual
+**1.492x speedup / 32.95% reduction**. Operator construction counts are 3 versus
+1, confirmed by observers rather than inferred from metadata alone. The first
+frame still pays initialization; the two subsequent frames save about 28 s
+each. Process peak RSS is **1,205,374,976 bytes (1.123 GiB)** uncached versus
+**1,193,365,504 bytes (1.111 GiB)** cached. These are independent process
+high-water marks, not isolated per-stage allocations or a guaranteed memory
+reduction. The retained operator budget is **187,291,640 bytes (178.6 MiB)**;
+the computation preflight is **2,627,026,232 bytes**, with **225,280 bytes**
+explicit mesh-validation scratch. No all-81-frame performance claim is made.
+
+Each selected frame was read back and compared against both the uncached
+calculation and the historical production volume. All 9,229,725 float64 scalar
+values, min/max, coordinate vectors, dimensions `(1905,85,57)`, actual timestamps,
+signed data and x-fast ordering agree exactly (`array_equal`, no tolerance).
+Times remain 10.0035071079, 13.50377813401 and 19.50240408807. The cached files
+also pass the full current metadata/source/signature/checksum/VTR/PVD validator.
+All three coordinate vectors and dimensions match the existing full-volume
+frame-79 lambda_ci grid, including first-cell point ordering and frame-79 time.
+VTK reads in the comparison utility are preceded by the same RAM gate, with
+already retained comparison arrays included in its budget.
+
+The 19 new cache cases plus the additional exact RAM-fix predecessor case cover
+single construction/lifetime, geometry/order/orientation/shape/count mismatch,
+periodic and mapping mismatch, exact fresh/cached projection, all-reuse and
+mixed resume, retained read-back RAM, late memory drops, and invalid cache RAM
+arguments. All prior collision/overwrite, unknown-RAM and signature rejection
+tests remain in place. Focused validation uses:
+
+```bash
+PYENV_VERSION=research312 python -B -m pytest -q \
+  tests/test_scalar_projection.py tests/test_vorticity.py \
+  tests/test_omega_x_workflow.py tests/test_omega_x_operator_cache.py \
+  tests/test_l2_projection.py tests/test_lambda_ci_workflow.py -p no:cacheprovider
+PYENV_VERSION=research312 python -B -m pytest -q -p no:cacheprovider
+```
+
+Final validation: **200 focused tests passed in 3.34 s**, and **1664 complete
+suite tests passed in 30.19 s** (1644 existing plus 20 new cases). Tracked and
+new-file whitespace checks pass. Historical normal resume on frames 41/55/79
+completes with zero operator construction and no recomputation/export; all
+nine full VTR reads across preflight, under-lock checking and reuse are gated
+by RAM checks. Low/unknown RAM and a drop after the first cached frame fail
+before the next full VTR/native read. All **686 existing files** (10 omega_x,
+676 lambda_ci), including historical JSON metadata, retain their inventory and
+SHA-256 values. All three raw snapshot hashes match their metadata. The five
+scientific/export signature modules and `lambda_ci_series.py` remain
+byte-identical to the starting commit.
+
+The benchmark is a measured three-frame batch on this host, not a statistical
+performance study. Moving meshes, reordered elements and changed configurations
+remain unsupported for reuse and stop the run. Cache lifetime does not span
+invocations, so resuming later starts a fresh cache only if computation is
+needed. Allocator/page-cache behavior and competing processes may affect timing
+and available RAM; resource checks do not reserve memory. Existing VTR byte
+hashes remain strictly checked even though fresh serialization can contain VTK
+object-address labels, as described above.
 
 Atomic publication covers one frame, not an entire batch or sudden power loss.
 Failed/interrupted staging is preserved for review; only completed published
