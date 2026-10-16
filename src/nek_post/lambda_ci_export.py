@@ -14,14 +14,14 @@ separable and shared scalar values must agree; neither is averaged here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import numpy as np
 
-from nek_post.fields import get_coordinates
-from nek_post.l2_projection import StructuredGLLNodeMap, structured_global_node_shape
+from nek_post.l2_projection import StructuredGLLNodeMap
+from nek_post.rectilinear_export import _rectilinear_geometry
 
 
 @dataclass(frozen=True)
@@ -46,40 +46,8 @@ def assemble_rectilinear_lambda_fields(
     fields = tuple(np.asarray(v) for v in (lambda_ci, lambda_ci_squared))
     if any(v.shape != shape or v.dtype.kind not in "fiu" for v in fields):
         raise ValueError(f"Scalar fields must be real arrays of shape {shape}.")
-    profiles = [[None] * n for n in node_map.element_interval_counts]
-    for ei, element in enumerate(elements):
-        for ax, values in enumerate(get_coordinates(element)):
-            array_axis = node_map.physical_to_array_axes[ax]
-            sl = [0, 0, 0]
-            sl[array_axis] = slice(None)
-            raw = np.asarray(values)
-            line = raw[tuple(sl)].astype(np.float64)
-            expanded = [1, 1, 1]
-            expanded[array_axis] = len(line)
-            if not np.array_equal(raw, np.broadcast_to(line.reshape(expanded), raw.shape)):
-                raise ValueError(f"Element {ei} coordinates are not exactly rectilinear.")
-            if not node_map.element_axis_increasing[ei, ax]:
-                line = line[::-1]
-            cell = node_map.element_cell_indices[ei, ax]
-            previous = profiles[ax][cell]
-            if previous is not None and not np.array_equal(line, previous):
-                raise ValueError("Original coordinate replicas differ; rectilinear export would alter geometry.")
-            profiles[ax][cell] = line
-    coordinates = []
-    for axis_profiles in profiles:
-        for a, b in zip(axis_profiles[:-1], axis_profiles[1:]):
-            if a[-1] != b[0]:
-                raise ValueError("Original adjacent coordinate endpoints differ.")
-        vector = np.concatenate([axis_profiles[0], *(p[1:] for p in axis_profiles[1:])])
-        if not np.isfinite(vector).all() or not np.all(np.diff(vector) > 0):
-            raise ValueError("Visualization coordinates must be finite and increasing.")
-        coordinates.append(vector)
-    global_shape = structured_global_node_shape(
-        node_map.element_interval_counts,
-        tuple(node_map.element_shape[a] for a in node_map.physical_to_array_axes),
-        periodic_axes=(),
-    )
-    visual_map = replace(node_map, periodic_axes=(), global_shape_xyz=global_shape)
+    coordinates, visual_map = _rectilinear_geometry(data, node_map)
+    global_shape = visual_map.global_shape_xyz
     assembled = [np.full(visual_map.global_node_count, np.nan, dtype=np.float64) for _ in fields]
     for start in range(0, len(elements), chunk_size):
         stop = min(start + chunk_size, len(elements))
