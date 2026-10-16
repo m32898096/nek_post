@@ -1,6 +1,10 @@
 """Dense SEM slice export and timestamp-preserving ParaView collections."""
+from contextlib import contextmanager
 from pathlib import Path
+import fcntl
 import os
+import stat
+import tempfile
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -125,34 +129,60 @@ def check_slice_series_entry(path, vtr_path, *, time):
             raise FileExistsError('PVD already contains this timestamp or VTR reference.')
 
 
-def append_slice_series_pvd(path, vtr_path, *, time):
+@contextmanager
+def _pvd_update_lock(path):
+    """Serialize cooperating writers; retain the sidecar inode across updates."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path.with_name('.' + path.name + '.lock'),
+                         os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o666)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def append_slice_series_pvd(path, vtr_path, *, time, sort_by_time=False):
     """Append one actual frame while retaining every prior entry unchanged.
 
     No frames or times are inferred. Relative references permit case-level
-    collections to point into frame/slices directories. Existing collections
-    are replaced atomically after checking they have not changed concurrently.
+    collections to point into frame/slices directories. Cooperating writers
+    serialize on a persistent per-PVD advisory lock. A unique same-directory
+    temporary is synced and validated before atomic publication. Unknown old
+    temporaries are never removed. External writers must honor the same lock.
     """
     path, vtr_path = Path(path), Path(vtr_path)
-    check_slice_series_entry(path, vtr_path, time=time)
-    if not vtr_path.is_file():
-        raise ValueError('The referenced VTR must exist before publishing its entry.')
-    original = path.read_bytes() if path.exists() else None
-    root, collection = _collection(path)
-    reference = Path(os.path.relpath(vtr_path.resolve(), path.parent.resolve())).as_posix()
-    ET.SubElement(collection, 'DataSet', timestep=repr(float(time)), group='', part='0', file=reference)
-    payload = ET.tostring(root, encoding='utf-8', xml_declaration=True)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if original is None:
-        with path.open('xb') as stream:
-            stream.write(payload)
-    else:
-        temporary = path.with_name(path.name + '.append')
-        with temporary.open('xb') as stream:
-            stream.write(payload)
+    with _pvd_update_lock(path):
+        check_slice_series_entry(path, vtr_path, time=time)
+        if not vtr_path.is_file():
+            raise ValueError('The referenced VTR must exist before publishing its entry.')
+        original = path.read_bytes() if path.exists() else None
+        root, collection = _collection(path)
+        reference = Path(os.path.relpath(vtr_path.resolve(), path.parent.resolve())).as_posix()
+        ET.SubElement(collection, 'DataSet', timestep=repr(float(time)), group='', part='0', file=reference)
+        if sort_by_time:
+            collection[:] = sorted(collection, key=lambda entry: float(entry.get('timestep')))
+        expected_entries = [dict(entry.attrib) for entry in collection]
+        payload = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+        descriptor, name = tempfile.mkstemp(prefix='.' + path.name + '.', suffix='.tmp', dir=path.parent)
+        temporary = Path(name)
         try:
-            if path.is_symlink() or path.read_bytes() != original:
+            with os.fdopen(descriptor, 'wb') as stream:
+                if original is not None:
+                    os.fchmod(stream.fileno(), stat.S_IMODE(path.stat().st_mode))
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            checked_root, checked_collection = _collection(temporary)
+            if checked_root.attrib != root.attrib or [dict(e.attrib) for e in checked_collection] != expected_entries:
+                raise ValueError('Written PVD entries differ from the intended collection.')
+            if path.is_symlink() or (path.read_bytes() if path.exists() else None) != original:
                 raise RuntimeError('PVD changed concurrently; no entries were replaced.')
-            os.replace(temporary, path)
+            if original is None:
+                # Atomic creation without replacing a destination that appeared.
+                os.link(temporary, path)
+            else:
+                os.replace(temporary, path)
         finally:
             temporary.unlink(missing_ok=True)
     return path

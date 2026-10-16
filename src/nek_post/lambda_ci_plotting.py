@@ -126,9 +126,9 @@ def _segments(profiles, sample_count, minimum=None):
     return vector,segments
 
 
-def sample_projected_tensor_slice(data, node_map, projected_gradients, *, normal_axis,
+def build_tensor_slice_plan(data, node_map, *, normal_axis,
                                   plane_value, samples_per_element=32, x_min=None):
-    """Return all nine interpolated components in (Nz,Nhorizontal,3,3) order.
+    """Prepare reusable physical coordinates and element-local P7 operators.
 
     Input shape: (nelem,nt,ns,nr,3,3), A[i,j]=du_i/dx_j. Physical x/y/z to
     array axes and per-element orientation come from the validated node map.
@@ -141,9 +141,6 @@ def sample_projected_tensor_slice(data, node_map, projected_gradients, *, normal
     if normal_axis not in ('x','y') or not np.isfinite(plane_value): raise ValueError('Invalid slice plane.')
     if x_min is not None and (normal_axis!='y' or not np.isfinite(x_min)): raise ValueError('x_min is finite and valid only for y slices.')
     node_map.validate_mesh(data)
-    gradients=np.asarray(projected_gradients)
-    shape=(node_map.element_count,*node_map.element_shape,3,3)
-    if gradients.shape!=shape or gradients.dtype.kind not in 'fiu': raise ValueError(f'Projected tensors must have real shape {shape}.')
     normal='xyz'.index(normal_axis);horizontal=1 if normal==0 else 0
     axes=node_map.physical_to_array_axes
     profiles_h={};profiles_z={};candidates=[]
@@ -160,15 +157,43 @@ def sample_projected_tensor_slice(data, node_map, projected_gradients, *, normal
         candidates.append((ei,ln))
     if not candidates: raise ValueError('Plane/crop does not intersect the mesh; extrapolation forbidden.')
     h,hs=_segments(profiles_h,count,x_min);z,zs=_segments(profiles_z,count)
-    tensor=np.full((len(z),len(h),3,3),np.nan)
-    max_jump=max_residual=0.
+    entries=[];max_residual=0.
     for ei,ln in candidates:
         sh,bh=hs[int(node_map.element_cell_indices[ei,horizontal])]
         sz,bz=zs[int(node_map.element_cell_indices[ei,2])]
         if not node_map.element_axis_increasing[ei,horizontal]:bh=bh[:,::-1]
         if not node_map.element_axis_increasing[ei,2]:bz=bz[:,::-1]
         bn,residual=_physical_basis(ln,float(plane_value));max_residual=max(max_residual,residual)
-        values=np.transpose(gradients[ei],(axes[2],axes[horizontal],axes[normal],3,4))
+        for matrix in (bh,bz,bn):matrix.setflags(write=False)
+        entries.append((ei,sz,sh,bz,bh,bn))
+    h.setflags(write=False);z.setflags(write=False)
+    return TensorSlicePlan(node_map,normal_axis,float(plane_value),'xyz'[horizontal],h,z,count,
+                          tuple(entries),(axes[2],axes[horizontal],axes[normal],3,4),max_residual)
+
+
+@dataclass(frozen=True)
+class TensorSlicePlan:
+    node_map: object
+    normal_axis: str
+    plane_value: float
+    horizontal_axis: str
+    horizontal: np.ndarray
+    z: np.ndarray
+    samples_per_element: int
+    entries: tuple
+    tensor_axes: tuple
+    maximum_mapping_residual: float
+
+
+def sample_tensor_slice_plan(projected_gradients, plan):
+    """Apply a prepared plan; caller must validate each frame's mesh before reuse."""
+    gradients=np.asarray(projected_gradients)
+    shape=(plan.node_map.element_count,*plan.node_map.element_shape,3,3)
+    if gradients.shape!=shape or gradients.dtype.kind not in 'fiu':raise ValueError(f'Projected tensors must have real shape {shape}.')
+    tensor=np.full((len(plan.z),len(plan.horizontal),3,3),np.nan)
+    max_jump=0.
+    for ei,sz,sh,bz,bh,bn in plan.entries:
+        values=np.transpose(gradients[ei],plan.tensor_axes)
         if not np.isfinite(values).all():raise ValueError('Non-finite projected slice tensor.')
         local=np.einsum('at,bs,r,tsrij->abij',bz,bh,bn,values,optimize=True)
         previous=tensor[sz,sh];valid=np.isfinite(previous[...,0,0])
@@ -177,14 +202,25 @@ def sample_projected_tensor_slice(data, node_map, projected_gradients, *, normal
             if jump>2e-12*max(1.,float(np.max(np.abs(local)))):raise ValueError('Projected shared element traces disagree.')
         previous[~valid]=local[~valid]
     if not np.isfinite(tensor).all():raise ValueError('Incomplete or non-finite slice coverage.')
-    return TensorSliceSamples(normal_axis,float(plane_value),'xyz'[horizontal],h,z,tensor,count,len(candidates),max_jump,max_residual)
+    return TensorSliceSamples(plan.normal_axis,plan.plane_value,plan.horizontal_axis,plan.horizontal,plan.z,
+                             tensor,plan.samples_per_element,len(plan.entries),max_jump,plan.maximum_mapping_residual)
 
 
-def evaluate_lambda_ci_slice(data,node_map,projected_gradients,*,normal_axis,plane_value,
-                             samples_per_element=32,x_min=None,eigenvalue_chunk_rows=16):
-    """P7 tensor interpolation followed by eigenvalues on the dense slice only."""
-    sampled=sample_projected_tensor_slice(data,node_map,projected_gradients,normal_axis=normal_axis,
-        plane_value=plane_value,samples_per_element=samples_per_element,x_min=x_min)
+def sample_projected_tensor_slice(data, node_map, projected_gradients, *, normal_axis,
+                                  plane_value, samples_per_element=32, x_min=None):
+    """Existing one-frame interface; construct a plan and evaluate the nine components."""
+    plan=build_tensor_slice_plan(data,node_map,normal_axis=normal_axis,plane_value=plane_value,
+                                samples_per_element=samples_per_element,x_min=x_min)
+    return sample_tensor_slice_plan(projected_gradients,plan)
+
+
+def evaluate_tensor_slice_plan(projected_gradients,plan,*,eigenvalue_chunk_rows=16):
+    """Apply cached tensor interpolation, then the existing chunked eigenvalue API."""
+    sampled=sample_tensor_slice_plan(projected_gradients,plan)
+    return _lambda_samples(sampled,eigenvalue_chunk_rows)
+
+
+def _lambda_samples(sampled,eigenvalue_chunk_rows):
     result=compute_swirling_strength(sampled.tensors,chunk_size=eigenvalue_chunk_rows)
     diagnostics=dict(samples_per_element=sampled.samples_per_element,
         intersected_element_count=sampled.intersected_element_count,
@@ -194,6 +230,13 @@ def evaluate_lambda_ci_slice(data,node_map,projected_gradients,*,normal_axis,pla
         plotted_lambda_ci_min=float(result.lambda_ci.min()),plotted_lambda_ci_max=float(result.lambda_ci.max()))
     return LambdaSliceSamples(sampled.normal_axis,sampled.plane_value,sampled.horizontal_axis,
                               sampled.horizontal,sampled.z,result.lambda_ci,result.lambda_ci_squared,diagnostics)
+
+def evaluate_lambda_ci_slice(data,node_map,projected_gradients,*,normal_axis,plane_value,
+                             samples_per_element=32,x_min=None,eigenvalue_chunk_rows=16):
+    """P7 tensor interpolation followed by eigenvalues on the dense slice only."""
+    sampled=sample_projected_tensor_slice(data,node_map,projected_gradients,normal_axis=normal_axis,
+        plane_value=plane_value,samples_per_element=samples_per_element,x_min=x_min)
+    return _lambda_samples(sampled,eigenvalue_chunk_rows)
 
 
 def plot_lambda_ci_slice(samples: LambdaSliceSamples,png_path,pdf_path,*,case,frame,time,vmin=0.,vmax=10.,dpi=180):

@@ -55,3 +55,78 @@ Tests (synthetic data only):
 PYENV_VERSION=research312 python -m pytest -q tests/test_lambda_ci_plotting.py tests/test_lambda_ci_workflow.py
 PYENV_VERSION=research312 python -m pytest -q
 ```
+
+## Sequential series and safe resume (Stage 5)
+
+```bash
+PYENV_VERSION=research312 python -B scripts/35_compute_lambda_ci_slice_series.py \
+  --start-index 1 --end-index 81 --resume --dry-run
+PYENV_VERSION=research312 python -B scripts/35_compute_lambda_ci_slice_series.py \
+  --indices 65 --resume --log-name stage5_smoke65
+PYENV_VERSION=research312 python -B scripts/35_compute_lambda_ci_slice_series.py \
+  --indices 17,33,49 --resume --log-name stage5_small_batch
+PYENV_VERSION=research312 python -B scripts/35_compute_lambda_ci_slice_series.py \
+  --start-index 1 --end-index 81 --resume --log-name stage5_production
+```
+
+`--output-root` is the **case-level** directory. Defaults retain the confirmed
+planes, 28 subdivisions, periodic x/y projection and color range [0,10].
+`--max-frames` limits a selection, and `--save-samples` retains optional NPZs.
+The single-frame script remains available.
+
+A process builds its L2 projection operator once and retains quadrature weights,
+lumped masses and element-order-specific mapping. The two interpolation plans
+are built once during preflight and reused. Original coordinate signatures are
+checked before every new frame's gradients; any changed geometry or element
+ordering stops publication. The established element gradient API remains
+unchanged. Only the two planes undergo eigenvalue/scalar evaluation; no full
+volume lambda_ci or 3D visualization is produced.
+
+`--resume` validates header/source checksums, completed diagnostics, numerical
+implementation signatures (new results), exact sample coordinates, VTR point
+arrays and squared values, PNG decoding, PDF page decoding and continuous RGB
+controls. Valid legacy frame-79 metadata is accepted after equivalent checks.
+Existing incomplete/incompatible frame directories stop execution and remain
+untouched; preserve/move them explicitly after review before retrying.
+
+New results are written under `.stage5-staging/` and decoded/checked before
+Linux atomic directory publication with no replacement. A case-level advisory
+lock prevents simultaneous series writers. A crash before publication leaves
+staging intact. `--recover-staging` can publish a completed valid staged frame;
+incomplete staging is preserved and a new unique staging directory is used.
+A crash after publication but before PVD/checkpoint update is repaired by the
+next validated `--resume`. Final verification identifies each collection by its
+explicit `y_midplane` or `x_slice` series key, never by a filename substring;
+nondefault planes such as `--y-midplane 0.6` retain the same frame/time checks.
+Existing PVD entries are retained, duplicates rejected and entries sorted by
+actual physical time. Output filenames are unchanged.
+
+PVD updates use a uniquely named temporary file beside the destination. The
+complete XML is flushed, fsynced, parsed, and checked against the intended
+entries before atomic replacement. A new collection is published by an atomic
+no-replace hard link. A failure before publication leaves the previous PVD
+intact (or leaves a new destination absent); only the current operation's
+temporary is cleaned up. Legacy `.pvd.append` files and unknown orphan
+temporaries are ignored and preserved, so they do not block resume.
+
+Each helper update holds a persistent `.<pvd-name>.lock` advisory lock; the
+case-level series lock remains in place. All writers must use this helper or
+honor its lock; unique temporary names alone do not prevent lost updates.
+Lock sidecars must not be removed while writers may be active. Publication is
+atomic per PVD, not across both collections or the checkpoint: validated resume
+repairs missing entries after a process interruption. An already malformed
+destination PVD still stops validation and requires explicit review; this is
+not a power-loss durability guarantee. Operational JSON checkpoints continue
+to use atomic replacement.
+
+Logs: `logs/<log-name>.jsonl`, `logs/<log-name>_summary.json` and the latest
+`processing_summary.json`. Summaries contain per-frame actual time, both scalar
+min/max, runtime, generated/reused/recovered status, observed RSS, peak RSS and
+operator/plan build counts. Final verification uses the expected manifest roles
+rather than counting unrelated files by extension, and rechecks all source and
+pre-existing result checksums. A run is complete only when summary status is
+`completed` and final validation is `passed`.
+
+For a detached launch when tmux is unavailable, redirect stdout/stderr to a log
+outside the repository and start a new session with stdin disconnected. Inspect
+both the process PID and its checkpoint; a live PID alone does not imply success.
