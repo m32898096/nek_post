@@ -107,12 +107,14 @@ def assemble_rectilinear_lambda_fields(
 
 
 def write_rectilinear_lambda_vtr(
-    path: str | Path, fields: RectilinearLambdaFields, *, time: float,
+    path: str | Path, fields: RectilinearLambdaFields, *, time: float, allow_2d: bool = False,
 ) -> Path:
     """Write exclusive, uncompressed appended-binary VTR using installed VTK.
 
     Point data are x-fast, with implicit axis-aligned volume-cell connectivity.
     Both fields are float64. TIME_VALUE stores the actual simulation time.
+    allow_2d explicitly enables one singleton physical axis; volume defaults
+    and the original Stage 4 behavior are unchanged.
     This routine never overwrites an existing file, including dangling links.
     """
     from vtkmodules.util.numpy_support import numpy_to_vtk
@@ -123,8 +125,10 @@ def write_rectilinear_lambda_vtr(
     if path.suffix != ".vtr" or not np.isfinite(time):
         raise ValueError("Output must be a .vtr path with a finite timestamp.")
     dimensions = tuple(len(v) for v in fields.coordinates)
-    if len(dimensions) != 3 or any(n < 2 for n in dimensions):
-        raise ValueError("A volume grid requires at least two nodes per axis.")
+    valid_volume = len(dimensions) == 3 and all(n >= 2 for n in dimensions)
+    valid_plane = len(dimensions) == 3 and sum(n == 1 for n in dimensions) == 1 and all(n >= 1 for n in dimensions)
+    if not (valid_volume or (allow_2d and valid_plane)):
+        raise ValueError("Require a volume or, with allow_2d=True, exactly one singleton plane axis.")
     for vector in fields.coordinates:
         if np.asarray(vector).ndim != 1 or not np.isfinite(vector).all() or not np.all(np.diff(vector) > 0):
             raise ValueError("Coordinate vectors must be finite and strictly increasing.")
