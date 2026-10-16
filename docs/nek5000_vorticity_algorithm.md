@@ -472,3 +472,140 @@ object-address labels, as described above.
 Atomic publication covers one frame, not an entire batch or sudden power loss.
 Failed/interrupted staging is preserved for review; only completed published
 frames are resumable. Backups and unknown files are never automatically deleted.
+
+## Validate saved production and create a time-series PVD
+
+`scripts/37_validate_omega_x_series.py` audits existing volumes and publishes
+one ParaView Collection; it does not load native velocity payloads or calculate
+omega_x. The reusable implementation is `nek_post.omega_x_series_pvd`.
+Neither numerical kernels nor the existing workflow/signature guard is changed.
+
+The production input root is
+`/data/Nek5000_data/results/h_refinement/omega_x/case_N7_H/`.
+The current 81-frame dataset has an additional case directory, so its frame
+files actually reside at
+`ROOT/case_N7_H/fNNNNN/case_N7_H_fNNNNN_omega_x.{vtr,pvd,json}`.
+This layout is preserved. Recursive discovery accepts both direct and nested
+frame directories, requires exactly one triplet for each index 1 through 81,
+and rejects duplicate indices, unexpected scientific files and symlinks.
+Operational locks and empty staging directories are not scientific outputs.
+Every metadata output path must match the actual discovered triplet.
+
+The audit establishes SHA-256 baselines of all existing VTR/PVD/JSON files
+before full VTR reads and verifies them again after validation and before
+publication. It reads all original `GC0.f00001` through `GC0.f00081` headers,
+requires strictly increasing actual times, and verifies element count 26,112,
+8 nodes per reference direction (P7), original source path/index/istep/hash,
+periodic x/y configuration, completion metadata and exact implementation
+signature compatibility. Missing required checksums are errors, not inferred
+metadata additions. Source size/mtime are checked again after the audit.
+
+Each frame passes the existing complete artifact validator and an additional
+sequential VTK read-back for shared-grid checks and statistics. Expected
+dimensions are `(1905,85,57)` with 9,229,725 float64 omega_x values and bounds
+`[-17,17] x [0,1.5] x [0,1]`. Coordinates must be finite and strictly increasing,
+match their recorded hashes and agree exactly across every frame. The VTR time
+must equal the original header time. The implicit rectilinear x-fast convention
+is checked using zero-based extents and point IDs/coordinates at the first,
+adjacent and last x point of every y/z row. This checks serialization/indexing;
+it does not independently recompute physical curl from the velocity field.
+
+All scalars must be finite and match metadata min/max; both signs are not
+required. Frame 1 legitimately contains zeros. Min/max/mean/RMS are recorded
+per frame in the JSON report. Mean and RMS are arithmetic statistics over the
+exported points, including retained periodic endpoints, not quadrature-weighted
+volume statistics or enstrophy. Scaled, chunked float64 reductions avoid
+unnecessary full-field temporary arrays and square overflow. Each VTK reader
+is guarded by the existing host/cgroup RAM probe; unknown/insufficient RAM
+fails closed. Only one volume and tiny reference coordinate vectors are held
+at a time. The existing validator and statistics reader run sequentially.
+
+Reproduce the read-only audit:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/37_validate_omega_x_series.py \
+  --case N7_H \
+  --input-dir /data/Nek5000_data/results/h_refinement/omega_x/case_N7_H \
+  --dry-run
+```
+
+Create the series after complete successful validation:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/37_validate_omega_x_series.py \
+  --case N7_H \
+  --input-dir /data/Nek5000_data/results/h_refinement/omega_x/case_N7_H \
+  --output-dir /data/Nek5000_data/results/h_refinement/omega_x/case_N7_H
+```
+
+`--case` also accepts an explicit source snapshot directory. `--input-dir`
+defaults to the production case root above. `--output-dir` is the exact PVD
+directory and defaults to the input root; a separate external directory is
+allowed, while destinations inside frame outputs, source snapshots, this
+repository or lambda_ci results are rejected. Dry-run creates no files, even
+when the requested output directory does not exist. JSON diagnostics go to
+stdout and progress to stderr; invalid datasets return exit status 1 with
+missing/duplicate/invalid-frame errors. All 81 frames are required by the CLI;
+the reusable test API permits explicit smaller index sets.
+
+The target is `ROOT/case_N7_H_omega_x_series.pvd`. It contains 81 entries with
+actual timestamps from **0.0 to 20.0**, in chronological order, using paths
+relative to that PVD directory. For the current nested layout:
+
+```xml
+<VTKFile type="Collection" version="0.1" byte_order="LittleEndian">
+  <Collection>
+    <DataSet timestep="0.0" group="" part="0"
+      file="case_N7_H/f00001/case_N7_H_f00001_omega_x.vtr" />
+    <!-- Frames 2 through 80 use their actual source times. -->
+    <DataSet timestep="20.0" group="" part="0"
+      file="case_N7_H/f00081/case_N7_H_f00081_omega_x.vtr" />
+  </Collection>
+</VTKFile>
+```
+
+Publication writes a unique temporary file in the target directory, flushes
+and fsyncs it, parses its XML and verifies all reference paths/times, rechecks
+the original artifact baseline, then uses atomic `os.link` no-replace creation
+and directory fsync. An existing target, including a racing writer or symlink,
+is never overwritten. Only this invocation's temporary file is removed.
+There is no overwrite option. A failed audit never publishes a completed
+series. A later dry-run can validate an already existing series at the input
+root. External concurrent changes are detected by hashes/stats at audit
+boundaries; this is not a filesystem snapshot or a substitute for keeping
+production inputs stationary during validation.
+
+The 2026-10-16 full-dataset dry-run validates all **81 VTR + 81 single-frame
+PVD + 81 JSON** files, with no missing, duplicate, corrupted or unexpected
+scientific frames. The frame-by-frame diagnostics and source/VTR/PVD SHA-256
+values are recorded in [omega_x_N7_H_production_statistics.csv](omega_x_N7_H_production_statistics.csv).
+Across the actual times 0-20, the minimum of omega_x is
+**-37.8430021494745** (frame 79), and the maximum is
+**35.5031890168688** (frame 80). Pointwise mean ranges from
+**-0.00073328310756719** (frame 34) to **0.0012319737378544086**
+(frame 76). RMS ranges from **0** (frame 1) to **0.8180658030270787**
+(frame 81). These statistics describe the exported sampling, not a weighted
+volume average.
+
+Focused workflow/cache/series tests pass **93 cases with 1 optional skip**;
+the complete suite passes **1693 tests with 1 optional skip in 29.77 s**.
+The 30 new series tests cover chronological actual times, missing/duplicate
+frames, references, metadata/checksums/signatures, scalar dtype/finite values,
+shared coordinates, signed/zero/one-sided fields, statistics, atomic failure
+and publication races, collisions, read-only dry-run and artifact preservation.
+The skipped pre-existing three-frame integration test looks for the older
+direct `ROOT/fNNNNN` layout, which is absent after the new nested production
+run; this task's real-data audit covers all 81 frames at their actual paths.
+
+The final publication completed successfully at
+`/data/Nek5000_data/results/h_refinement/omega_x/case_N7_H/case_N7_H_omega_x_series.pvd`.
+Read-back confirms exactly 81 unique relative references, increasing times
+0-20 and valid ParaView Collection XML. All 81 single-frame PVD headers also
+pass strict Collection-type checks. The new series SHA-256 is
+`b1ab69ae98106a1b6a2abd55743687cd6c9fa2323afe3916ba8658655d4bf50d`.
+The pre-audit **921-file baseline** (243 omega_x scientific files, two existing
+locks and 676 lambda_ci files) remains byte-identical; inventory adds only
+the newly authorized series PVD. The full publication audit and dry-run
+statistics agree exactly with the CSV. All 81 stored source checksums match
+their original snapshots. No original metadata or numerical implementation
+was modified. Tracked and all four new files pass whitespace checks.
