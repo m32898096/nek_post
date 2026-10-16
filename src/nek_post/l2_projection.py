@@ -373,6 +373,72 @@ class L2ProjectionResult:
     diagnostics: L2ProjectionDiagnostics | None
 
 
+def _project_scalar_component(operator, array, output, rhs, chunk_size, label='field'):
+    """Shared bm1 -> assembly -> inverse mass kernel; inputs already validated.
+
+    Component views may be strided. Reuse one global RHS across tensor
+    components, keeping the original contribution order and division exactly.
+    """
+    mapping = operator.node_map
+    rhs.fill(0)
+    for start in range(0, mapping.element_count, chunk_size):
+        stop = min(start + chunk_size, mapping.element_count)
+        ids = mapping.node_ids(start, stop).ravel()
+        with np.errstate(over="ignore", invalid="ignore"):
+            weighted = np.multiply(array[start:stop].reshape(-1),
+                                   operator.weights[start:stop].ravel(), dtype=np.float64)
+            np.add.at(rhs, ids, weighted)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        rhs /= operator.mass
+    if not np.all(np.isfinite(rhs)):
+        raise FloatingPointError(f"Projected {label} contains non-finite values (float64 overflow).")
+    for start in range(0, mapping.element_count, chunk_size):
+        stop = min(start + chunk_size, mapping.element_count)
+        output[start:stop] = rhs[mapping.node_ids(start, stop)]
+
+
+def project_scalar_field(
+    operator: L2ProjectionOperator, values: object, *, mesh: object | None = None,
+    out: np.ndarray | None = None, chunk_size: int = DEFAULT_CHUNK_SIZE,
+) -> NDArray[np.float64]:
+    """Project a signed real (nelem,nt,ns,nr) scalar with the existing masses.
+
+    Compute sum(local_mass * value) / assembled_mass and gather to the
+    original element layout, including explicitly configured periodic seams.
+    Float64 arithmetic and chunked IDs/weighted values match the tensor API.
+    Inputs are preserved. Optional out must be writable C-contiguous float64
+    and must not overlap input or operator arrays. Pass mesh when reusing an
+    operator with another snapshot to validate geometry and element order.
+    """
+    if not isinstance(operator, L2ProjectionOperator):
+        raise ValueError("operator must be a prepared L2ProjectionOperator.")
+    chunk_size = _positive_integer(chunk_size, "chunk_size")
+    mapping = operator.node_map
+    if mesh is not None:
+        mapping.validate_mesh(mesh)
+    try:
+        array = np.asarray(values)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Scalar field must contain real numeric values.") from exc
+    shape = (mapping.element_count, *mapping.element_shape)
+    if array.shape != shape or array.dtype.kind not in "fiu":
+        raise ValueError(f"Scalar field must have real shape {shape}.")
+    for start in range(0, mapping.element_count, chunk_size):
+        if not np.isfinite(array[start:start + chunk_size]).all():
+            raise ValueError("Scalar field must contain only finite values.")
+    if out is None:
+        output = np.empty(shape, dtype=np.float64)
+    else:
+        if not isinstance(out, np.ndarray) or out.shape != shape or out.dtype != np.float64 or not out.flags.writeable or not out.flags.c_contiguous:
+            raise ValueError("out must be a writable C-contiguous float64 array matching the scalar shape.")
+        if any(np.shares_memory(out, v) for v in (array, operator.weights, operator.mass)):
+            raise ValueError("out must not overlap scalar input or prepared operator arrays.")
+        output = out
+    rhs = np.empty(mapping.global_node_count, dtype=np.float64)
+    _project_scalar_component(operator, array, output, rhs, chunk_size)
+    return output
+
+
 def project_velocity_gradient(
     operator: L2ProjectionOperator, gradients: object, *, mesh: object | None = None,
     out: np.ndarray | None = None, diagnostics: bool = True,
@@ -414,23 +480,7 @@ def project_velocity_gradient(
     rhs = np.empty(mapping.global_node_count, dtype=np.float64)
     for i in range(3):
         for j in range(3):
-            rhs.fill(0)
-            for start in range(0, mapping.element_count, chunk_size):
-                stop = min(start + chunk_size, mapping.element_count)
-                ids = mapping.node_ids(start, stop).ravel()
-                with np.errstate(over="ignore", invalid="ignore"):
-                    weighted = np.multiply(
-                        array[start:stop, ..., i, j].reshape(-1),
-                        operator.weights[start:stop].ravel(), dtype=np.float64,
-                    )
-                    np.add.at(rhs, ids, weighted)
-            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                rhs /= operator.mass
-            if not np.all(np.isfinite(rhs)):
-                raise FloatingPointError("Projected gradient contains non-finite values (float64 overflow).")
-            for start in range(0, mapping.element_count, chunk_size):
-                stop = min(start + chunk_size, mapping.element_count)
-                output[start:stop, ..., i, j] = rhs[mapping.node_ids(start, stop)]
+            _project_scalar_component(operator, array[..., i, j], output[..., i, j], rhs, chunk_size, label='gradient')
     del rhs
     report = None
     if diagnostics:
