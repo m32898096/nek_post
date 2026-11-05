@@ -375,27 +375,37 @@ def test_ram_predecessor_retains_vtr_scientific_validation(tmp_path,change):
         run(case,root,indices=[1],resume=True)
 
 
-def test_real_predecessor_three_frames_readonly_resume(monkeypatch):
+def test_synthetic_predecessor_three_frames_readonly_resume(tmp_path,monkeypatch):
     import nek_post.omega_x_workflow as module
+    from pymech.neksuite import readnek,writenek
     from vtkmodules import vtkIOXML
-    case=Path('/data/Nek5000_data/case_N7_H')
-    root=module.DEFAULT_OUTPUT_ROOT/case.name
+    # Small deterministic P7 files replace the deleted external scratch data.
+    # These are two-element fixtures, not regenerated N7_H production frames.
+    case,output_root=case_files(tmp_path)
+    data=readnek(str(case/'GC0.f00001'))
     indices=(41,55,79)
+    times=(10.0035071079,13.50377813401,19.50240408807)
+    for index,time in zip(indices,times):
+        data.time=time;data.istep=index*13
+        writenek(str(case/f'GC0.f{index:05d}'),data)
+    run(case,output_root,indices=indices)
+    root=output_root/case.name
     paths=[p for i in indices for p in module._paths(root/f'f{i:05d}',case.name,i).values()]
-    if not all(p.is_file() for p in paths) or not all((case/f'GC0.f{i:05d}').is_file() for i in indices):
-        pytest.skip('Optional existing N7_H frame 41/55/79 integration data is unavailable')
-    before={p:module._file_hash(p) for p in paths}
     for i in indices:
-        metadata=json.loads(module._paths(root/f'f{i:05d}',case.name,i)['metadata'].read_text())
+        path=module._paths(root/f'f{i:05d}',case.name,i)['metadata']
+        metadata=json.loads(path.read_text())
+        metadata['numerical_software_signature']['omega_x_workflow.py']=module._RAM_PREFLIGHT_PREDECESSOR_SHA256
+        path.write_text(json.dumps(metadata))
         assert metadata['numerical_software_signature']['omega_x_workflow.py']==(
             '9f261baadf8e888ef216f83dc5cdcd2f9a4336e33c5b200340c60e22551d3736')
+    before={p:module._file_hash(p) for p in paths}
     def forbidden(*args,**kwargs):pytest.fail('Existing-frame integration test attempted native load or recomputation')
     monkeypatch.setattr(module,'read_nek_file',forbidden)
     monkeypatch.setattr(module,'compute_projected_omega_x',forbidden)
     with monkeypatch.context() as low:
         low.setattr(module,'available_memory_bytes',lambda:1)
         low.setattr(vtkIOXML,'vtkXMLRectilinearGridReader',forbidden)
-        rejected=module.run_omega_x_series(indices=indices,resume=True,dry_run=True)
+        rejected=run(case,output_root,indices=indices,resume=True,dry_run=True)
         assert not rejected['resources_acceptable'] and rejected['estimated_ram_bytes']>0
     original_reader=vtkIOXML.vtkXMLRectilinearGridReader;original_require=module._require_ram
     checked=[];readers=[]
@@ -409,7 +419,7 @@ def test_real_predecessor_three_frames_readonly_resume(monkeypatch):
         return original_reader()
     monkeypatch.setattr(module,'_require_ram',require)
     monkeypatch.setattr(vtkIOXML,'vtkXMLRectilinearGridReader',reader)
-    report=module.run_omega_x_series(indices=[79,41,55],resume=True,dry_run=True)
+    report=run(case,output_root,indices=[79,41,55],resume=True,dry_run=True)
     assert report['resources_acceptable'] and len(readers)==3
     assert [f['index'] for f in report['frames']]==list(indices)
     assert [f['time'] for f in report['frames']]==[10.0035071079,13.50377813401,19.50240408807]
