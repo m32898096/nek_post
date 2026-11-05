@@ -173,6 +173,11 @@ or original simulation output is an eligible destination.
 
 ## Tests and validation
 
+The dated results below describe successive historical development stages, not
+the current test count. The self-contained three-frame resume test and current
+P7 review commands are documented in
+[omega_x_p7_midplane_slice.md](omega_x_p7_midplane_slice.md#pytest-skip-investigation-and-resolution).
+
 Focused tests cover signed constants, nonuniform shared-node mass weighting,
 periodic x/y faces/edges/corners, independent coordinate-grouped mass assembly,
 projection linearity, solid rotation, shear, polynomial curl, skew/curved local
@@ -249,10 +254,12 @@ to **180 passed** and the complete suite to **1644 passed in 29.80 s**. It
 individually rejects changes to all five non-workflow signature modules,
 periodicity/element-count/order settings, source hashes, timestamps, and VTR/PVD
 checksums. VTR coordinate, timestamp, scalar and topology validation also reject
-altered synthetic files even after their fixture checksum is refreshed. An
-optional read-only integration test validates the actual historical frames
-41/55/79 when those inputs and outputs are available; it ran and passed in
-this checkout and verifies RAM checks before all three reader constructions.
+altered synthetic files even after their fixture checksum is refreshed. At that
+stage, an optional read-only integration test validated historical frames
+41/55/79 and checked RAM before all three reader constructions. Those scratch
+outputs were subsequently deleted. The current deterministic replacement uses
+only pytest's `tmp_path` and retains the resume, timestamp, no-recomputation,
+RAM, VTR read-back and checksum assertions; see the P7 document linked above.
 
 Normal execution (`resume=True`, not dry-run) also completed for all three
 historical frames without native velocity loading, projection preparation,
@@ -385,11 +392,13 @@ or production output is rewritten. The lambda_ci signature guard is unchanged.
 The uncached baseline is the exact committed RAM-fix workflow (`91e503...`).
 It and the final cache successor were run in separate Python processes on
 the same frames 41/55/79 with identical native-grid, chunk-size, periodic and
-output settings. All new calculation outputs are under
+output settings. The historical calculation outputs were stored under
 `/tmp/omega-x-operator-cache-review/uncached-outputs/` and
-`/tmp/omega-x-operator-cache-review/cached-final-outputs/`. A preliminary
-cached measurement is retained separately in `cached-outputs/`; the table
-uses only the final reviewed source. No production output was replaced.
+`/tmp/omega-x-operator-cache-review/cached-final-outputs/`, with a preliminary
+cached measurement in `cached-outputs/`. These temporary directories are no
+longer present as of the 2026-11-05 review; the table is a historical record,
+not evidence that can currently be inspected at those paths. It uses only the
+final reviewed source. No production output was replaced.
 Both paths were observed with the same timing wrappers around existing
 functions; numerical kernels were not changed for instrumentation.
 
@@ -575,10 +584,12 @@ root. External concurrent changes are detected by hashes/stats at audit
 boundaries; this is not a filesystem snapshot or a substitute for keeping
 production inputs stationary during validation.
 
-The 2026-10-16 full-dataset dry-run validates all **81 VTR + 81 single-frame
+The 2026-10-16 full-dataset dry-run validated all **81 VTR + 81 single-frame
 PVD + 81 JSON** files, with no missing, duplicate, corrupted or unexpected
 scientific frames. The frame-by-frame diagnostics and source/VTR/PVD SHA-256
-values are recorded in [omega_x_N7_H_production_statistics.csv](omega_x_N7_H_production_statistics.csv).
+values are recorded in [omega_x_N7_H_production_statistics.csv](/data/Nek5000_data/results/h_refinement/omega_x/case_N7_H/omega_x_N7_H_production_statistics.csv).
+This link targets the external production dataset on this host, not a CSV
+stored in the repository's `docs/` directory.
 Across the actual times 0-20, the minimum of omega_x is
 **-37.8430021494745** (frame 79), and the maximum is
 **35.5031890168688** (frame 80). Pointwise mean ranges from
@@ -587,15 +598,20 @@ Across the actual times 0-20, the minimum of omega_x is
 (frame 81). These statistics describe the exported sampling, not a weighted
 volume average.
 
-Focused workflow/cache/series tests pass **93 cases with 1 optional skip**;
-the complete suite passes **1693 tests with 1 optional skip in 29.77 s**.
+At the 2026-10-16 series-validation stage, focused workflow/cache/series tests
+passed **93 cases with 1 optional skip**; the complete suite passed
+**1693 tests with 1 optional skip in 29.77 s**. These are historical counts.
 The 30 new series tests cover chronological actual times, missing/duplicate
 frames, references, metadata/checksums/signatures, scalar dtype/finite values,
 shared coordinates, signed/zero/one-sided fields, statistics, atomic failure
 and publication races, collisions, read-only dry-run and artifact preservation.
-The skipped pre-existing three-frame integration test looks for the older
-direct `ROOT/fNNNNN` layout, which is absent after the new nested production
-run; this task's real-data audit covers all 81 frames at their actual paths.
+The skipped pre-existing three-frame integration test looked for deleted
+scratch outputs in the older direct `ROOT/fNNNNN` layout; the historical
+real-data audit covered all 81 production frames at their actual nested paths.
+The current synthetic replacement removes that external scratch dependency
+without recreating the deleted frames or weakening the production validator.
+The full repository suite now contains 1736 tests; current commands and results are
+recorded in the linked P7 document.
 
 The final publication completed successfully at
 `/data/Nek5000_data/results/h_refinement/omega_x/case_N7_H/case_N7_H_omega_x_series.pvd`.
@@ -603,9 +619,10 @@ Read-back confirms exactly 81 unique relative references, increasing times
 0-20 and valid ParaView Collection XML. All 81 single-frame PVD headers also
 pass strict Collection-type checks. The new series SHA-256 is
 `b1ab69ae98106a1b6a2abd55743687cd6c9fa2323afe3916ba8658655d4bf50d`.
-The pre-audit **921-file baseline** (243 omega_x scientific files, two existing
-locks and 676 lambda_ci files) remains byte-identical; inventory adds only
-the newly authorized series PVD. The full publication audit and dry-run
-statistics agree exactly with the CSV. All 81 stored source checksums match
-their original snapshots. No original metadata or numerical implementation
-was modified. Tracked and all four new files pass whitespace checks.
+In that historical publication audit, the pre-audit **921-file baseline**
+(243 omega_x scientific files, two existing locks and 676 lambda_ci files)
+remained byte-identical; the inventory added only the newly authorized series
+PVD. The full publication audit and dry-run statistics agreed exactly with the
+CSV. All 81 stored source checksums matched their original snapshots. No
+original metadata or numerical implementation was modified. Tracked and all
+four new files passed whitespace checks at that stage.
