@@ -11,7 +11,8 @@ checked against `/data/Nek5000_data/case_N7_H/GC0.f00079` without loading its
 velocity payload. Frame 79 has actual simulation time **19.50240408807**.
 
 No velocity gradients, Jacobian derivatives, curl, L2 projection, or eigenvalues
-are recomputed. No existing scientific module or signature allowlist is edited.
+are recomputed. Native derivative, curl and L2 kernels and their signature
+allowlists are unchanged.
 The current omega_x workflow SHA remains
 `8b7b441f7eb45d7deeb3159b98d256502231b0377151ae1fa7214997241d6176`.
 Existing numerical signatures, source checksum, VTR/PVD artifact checksums,
@@ -289,8 +290,12 @@ RAM, and write access to a new destination. It does not run implicitly in pytest
 
 P7 is a representation of the existing projected SEM field, not a new DNS
 resolution or an accuracy proof. There is no numerical smoothing or filtering.
-Only real frame 79 has currently been reconstructed by this workflow; there is
-no high-order omega_x slice time series. The output is a dense 2D x-z slice,
+The original real-data validation reconstructed only frame 79. The subsequent
+[slice-series extension](omega_x_p7_slice_series.md) reuses this implementation,
+with cached geometry, strict resume and complete-series PVD publication. Its
+initial validation uses read-only preflight and isolated smoke outputs; full
+canonical 81-frame reconstruction requires a separately approved run.
+The output remains a dense 2D x-z slice,
 not a full 3D high-order volume. C0 agreement at shared nodes does not imply
 continuous derivatives; native field oscillations, SEM interfaces, overshoot,
 and finite dense-grid rasterization may still affect appearance. Only this

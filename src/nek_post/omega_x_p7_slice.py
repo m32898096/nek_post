@@ -29,6 +29,55 @@ class OmegaSlice:
     diagnostics: dict
 
 
+@dataclass(frozen=True)
+class P7SlicePlan:
+    """Invocation-local stationary geometry and the existing P7 basis matrices."""
+    coordinates: tuple
+    element_counts: tuple
+    y: float
+    x_min: float
+    samples_per_element: int
+    residuals: tuple
+    containing: tuple
+    x: np.ndarray
+    z: np.ndarray
+    x_segments: dict
+    z_segments: dict
+    identity: np.ndarray
+
+    def validate(self, coordinates, element_counts, y, x_min, samples_per_element):
+        if (tuple(element_counts)!=self.element_counts or y!=self.y or x_min!=self.x_min
+                or samples_per_element!=self.samples_per_element or len(coordinates)!=3
+                or any(np.asarray(a).dtype!=np.float64 or not np.array_equal(a,b)
+                       for a,b in zip(coordinates,self.coordinates))):
+            raise ValueError('Cached P7 plan geometry/topology/configuration differs.')
+
+
+def build_p7_slice_plan(coordinates, *, element_counts, y=.75, x_min=0., samples_per_element=29):
+    """Prepare only the coordinate/basis work previously done per reconstruction."""
+    count=workflow._positive_integer(samples_per_element,'samples_per_element',2)
+    if len(element_counts)!=3 or any(not isinstance(c,int) or isinstance(c,bool) or c<1 for c in element_counts):
+        raise ValueError('Three positive element counts are required.')
+    if len(coordinates)!=3 or not np.isfinite([y,x_min]).all():
+        raise ValueError('Three coordinates and finite plane/crop required.')
+    profiles=[];residuals=[]
+    coordinates=tuple(np.asarray(c).copy() for c in coordinates)
+    for coordinate,n in zip(coordinates,element_counts):
+        p,r=recover_gll_profiles(coordinate,n);profiles.append(p);residuals.append(r)
+    px,py,pz=profiles
+    containing=tuple((cell,*_physical_basis(line,float(y))) for cell,line in py.items() if line[0]<=y<=line[-1])
+    if not containing:raise ValueError('Slice lies outside the native mesh; extrapolation forbidden.')
+    positive={cell:p for cell,p in px.items() if p[-1]>x_min}
+    x,x_segments=_segments(positive,count,float(x_min));z,z_segments=_segments(pz,count)
+    nodes=gll_nodes(8);weights=barycentric_weights(nodes)
+    identity=np.vstack([barycentric_basis_and_derivative(nodes,weights,q)[0] for q in nodes])
+    for a in (*coordinates,x,z,identity,*(b for _,b,_ in containing),
+              *(b for _,b in x_segments.values()),*(b for _,b in z_segments.values())):
+        a.setflags(write=False)
+    return P7SlicePlan(coordinates,tuple(element_counts),float(y),float(x_min),count,
+                       tuple(residuals),containing,x,z,x_segments,z_segments,identity)
+
+
 def recover_gll_profiles(coordinate, count):
     """Recover SEM intervals, not individual VTK cells, at stride 8-1."""
     count=workflow._positive_integer(count,'element_count')
@@ -48,7 +97,7 @@ def recover_gll_profiles(coordinate, count):
 
 
 def reconstruct_p7_midplane(coordinates, values, *, element_counts, y=.75, x_min=0.,
-                            samples_per_element=29, time=0.):
+                            samples_per_element=29, time=0., plan=None):
     """Interpolate a canonical physical (z,y,x) scalar, then crop strictly x>x_min.
 
     Dense coordinates use the same uniform reference sampling and physical
@@ -58,21 +107,18 @@ def reconstruct_p7_midplane(coordinates, values, *, element_counts, y=.75, x_min
     if len(element_counts)!=3 or any(not isinstance(c,int) or isinstance(c,bool) or c<1 for c in element_counts):
         raise ValueError('Three positive element counts are required.')
     if not np.isfinite([y,x_min,time]).all():raise ValueError('Finite plane/crop/time required.')
-    profiles=[];residuals=[]
-    for coordinate,n in zip(coordinates,element_counts):
-        p,r=recover_gll_profiles(coordinate,n);profiles.append(p);residuals.append(r)
+    if plan is None:
+        plan=build_p7_slice_plan(coordinates,element_counts=element_counts,y=y,x_min=x_min,samples_per_element=count)
+    plan.validate(coordinates,element_counts,y,x_min,count)
+    residuals=plan.residuals
     array=np.asarray(values)
     if array.dtype!=np.float64 or array.shape!=tuple(len(c) for c in coordinates)[::-1] or not np.isfinite(array).all():
         raise ValueError('Projected scalar must be finite float64 in (Nz,Ny,Nx) order.')
-    px,py,pz=profiles
-    containing=[(cell,*_physical_basis(line,float(y))) for cell,line in py.items() if line[0]<=y<=line[-1]]
-    if not containing:raise ValueError('Slice lies outside the native mesh; extrapolation forbidden.')
-    positive={cell:p for cell,p in px.items() if p[-1]>x_min}
-    x,x_segments=_segments(positive,count,float(x_min));z,z_segments=_segments(pz,count)
+    containing=plan.containing
+    x,z,x_segments,z_segments=plan.x,plan.z,plan.x_segments,plan.z_segments
     output=np.full((len(z),len(x)),np.nan)
     max_jump=0.;below=above=0.;overshooting=0;nodal_error=0.;support_low=np.inf;support_high=-np.inf
-    nodes=gll_nodes(8);weights=barycentric_weights(nodes)
-    identity=np.vstack([barycentric_basis_and_derivative(nodes,weights,q)[0] for q in nodes])
+    identity=plan.identity
     for iy,by,_ in containing:
         for iz,(sz,bz) in z_segments.items():
             for ix,(sx,bx) in x_segments.items():
@@ -212,6 +258,49 @@ def _figures(samples,paths,*,case,frame,dpi=220):
             'rendering':'nearest sample cells, no smoothing/filtering','dpi':dpi}
 
 
+def load_projected_omega_frame(case_dir,frame,inputs,*,expected_element_counts=(272,12,8),
+                               expected_bounds=((-17.,17.),(0.,1.5),(0.,1.)),required_ram=None):
+    """Shared saved-scalar validation/read; never load a native velocity payload."""
+    metadata=json.loads(inputs['metadata'].read_text())
+    if not isinstance(metadata,dict):raise ValueError('Native metadata must be a JSON object.')
+    config=metadata.get('configuration')
+    if config!={'periodic_axes':['x','y'],'expected_element_counts':list(expected_element_counts),'expected_orders':[8,8,8]}:
+        raise ValueError('Require the validated native P7 configuration.')
+    shape=tuple(7*n+1 for n in expected_element_counts)
+    required=workflow._validation_ram_bytes(shape,inputs['vtr'].stat().st_size) if required_ram is None else required_ram
+    workflow._require_ram(required,'Saved omega_x P7 reconstruction/figures')
+    before={str(p):workflow._file_hash(p) for p in inputs.values()}
+    source=case_dir/f'GC0.f{frame:05d}';header=read_nek_header(source)
+    if (header.nb_dims!=3 or header.nb_vars[0]!=3 or header.nb_vars[1]!=3
+            or header.nb_files!=1 or header.nb_elems_file!=header.nb_elems
+            or source.is_symlink() or header.nb_elems!=int(np.prod(expected_element_counts)) or tuple(header.orders)!=(8,8,8)
+            or header.wdsz not in (4,8) or not np.isfinite(header.time)):
+        raise ValueError('Incompatible native N7_H snapshot header.')
+    source_hash=workflow._file_hash(source)
+    if (metadata.get('source_file')!=str(source) or metadata.get('istep')!=header.istep
+            or metadata.get('output_paths')!={k:str(p) for k,p in inputs.items()}):
+        raise ValueError('Source/output path provenance differs.')
+    workflow.validate_omega_x_frame(inputs['vtr'].parent,case=case_dir.name,index=frame,
+        time_value=float(header.time),config=config,source_sha256=source_hash)
+    info=metadata['visualization']
+    if (info['bounds_xyz']!=[list(b) for b in expected_bounds] or not info.get('native_gll')
+            or not info.get('periodic_endpoints_preserved') or info.get('interpolation')!='none'
+            or metadata.get('source_unchanged') is not True):
+        raise ValueError('N7_H native geometry/provenance differs.')
+    from vtkmodules.vtkIOXML import vtkXMLRectilinearGridReader
+    from vtkmodules.util.numpy_support import vtk_to_numpy
+    workflow._require_ram(required,'Loading validated omega_x VTR for P7 reconstruction')
+    reader=vtkXMLRectilinearGridReader();reader.SetFileName(str(inputs['vtr']));reader.Update();grid=reader.GetOutput()
+    if reader.GetErrorCode() or grid.GetDimensions()!=shape:
+        raise ValueError('Native omega_x VTR read failed or dimensions changed.')
+    coordinates=tuple(vtk_to_numpy(getter()).copy() for getter in (grid.GetXCoordinates,grid.GetYCoordinates,grid.GetZCoordinates))
+    values=vtk_to_numpy(grid.GetPointData().GetArray('omega_x')).copy().reshape(grid.GetDimensions()[::-1])
+    del grid,reader
+    if [[float(c[0]),float(c[-1])] for c in coordinates]!=[list(b) for b in expected_bounds]:
+        raise ValueError('Native physical coordinate bounds differ.')
+    return header,metadata,coordinates,values,source_hash,before
+
+
 def run_omega_x_p7_slice(case='N7_H',frame=79,input_dir=None,output_dir=None,*,y=.75,samples_per_element=29):
     """Validate one saved frame, reconstruct, compare and atomically publish."""
     case_dir=workflow.resolve_case(case);frame=workflow._positive_integer(frame,'frame')
@@ -226,39 +315,11 @@ def run_omega_x_p7_slice(case='N7_H',frame=79,input_dir=None,output_dir=None,*,y
     found=list(root.rglob(f'{case_dir.name}_f{frame:05d}_omega_x.json'))
     if len(found)!=1:raise ValueError('Missing or duplicate omega_x frame metadata.')
     inputs=workflow._paths(found[0].parent,case_dir.name,frame)
-    metadata=json.loads(inputs['metadata'].read_text());config=metadata.get('configuration')
-    if config!={'periodic_axes':['x','y'],'expected_element_counts':[272,12,8],'expected_orders':[8,8,8]}:
-        raise ValueError('Require the validated native N7_H P7 configuration.')
     count=workflow._positive_integer(samples_per_element,'samples_per_element',2)
     upper_points=(272*(count-1)+1)*(8*(count-1)+1)
     required=workflow._validation_ram_bytes((1905,85,57),inputs['vtr'].stat().st_size)+64*8*upper_points
-    workflow._require_ram(required,'Saved omega_x P7 reconstruction/figures')
-    before={str(p):workflow._file_hash(p) for p in inputs.values()}
-    source=case_dir/f'GC0.f{frame:05d}';header=read_nek_header(source)
-    if (header.nb_dims!=3 or header.nb_vars[0]!=3 or header.nb_vars[1]!=3
-            or header.nb_files!=1 or header.nb_elems_file!=header.nb_elems
-            or header.nb_elems!=272*12*8 or tuple(header.orders)!=(8,8,8)
-            or header.wdsz not in (4,8) or not np.isfinite(header.time)):
-        raise ValueError('Incompatible native N7_H snapshot header.')
-    source_hash=workflow._file_hash(source)
-    if metadata.get('source_file')!=str(source) or metadata.get('output_paths')!={k:str(p) for k,p in inputs.items()}:
-        raise ValueError('Source/output path provenance differs.')
-    workflow.validate_omega_x_frame(inputs['vtr'].parent,case=case_dir.name,index=frame,
-        time_value=float(header.time),config=config,source_sha256=source_hash)
-    info=metadata['visualization']
-    if (info['bounds_xyz']!=[[-17.,17.],[0.,1.5],[0.,1.]] or not info.get('native_gll')
-            or not info.get('periodic_endpoints_preserved') or info.get('interpolation')!='none'
-            or metadata.get('source_unchanged') is not True):
-        raise ValueError('N7_H native geometry/provenance differs.')
-    from vtkmodules.vtkIOXML import vtkXMLRectilinearGridReader
-    from vtkmodules.util.numpy_support import vtk_to_numpy
-    workflow._require_ram(required,'Loading validated omega_x VTR for P7 reconstruction')
-    reader=vtkXMLRectilinearGridReader();reader.SetFileName(str(inputs['vtr']));reader.Update();grid=reader.GetOutput()
-    if reader.GetErrorCode() or grid.GetDimensions()!=(1905,85,57):
-        raise ValueError('Native omega_x VTR read failed or dimensions changed.')
-    coordinates=tuple(vtk_to_numpy(getter()).copy() for getter in (grid.GetXCoordinates,grid.GetYCoordinates,grid.GetZCoordinates))
-    values=vtk_to_numpy(grid.GetPointData().GetArray('omega_x')).copy().reshape(grid.GetDimensions()[::-1])
-    del grid,reader
+    header,metadata,coordinates,values,source_hash,before=load_projected_omega_frame(case_dir,frame,inputs,required_ram=required)
+    source=case_dir/f'GC0.f{frame:05d}'
     samples=reconstruct_p7_midplane(coordinates,values,element_counts=(272,12,8),y=y,time=float(header.time),samples_per_element=count)
     del values
     target.parent.mkdir(parents=True,exist_ok=True)

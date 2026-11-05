@@ -610,8 +610,10 @@ scratch outputs in the older direct `ROOT/fNNNNN` layout; the historical
 real-data audit covered all 81 production frames at their actual nested paths.
 The current synthetic replacement removes that external scratch dependency
 without recreating the deleted frames or weakening the production validator.
-The full repository suite now contains 1736 tests; current commands and results are
-recorded in the linked P7 document.
+The single-frame P7 review reported 1736 passing repository tests; its commands
+and results are recorded in the linked P7 document. The later
+[P7 slice-series extension](omega_x_p7_slice_series.md) documents its own
+validation and adds regression coverage without changing native curl/L2 kernels.
 
 The final publication completed successfully at
 `/data/Nek5000_data/results/h_refinement/omega_x/case_N7_H/case_N7_H_omega_x_series.pvd`.
