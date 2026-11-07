@@ -1,4 +1,4 @@
-"""Export one native 3D frame with omega_x and lambda_ci to binary VTU."""
+"""Export one 3D frame with omega_x and lambda_ci to binary VTU."""
 from __future__ import annotations
 
 import argparse
@@ -14,8 +14,11 @@ def parse_args(argv=None):
     parser.add_argument('--case', default='N7_H', help='Case alias or external case directory.')
     parser.add_argument('--index', type=int, default=79, help='Exactly one GC0.fNNNNN index.')
     parser.add_argument('--output-dir', type=Path, help='External root; writes CASE/fNNNNN/GC0_fNNNNN.{vtu,json}.')
+    parser.add_argument('--sampling-nodes', type=int, metavar='N',
+                        help='P7 source only: >=8 target GLL nodes/axis (10 or 12 for denser sampling). '
+                             'Omit for unchanged native output. Denser output uses ROOT/gllN/CASE/fNNNNN/.')
     parser.add_argument('--crop', type=float, nargs=6, metavar=('XMIN', 'XMAX', 'YMIN', 'YMAX', 'ZMIN', 'ZMAX'),
-                        help='Keep only native subcells wholly within these physical bounds; no interpolation.')
+                        help='Keep only output subcells wholly within these physical bounds; no crop-edge interpolation.')
     parser.add_argument('--periodic-axes', nargs='*', choices=('x', 'y', 'z'), default=['x', 'y'],
                         help='Explicit confirmed translational periodicity; empty list means none.')
     parser.add_argument('--expected-element-counts', type=int, nargs=3, default=[272, 12, 8],

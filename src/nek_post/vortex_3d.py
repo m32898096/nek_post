@@ -29,12 +29,19 @@ class NativeVortexFields:
     lambda_ci: np.ndarray
 
 
-def compute_native_vortex_fields(data, *, periodic_axes, expected_element_counts=None,
-                                chunk_size=256, progress=None):
-    """Return float64 (nelem,nt,ns,nr) scalars in original reader order.
+@dataclass(frozen=True)
+class ProjectedVortexFields:
+    node_map: StructuredGLLNodeMap
+    omega_x: np.ndarray
+    gradients: np.ndarray
+
+
+def compute_projected_vortex_fields(data, *, periodic_axes, expected_element_counts=None,
+                                   chunk_size=256, progress=None):
+    """Prepare the common native tensor and curl, preserving projection order.
 
     omega_x = P(A[2,1] - A[1,2]); lambda_ci = max(abs(imag(eig(P(A))))).
-    P is the existing mass-lumped GLL L2 operator. Crop only after this call.
+    P is the existing mass-lumped GLL L2 operator. Crop/reconstruct afterwards.
     The full-tensor solve can round differently from the optimized curl solve.
     """
     chunk_size = _positive_integer(chunk_size, 'chunk_size')
@@ -56,8 +63,18 @@ def compute_native_vortex_fields(data, *, periodic_axes, expected_element_counts
     projected = project_velocity_gradient(operator, raw, diagnostics=False,
                                           chunk_size=chunk_size).values
     del raw
-    strength = compute_swirling_strength(projected, chunk_size=chunk_size).lambda_ci
-    return NativeVortexFields(operator.node_map, omega, strength)
+    return ProjectedVortexFields(operator.node_map, omega, projected)
+
+
+def compute_native_vortex_fields(data, *, periodic_axes, expected_element_counts=None,
+                                chunk_size=256, progress=None):
+    """Phase 1 native scalars, with the original arithmetic and eigenvalue call."""
+    fields = compute_projected_vortex_fields(
+        data, periodic_axes=periodic_axes, expected_element_counts=expected_element_counts,
+        chunk_size=chunk_size, progress=progress,
+    )
+    strength = compute_swirling_strength(fields.gradients, chunk_size=chunk_size).lambda_ci
+    return NativeVortexFields(fields.node_map, fields.omega_x, strength)
 
 
 def validate_crop(crop):

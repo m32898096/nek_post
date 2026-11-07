@@ -21,17 +21,23 @@ from nek_post.l2_projection import _positive_integer, _periodic_axes, _integer_t
 from nek_post.lambda_ci_series import _publish_directory
 from nek_post.lambda_ci_workflow import _file_hash, _nearest_directory, available_memory_bytes
 from nek_post.vortex_3d import (
-    build_native_vortex_grid, compute_native_vortex_fields, validate_crop, write_binary_vtu,
+    build_native_vortex_grid, compute_native_vortex_fields, compute_projected_vortex_fields,
+    validate_crop, write_binary_vtu,
+)
+from nek_post.vortex_3d_reconstruction import (
+    build_reconstructed_vortex_grid, sampling_metadata, sampling_nodes as _sampling_nodes,
 )
 
 
 DEFAULT_OUTPUT_ROOT = Path('/data/Nek5000_data/results/vortex_3d_native')
+DEFAULT_RECONSTRUCTION_ROOT = Path('/data/Nek5000_data/results/vortex_3d_reconstructed')
 REPOSITORY = Path(__file__).resolve().parents[2]
 SIGNATURE_FILES = (
     'fields.py', 'io_nek.py', 'gll.py', 'spectral_derivatives.py',
     'spectral_interpolation.py', 'gll_directional_integration.py', 'l2_projection.py',
     'swirling_strength.py', 'rectilinear_export.py', 'lambda_ci_workflow.py',
     'lambda_ci_series.py', 'hex_validation.py', 'vortex_3d.py', 'vortex_3d_workflow.py',
+    'gll_refinement.py', 'vortex_3d_reconstruction.py',
 )
 
 
@@ -41,9 +47,10 @@ class _Configuration:
     expected_element_counts: tuple[int, int, int]
     crop: tuple[float, ...] | None
     chunk_size: int
+    sampling_nodes: int | None
 
 
-def _configuration(periodic_axes, expected_element_counts, crop, chunk_size):
+def _configuration(periodic_axes, expected_element_counts, crop, chunk_size, sampling_nodes):
     """Consume user iterables once; use this immutable object at every stage."""
     periodic = _periodic_axes(periodic_axes)
     counts = _integer_triple(expected_element_counts, 'expected_element_counts', 1)
@@ -53,7 +60,7 @@ def _configuration(periodic_axes, expected_element_counts, crop, chunk_size):
         raise ValueError('crop must contain six finite real bounds.') from exc
     bounds = validate_crop(crop_values)
     return _Configuration(periodic, counts, None if bounds is None else tuple(bounds.ravel()),
-                          _positive_integer(chunk_size, 'chunk_size'))
+                          _positive_integer(chunk_size, 'chunk_size'), _sampling_nodes(sampling_nodes))
 
 
 def _validate_element_map(values, count):
@@ -153,9 +160,9 @@ def _resources(report):
 
 def inspect_vortex_frame(case='N7_H', index=79, output_dir=None, *, crop=None,
                          periodic_axes=('x', 'y'), expected_element_counts=(272, 12, 8),
-                         chunk_size=256):
+                         chunk_size=256, sampling_nodes=None):
     """Read one header/map and resource state; never decode or write a frame."""
-    config = _configuration(periodic_axes, expected_element_counts, crop, chunk_size)
+    config = _configuration(periodic_axes, expected_element_counts, crop, chunk_size, sampling_nodes)
     return _inspect_vortex_frame(case, index, output_dir, config)
 
 
@@ -172,7 +179,11 @@ def _inspect_vortex_frame(case, index, output_dir, config):
         raise FileNotFoundError(source)
     if source.is_symlink():
         raise ValueError('Snapshot must be a regular file, not a symlink.')
-    final = _safe_destination(DEFAULT_OUTPUT_ROOT if output_dir is None else output_dir, case_dir, index)
+    dense = config.sampling_nodes is not None and config.sampling_nodes > 8
+    root = (DEFAULT_RECONSTRUCTION_ROOT if dense else DEFAULT_OUTPUT_ROOT) if output_dir is None else Path(output_dir)
+    if dense:
+        root = root / f'gll{config.sampling_nodes}'
+    final = _safe_destination(root, case_dir, index)
     ancestor = _nearest_directory(final)
     if not os.access(ancestor, os.W_OK | os.X_OK):
         raise PermissionError(f'Output ancestor is not writable: {ancestor}')
@@ -183,17 +194,27 @@ def _inspect_vortex_frame(case, index, output_dir, config):
             header.wdsz not in (4, 8) or not np.isfinite(header.time)):
         raise ValueError('Require a complete unsplit snapshot with finite actual time.')
     orders = _integer_triple(header.orders, 'header node counts', 2)
+    if config.sampling_nodes is not None and orders != (8, 8, 8):
+        raise ValueError('Explicit sampling_nodes requires native P7 (8,8,8) source elements.')
     if header.nb_elems != prod(counts):
         raise ValueError('Header element count differs from expected_element_counts.')
     element_map = _read_element_map(source, header)
     local = header.nb_elems * prod(orders)
-    cells = header.nb_elems * prod(n - 1 for n in orders)
+    output_orders = (config.sampling_nodes,) * 3 if dense else orders
+    output_points = header.nb_elems * prod(output_orders)
+    cells = header.nb_elems * prod(n - 1 for n in output_orders)
+    if max(output_points, 8*cells) > np.iinfo(np.int64).max:
+        raise ValueError('Requested sampling exceeds signed int64 topology capacity.')
     # Full-domain compute even for a small crop. Conservative upper bound
     # includes reader float64 arrays, two tensors, projection/scalar work,
     # element-local point/connectivity lists, VTK copies and binary read-back.
-    output_bytes = 40 * local + 80 * cells + 1024**2
+    output_bytes = 40 * output_points + 80 * cells + 1024**2
+    # Dense tensors are element-bounded; no full-domain dense tensor or scalar
+    # lambda interpolation buffer. 1024 bytes/sample allows tensor/eigenvalue,
+    # at most eight cached local topologies, and interpolation work.
+    reconstruction_workspace = 1024 * prod(output_orders) if dense else 0
     ram = (8 * sum(header.nb_vars) * local + source.stat().st_size + 240 * local +
-           6 * output_bytes + 1024**3)
+           6 * output_bytes + reconstruction_workspace + 1024**3)
     report = dict(
         case=case_dir.name, source_file=str(source), frame_index=index,
         time=float(header.time), istep=int(header.istep), input_word_bytes=int(header.wdsz),
@@ -201,13 +222,19 @@ def _inspect_vortex_frame(case, index, output_dir, config):
         element_map=_map_provenance(element_map),
         configuration=dict(periodic_axes=list(config.periodic_axes), expected_element_counts=list(counts),
                            chunk_size=config.chunk_size, crop=None if config.crop is None else list(config.crop)),
-        full_local_point_count=local, full_linear_hex_count=cells,
+        full_local_point_count=output_points, full_linear_hex_count=cells,
+        native_local_point_count=local, estimated_output_bytes=output_bytes,
+        estimated_reconstruction_workspace_bytes=reconstruction_workspace,
         estimated_ram_bytes=ram, required_disk_bytes=2 * output_bytes + 1024**2,
         output_directory=str(final),
-        output_paths={k: str(final / f'GC0_f{index:05d}{suffix}')
+        output_paths={k: str(final / (f'GC0_f{index:05d}' +
+                                     (f'_gll{config.sampling_nodes}' if dense else '') + suffix))
                       for k, suffix in (('vtu', '.vtu'), ('metadata', '.json'))},
         geometry_validation='pending payload read',
     )
+    if config.sampling_nodes is not None:
+        report['configuration']['sampling_nodes'] = config.sampling_nodes
+        report['reconstruction'] = sampling_metadata(config.sampling_nodes)
     available, disk = _resources(report)
     report.update(available_ram_bytes=available, available_disk_bytes=disk,
                   resources_acceptable=ram < available and report['required_disk_bytes'] < disk)
@@ -224,14 +251,14 @@ def _require_resources(report):
 
 def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None,
                             periodic_axes=('x', 'y'), expected_element_counts=(272, 12, 8),
-                            chunk_size=256, dry_run=False, progress=None):
+                            chunk_size=256, sampling_nodes=None, dry_run=False, progress=None):
     """Compute exactly one frame, read back binary data, publish without replacement.
 
     Failed staging is retained. No resume/overwrite/batch paths are provided.
     Linux renameat2 publishes the VTU and provenance JSON together atomically.
     """
     started = time.perf_counter()
-    config = _configuration(periodic_axes, expected_element_counts, crop, chunk_size)
+    config = _configuration(periodic_axes, expected_element_counts, crop, chunk_size, sampling_nodes)
     report = _inspect_vortex_frame(case, index, output_dir, config)
     index = report['frame_index']
     if dry_run:
@@ -261,11 +288,21 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
     _validate_element_map(data.elmap, header.nb_elems)
     if not np.array_equal(data.elmap, file_map):
         raise ValueError('Element map retained by the reader differs from the original map.')
-    fields = compute_native_vortex_fields(data, periodic_axes=config.periodic_axes,
-                                          expected_element_counts=config.expected_element_counts,
-                                          chunk_size=config.chunk_size, progress=notify)
-    notify('Building native linear hex subcells (element-local points, no merging)')
-    grid = build_native_vortex_grid(data, fields, crop=config.crop)
+    dense = config.sampling_nodes is not None and config.sampling_nodes > 8
+    compute = compute_projected_vortex_fields if dense else compute_native_vortex_fields
+    fields = compute(data, periodic_axes=config.periodic_axes,
+                     expected_element_counts=config.expected_element_counts,
+                     chunk_size=config.chunk_size, progress=notify)
+    if dense:
+        notify(f'Reconstructing projected P7 tensors on GLL{config.sampling_nodes} nodes, one element at a time')
+        grid, diagnostics = build_reconstructed_vortex_grid(
+            data, fields, sampling_nodes=config.sampling_nodes, crop=config.crop,
+            chunk_size=config.chunk_size, progress=notify,
+        )
+        report['reconstruction'].update(diagnostics)
+    else:
+        notify('Building native linear hex subcells (element-local points, no merging)')
+        grid = build_native_vortex_grid(data, fields, crop=config.crop)
     mapping = fields.node_map
     report['visualization'] = dict(
         points=grid.n_points, cells=grid.n_cells, bounds=list(grid.bounds),
@@ -296,7 +333,9 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
     if _signature() != signature:
         raise RuntimeError('Implementation changed during export; staging preserved.')
     report.update(
-        schema_version=1, completion_status='completed', geometry_validation='passed exact native geometry',
+        schema_version=1, completion_status='completed',
+        geometry_validation=('passed exact native geometry and reconstructed profiles' if dense
+                             else 'passed exact native geometry'),
         source_sha256=source_hash, source_unchanged=True, numerical_software_signature=signature,
         output_sha256={'vtu': _file_hash(vtu)}, binary_vtu_roundtrip_verified=True,
         numerical_definition=dict(omega_x='P(A[2,1] - A[1,2])',
@@ -307,6 +346,10 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
         python=platform.python_version(), elapsed_seconds=time.perf_counter() - started,
         peak_rss_bytes=int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024),
     )
+    if dense:
+        report['numerical_definition']['lambda_ci'] = 'max(abs(imag(eig(I(P(A))))))'
+        report['numerical_definition']['omega_x'] = 'I(P(A[2,1] - A[1,2]))'
+        report['numerical_definition']['I'] = 'existing P7 tensor-product interpolation at target GLL nodes'
     metadata = stage / Path(report['output_paths']['metadata']).name
     with metadata.open('x') as stream:
         json.dump(report, stream, indent=2, allow_nan=False)

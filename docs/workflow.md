@@ -4,10 +4,13 @@ This repository contains a working Nek5000 polynomial-order comparison workflow 
 
 ## Data Layout
 
-The separate [single-frame native 3D VTU workflow](vortex_3d_binary_vtu.md)
+The separate [single-frame 3D VTU workflow](vortex_3d_binary_vtu.md)
 reads one original snapshot, reuses the validated GLL derivatives and L2
 projection, and exports `omega_x` plus `lambda_ci` on one element-local mesh.
-It is a Phase 1 binary-file prototype with no batch processing.
+The Phase 1 native default is preserved. Phase 2 adds `--sampling-nodes 10`
+or `12` to reconstruct the same P7 representation on denser GLL sets, with
+projected tensor interpolation before eigenvalues. No batch processing or PVD
+generation is included.
 
 Raw Nek5000 data lives outside the repository:
 

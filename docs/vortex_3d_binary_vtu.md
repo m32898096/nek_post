@@ -1,10 +1,12 @@
-# Single-frame native-grid 3D binary VTU prototype
+# Single-frame 3D binary VTU: native grid and P7 reconstruction
 
 `scripts/40_export_vortex_3d.py` exports exactly one original snapshot as one
 `vtkUnstructuredGrid`, with float64 PointData `omega_x` and `lambda_ci` on
-the same physical points and cells. This is Phase 1: native-grid representation
-and file validation, before a high-order visualization convergence study.
-There is no batch, resume, overwrite, smoothing, or resampling option.
+the same physical points and cells. The default remains the Phase 1 native-grid
+representation. Phase 2 adds optional element-local P7 reconstruction on denser
+GLL nodal sets. There is no batch, PVD, resume, overwrite or smoothing option.
+The Phase 1 description below still applies to the default path; the
+[Phase 2 section](#phase-2-p7-volume-reconstruction) specifies denser sampling.
 
 ## Numerical sequence and assumptions
 
@@ -319,3 +321,176 @@ duplicate element-local points and the omega solve's floating-point limits.
 Keep the original exported mesh and avoid smoothing/merging during validation.
 Application behavior, real-data resource estimates and high-order visualization
 convergence remain untested here; no compatibility or convergence claim is made.
+
+## Phase 2: P7 volume reconstruction
+
+`--sampling-nodes N` selects an isotropic **target GLL nodal set** for a source
+with `(8,8,8)` native nodes. Supported examples are 8, 10 and 12; integer counts
+larger than 12 are configurable, subject to preflight resources and int64
+topology capacity. Counts below 8, booleans, nonintegers and explicit sampling
+on a non-P7 source fail. Omitting the option preserves the native default,
+including Phase 1's support for other native node shapes. Explicit 8 uses that
+same native path, coordinates, scalar arrays, connectivity and basename.
+
+For a target count `N`, the reference coordinates are `-1`, `+1` and the roots
+of the derivative of Legendre `P_(N-1)`. The existing cached
+`gll_interpolation_matrix(8,N)` and `refine_gll_tensor3` evaluate the source P7
+tensor-product Lagrange polynomial. Ten nodes use the degree-9 GLL *nodal set*,
+and twelve the degree-11 set; the **simulation and reconstructed polynomial
+remain P7 in each reference direction**. This adds samples, not CFD resolution
+or a higher simulation polynomial degree. These target nodes are nonuniform
+GLL points, unlike the uniform reference-edge samples in the existing 29-point
+slice workflows. The 8/10/12 sets are generally not nested: denser sampling
+evaluates new locations rather than simply appending points to the native set.
+They are not obtained by subdividing native linear VTU cells.
+
+The common native preparation was factored out of `compute_native_vortex_fields`
+without changing its gradient, scalar-projection, tensor-projection or native
+eigenvalue arithmetic. Denser output follows:
+
+```text
+original full-domain velocity -> nine native Cartesian gradients A
+  omega_x: P(A[2,1]-A[1,2]) -> P7 interpolation I -> output omega_x
+  lambda_ci: P(A) -> P7 interpolation of all nine components I
+                 -> existing eigenvalue kernel -> output lambda_ci
+```
+
+Interpolating the already-computed native `lambda_ci` is deliberately excluded:
+eigenvalues are nonlinear and that route generally gives different values.
+For each reconstructed element, the primary projected-curl scalar is compared
+with `I(P(A))[2,1]-I(P(A))[1,2]`. Their maximum absolute difference must be at
+most `2e-12 * max(1, max(abs(I(P(A)))), max(abs(I(P(omega_x)))))`.
+This matches the existing slice shared-trace tolerance and allows the scalar
+and tensor projection summation orders to differ in float64. The alternate
+route is an audit only; it never replaces, averages or clips the primary field.
+
+Interpolation is performed in increasing physical `(z,y,x)` order, then
+returned to the original element-local array ordering. This fixes contraction
+order across reversed elements. Physical coordinate profiles use the same P7
+interpolation matrix on the **original stored profiles**, including their
+storage roundoff; exact rectilinearity permits a factorized one-dimensional
+geometry evaluation. Replicas and native endpoints must already agree exactly.
+Target profiles must remain finite and strictly increasing. This retains the
+existing affine axis-aligned structured geometry scope, not arbitrary curved
+or skew SEM geometry. The standalone writer's broader trilinear-cell validator
+does not expand that scope.
+
+Every target point participates in positive VTK-ordered linear hexahedral
+subcells: `N^3` points and `(N-1)^3` hexes per full SEM element. Points remain
+unmerged and in the original element-major C order. Full-domain native
+projected tensor/scalar face traces are audited before cropping. Exported
+coordinate, `omega_x` and `lambda_ci` faces are compared against their neighbors,
+including available translational-periodic partners, with the existing scaled
+`2e-12` trace tolerance. Periodic normal coordinates remain the two distinct
+original domain endpoints; tangential coordinates and fields must agree.
+No shared data are averaged. Trace differences and omega route differences
+are recorded in provenance. Near defective spectra retain the existing
+eigensolver's roundoff sensitivity; no imaginary-part filtering is introduced.
+
+Cropping retains wholly contained **target** subcells. Geometry planning counts
+these cells before dense buffers are allocated. No crop-edge nodes are created;
+used points retain their relative original order. Full-domain differentiation
+and projection still precede cropping; only dense sampling/eigenvalues for
+excluded SEM elements are avoided. Cropped retained fields are exactly the
+corresponding full-output samples. The existing writer validates every emitted
+hex with unchanged cuboid/Jacobian/Bernstein checks and verifies exact binary
+float64 arrays, coordinates, connectivity and `TIME_VALUE` on read-back.
+
+### Selection, output protection and provenance
+
+Example for a future separately authorized single-frame run (not executed):
+
+```bash
+PYENV_VERSION=research312 python -B scripts/40_export_vortex_3d.py \
+  --case N7_H --index 79 --sampling-nodes 10 \
+  --output-dir /data/Nek5000_data/results/vortex_3d_phase2_review \
+  --periodic-axes x y --expected-element-counts 272 12 8 \
+  --crop 14 16 0 1.5 0 1 --dry-run
+```
+
+Denser output adds a sampling directory and filename suffix:
+
+```text
+ROOT/gll10/case_N7_H/f00079/GC0_f00079_gll10.{vtu,json}
+ROOT/gll12/case_N7_H/f00079/GC0_f00079_gll12.{vtu,json}
+```
+
+The default dense root is `/data/Nek5000_data/results/vortex_3d_reconstructed`;
+the native default root and names are unchanged. Native, 10 and 12 outputs can
+coexist under an explicitly selected root. All existing path validation,
+no-replace publication, staged round-trip, source integrity and collision
+protection are reused. JSON adds source/target node counts, the reference-node
+definition, interpolation convention, field operation order, full estimated
+counts, actual crop counts, bounded-workspace estimate and interface diagnostics.
+`--dry-run` reads the header/map and resources only: it does not compute target
+nodes, decode the payload, verify geometry/crop coverage, or create outputs.
+
+### Resources and deferred convergence validation
+
+One native full-domain raw/projected tensor pair is still needed during
+projection. Dense tensors are reconstructed **one element at a time**, using
+cached interpolation matrices and one compact coordinate/crop plan. Each output
+XYZ/scalar/connectivity array is allocated once and populated directly, with
+native VTK offsets/IDs instead of packed-cell concatenation. At most eight
+element topologies are cached. VTK's borrowed NumPy buffers retain explicit
+Python owners for the grid lifetime. Shared-face checks use bounded face
+temporaries. The final output grid and the writer's complete read-back must
+still fit in memory; this is not a streaming VTU writer.
+
+Preflight uses native points `Ns`, target output points `Nt` and target cells `C`:
+
+```text
+B = 40*Nt + 80*C + 1 MiB
+W = 1024*N^3 bytes for denser reconstruction; zero for the native path
+RAM allowance = 8*V*Ns + source_bytes + 240*Ns + 6*B + W + 1 GiB
+disk allowance = 2*B + 1 MiB
+```
+
+`B` is an array/output-size estimate, not a promised compressed VTU file size;
+the larger disk allowance includes XML/base64/compression overhead. Estimates
+use the full output domain even for a crop. For 26,112 elements, eight stored
+variables and a roughly 0.399 GiB float32 source, the estimates are:
+
+| Target nodes/axis | Element-local points | Hexes | B (GiB) | RAM allowance (GiB) | Disk allowance (GiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 8 native | 13,369,344 | 8,956,416 | 1.166 | 12.182 | 2.334 |
+| 10 | 26,112,000 | 19,035,648 | 2.392 | 19.537 | 4.785 |
+| 12 | 45,121,536 | 34,755,072 | 4.271 | 30.813 | 8.544 |
+
+The bounded dense workspace allowance is about 0.977 MiB at 10 and 1.688 MiB
+at 12, in addition to output buffers and native projection. These are formulas,
+not measured peaks or reservations. Tens of millions of cells, per-element
+interpolation/eigenvalue calls, full validation, compression, hashing, read-back
+and viewer memory may be expensive. No real-data benchmark has been run.
+
+A later visualization-convergence study should compare native/10/12 samples
+for the same physical time, domain, camera, color/isosurface levels and field
+definition. Evaluate differences at common physical coordinates using the P7
+representation, distinguish scalar-linear viewer interpolation from the
+tensor-first reconstruction, and quantify slice/contour/isosurface changes as
+sampling increases. Keep the original mesh with no smoothing, subdivision,
+resample-to-image or merging during comparisons. This is a proposed validation
+procedure, not a convergence result or a claim of verified ParaView/Tecplot
+import. Phase 3 batch processing and PVD generation remain deferred.
+
+Phase 2 synthetic verification on 2026-11-07: **107 new reconstruction cases**;
+**608 focused tests passed** (including the existing Phase 1 and numerical
+regressions); **2,188 full-suite tests passed**, with zero failures/skips.
+Compileall, CLI help and whitespace checks on tracked and untracked files
+passed. Thirteen existing numerical/geometry/I-O modules remain byte-for-byte
+identical to HEAD, including the GLL/refinement, derivative, projection,
+vorticity, swirling-strength, slice and hex-validation kernels. The native
+gradient/projection body, native mesh builder, crop checks and binary writer
+are unchanged; only their orchestration was extended.
+
+```bash
+PYENV_VERSION=research312 python -m pytest -q tests/test_vortex_3d_reconstruction.py \
+  tests/test_vortex_3d.py tests/test_vortex_3d_regressions.py \
+  tests/test_vorticity.py tests/test_scalar_projection.py tests/test_l2_projection.py \
+  tests/test_spectral_derivatives.py tests/test_swirling_strength.py -ra
+PYENV_VERSION=research312 python -m pytest -q -ra
+PYENV_VERSION=research312 PYTHONPYCACHEPREFIX=/tmp/nek-post-phase2-pycache \
+  python -m compileall -q src scripts tests
+PYENV_VERSION=research312 python -B scripts/40_export_vortex_3d.py --help
+git diff --check
+```

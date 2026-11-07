@@ -25,6 +25,11 @@ Shared points are merged after checking tensor agreement, without averaging.
 Eigenvalues are chunked; no scalar smoothing or interpolation is used in
 this reconstruction. Dense sampling preserves P7; it is not a new simulation.
 
+The [single-frame 3D VTU exporter](vortex_3d_binary_vtu.md#phase-2-p7-volume-reconstruction)
+uses the same tensor-before-eigenvalues sequence for volumes. Its configurable
+10/12-point target sets are GLL nodes rather than this slice workflow's uniform
+reference samples. It leaves the validated slice implementation unchanged.
+
 VTR planes retain x/y/z physical coordinates, dimensions (Nx,1,Nz) or
 (1,Ny,Nz), float64 PointData, x-fast indexing and TIME_VALUE. PNG/PDF and VTR
 use exactly the same sampled scalar arrays. VTR cells themselves are linear:

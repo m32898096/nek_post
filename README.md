@@ -53,10 +53,12 @@ Duplicate projected `(x,z)` points are averaged before interpolation onto the co
 
 See [docs/script_index.md](docs/script_index.md) for a concise index of available scripts.
 
-For a single native 3D binary VTU containing both signed `omega_x` and
-`lambda_ci`, see the [Phase 1 exporter](docs/vortex_3d_binary_vtu.md).
-It retains interior GLL nodes with linear hex subcells; application compatibility
-and high-order visualization convergence remain to be validated.
+For a single 3D binary VTU containing both signed `omega_x` and `lambda_ci`, see
+the [native and P7 reconstruction exporter](docs/vortex_3d_binary_vtu.md).
+The native default retains interior GLL nodes; `--sampling-nodes 10` or `12`
+evaluates the same P7 polynomial on denser GLL sets, reconstructing projected
+gradients before `lambda_ci`. Both paths use linear hex subcells. Application
+compatibility and visualization convergence remain to be validated.
 
 ## Setup
 
