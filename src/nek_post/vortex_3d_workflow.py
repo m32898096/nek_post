@@ -17,7 +17,7 @@ import time
 import numpy as np
 
 from nek_post.io_nek import read_nek_file, read_nek_header
-from nek_post.l2_projection import _positive_integer, _periodic_axes, _integer_triple
+from nek_post.l2_projection import _positive_integer, _periodic_axes, _integer_triple, build_structured_node_map
 from nek_post.lambda_ci_series import _publish_directory
 from nek_post.lambda_ci_workflow import _file_hash, _nearest_directory, available_memory_bytes
 from nek_post.vortex_3d import (
@@ -26,6 +26,12 @@ from nek_post.vortex_3d import (
 )
 from nek_post.vortex_3d_reconstruction import (
     build_reconstructed_vortex_grid, sampling_metadata, sampling_nodes as _sampling_nodes,
+)
+from nek_post.vortex_3d_artifacts import (
+    native_mesh_signature, grid_fingerprints, binary_vtu_fingerprint, regular_file_identity,
+)
+from nek_post.vortex_3d_selection import (
+    VolumeSelection, build_volume_output_plan, apply_volume_output_plan, validate_volume_grid,
 )
 
 
@@ -38,6 +44,8 @@ SIGNATURE_FILES = (
     'swirling_strength.py', 'rectilinear_export.py', 'lambda_ci_workflow.py',
     'lambda_ci_series.py', 'hex_validation.py', 'vortex_3d.py', 'vortex_3d_workflow.py',
     'gll_refinement.py', 'vortex_3d_reconstruction.py',
+    'vortex_3d_artifacts.py',
+    'vortex_3d_selection.py',
 )
 
 
@@ -120,7 +128,7 @@ def _case_directory(case):
     return value.resolve()
 
 
-def _safe_destination(root, case_dir, index):
+def _safe_destination(root, case_dir, index, *, allow_existing=False):
     root = Path(root).expanduser().absolute()
     final = root / case_dir.name / f'f{index:05d}'
     # Reject aliases, including dangling symlinks, before resolving ancestry.
@@ -142,7 +150,7 @@ def _safe_destination(root, case_dir, index):
                (p.name.startswith('GC') and len(p.suffix) == 7 and p.suffix.startswith('.f'))
                for p in parent.iterdir()):
             raise ValueError(f'Output must be outside existing scientific frame directories: {parent}')
-    if final.exists():
+    if final.exists() and (not allow_existing or not final.is_dir()):
         raise FileExistsError(f'Refusing to replace an existing frame directory: {final}')
     return final
 
@@ -166,7 +174,7 @@ def inspect_vortex_frame(case='N7_H', index=79, output_dir=None, *, crop=None,
     return _inspect_vortex_frame(case, index, output_dir, config)
 
 
-def _inspect_vortex_frame(case, index, output_dir, config):
+def _inspect_vortex_frame(case, index, output_dir, config, *, allow_existing=False):
     index = _positive_integer(index, 'index')
     if index > 99999:
         raise ValueError('index must fit the five-digit source naming convention.')
@@ -183,7 +191,7 @@ def _inspect_vortex_frame(case, index, output_dir, config):
     root = (DEFAULT_RECONSTRUCTION_ROOT if dense else DEFAULT_OUTPUT_ROOT) if output_dir is None else Path(output_dir)
     if dense:
         root = root / f'gll{config.sampling_nodes}'
-    final = _safe_destination(root, case_dir, index)
+    final = _safe_destination(root, case_dir, index, allow_existing=allow_existing)
     ancestor = _nearest_directory(final)
     if not os.access(ancestor, os.W_OK | os.X_OK):
         raise PermissionError(f'Output ancestor is not writable: {ancestor}')
@@ -235,6 +243,12 @@ def _inspect_vortex_frame(case, index, output_dir, config):
     if config.sampling_nodes is not None:
         report['configuration']['sampling_nodes'] = config.sampling_nodes
         report['reconstruction'] = sampling_metadata(config.sampling_nodes)
+        report['reconstruction']['omega_route_audit_performed'] = False
+        if config.sampling_nodes == 8:
+            report['reconstruction'].update(
+                interpolation='native identity; no dense interpolation executed',
+                omega_x='native P(A[2,1]-A[1,2]); reconstruction-route audit not performed',
+                lambda_ci='native eigenvalues of P(A); no dense interpolation executed')
     available, disk = _resources(report)
     report.update(available_ram_bytes=available, available_disk_bytes=disk,
                   resources_acceptable=ram < available and report['required_disk_bytes'] < disk)
@@ -249,9 +263,63 @@ def _require_resources(report):
         raise OSError('Insufficient output disk space.')
 
 
+def _numerical_definition(dense):
+    result = dict(omega_x='P(A[2,1] - A[1,2])', lambda_ci='max(abs(imag(eig(P(A)))))',
+                  A='du_i/dx_j from element_velocity_gradient',
+                  P='existing mass-lumped GLL L2 projection on full domain')
+    if dense:
+        result.update(omega_x='I(P(A[2,1] - A[1,2]))', lambda_ci='max(abs(imag(eig(I(P(A))))))',
+                      I='existing P7 tensor-product interpolation at target GLL nodes')
+    return result
+
+
+def _software_versions():
+    return {name: version(name) for name in ('numpy', 'scipy', 'pymech', 'pyvista', 'vtk')}
+
+
+def _read_snapshot(source, header, *, coordinates_only=False):
+    skip = ('pressure', 'temperature') + tuple(f's{i:02d}' for i in range(1, header.nb_vars[4] + 1))
+    if coordinates_only:
+        skip += ('ux', 'uy', 'uz')
+    return read_nek_file(source, dtype=f'float{header.wdsz * 8}', skip_vars=skip)
+
+
+def inspect_volume_output_plan(report, config, selection):
+    """Read native coordinates only, with a RAM gate; never build a dense 3D mesh."""
+    source = Path(report['source_file'])
+    before = source.stat()
+    header = read_nek_header(source)
+    needed = 8*sum(header.nb_vars)*report['native_local_point_count'] + before.st_size
+    # Gate the bounded dense workspace before target-GLL node generation too.
+    # An enormous target must not reach Legendre root/interpolation planning
+    # merely because the coordinate-only native snapshot itself fits in RAM.
+    needed += (96*report['native_local_point_count']+
+               report['estimated_reconstruction_workspace_bytes']+1024**3)
+    available, _ = _resources(report)
+    if available <= needed:
+        raise MemoryError('Insufficient RAM for coordinate-only crop planning.')
+    data = _read_snapshot(source, header, coordinates_only=True)
+    if (data.time != report['time'] or len(data.elem) != report['element_count'] or
+            any(np.shape(e.pos) != (3, *report['element_local_shape']) for e in data.elem)):
+        raise ValueError('Coordinate planning header/payload time, count or ordering differs.')
+    _validate_element_map(data.elmap, header.nb_elems)
+    if not np.array_equal(data.elmap, _read_element_map(source, header)):
+        raise ValueError('Coordinate planning reader element map differs from the original.')
+    mapping = build_structured_node_map(data, periodic_axes=config.periodic_axes,
+        expected_element_counts=config.expected_element_counts, chunk_size=config.chunk_size)
+    plan = build_volume_output_plan(data, mapping, config.sampling_nodes, selection)
+    after = source.stat()
+    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+        raise ValueError('Source changed during coordinate-only crop planning.')
+    return plan
+
+
 def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None,
                             periodic_axes=('x', 'y'), expected_element_counts=(272, 12, 8),
-                            chunk_size=256, sampling_nodes=None, dry_run=False, progress=None):
+                            chunk_size=256, sampling_nodes=None, dry_run=False, progress=None,
+                            expected_mesh_signature=None, expected_source_sha256=None,
+                            output_selection=None, expected_output_plan=None):
     """Compute exactly one frame, read back binary data, publish without replacement.
 
     Failed staging is retained. No resume/overwrite/batch paths are provided.
@@ -260,6 +328,20 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
     started = time.perf_counter()
     config = _configuration(periodic_axes, expected_element_counts, crop, chunk_size, sampling_nodes)
     report = _inspect_vortex_frame(case, index, output_dir, config)
+    prepared = expected_output_plan
+    if output_selection is not None:
+        if not isinstance(output_selection, VolumeSelection) or output_selection.bounds != config.crop:
+            raise ValueError('Volume selection and immutable crop configuration disagree.')
+        report['output_selection'] = output_selection.metadata()
+        if config.crop is not None:
+            if prepared is None:
+                prepared = inspect_volume_output_plan(report, config, output_selection)
+            apply_volume_output_plan(report, prepared, config, output_selection)
+            if expected_mesh_signature is not None and expected_mesh_signature != prepared['native_mesh_signature']:
+                raise ValueError('Volume plan and series native geometry signatures disagree.')
+            expected_mesh_signature = prepared['native_mesh_signature']
+    elif prepared is not None:
+        raise ValueError('A volume output plan requires an explicit selection policy.')
     index = report['frame_index']
     if dry_run:
         return report
@@ -268,6 +350,8 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
     source = Path(report['source_file'])
     signature = _signature()
     source_hash = _file_hash(source)
+    if expected_source_sha256 is not None and source_hash != expected_source_sha256:
+        raise ValueError('Source snapshot differs from the series preflight checksum.')
     source_stat = source.stat()
     header = read_nek_header(source)
     if (header.time != report['time'] or header.istep != report['istep'] or
@@ -279,9 +363,8 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
     file_map = _read_element_map(source, header)
     if _map_provenance(file_map) != report['element_map']:
         raise ValueError('Element map changed after preflight.')
-    skip = ('pressure', 'temperature') + tuple(f's{i:02d}' for i in range(1, header.nb_vars[4] + 1))
     notify('Reading one snapshot; computing full-domain native gradients and L2 projection')
-    data = read_nek_file(source, dtype=f'float{header.wdsz * 8}', skip_vars=skip)
+    data = _read_snapshot(source, header)
     if (data.time != report['time'] or len(data.elem) != report['element_count'] or
             any(np.shape(e.pos) != (3, *report['element_local_shape']) for e in data.elem)):
         raise ValueError('Header/payload time, count or point ordering shape mismatch.')
@@ -289,10 +372,16 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
     if not np.array_equal(data.elmap, file_map):
         raise ValueError('Element map retained by the reader differs from the original map.')
     dense = config.sampling_nodes is not None and config.sampling_nodes > 8
+    def validate_geometry(current, mapping):
+        if prepared is not None and build_volume_output_plan(current, mapping, config.sampling_nodes, output_selection) != prepared:
+            raise ValueError('Selected volume geometry/counts differ from the preflight plan.')
     compute = compute_projected_vortex_fields if dense else compute_native_vortex_fields
     fields = compute(data, periodic_axes=config.periodic_axes,
                      expected_element_counts=config.expected_element_counts,
-                     chunk_size=config.chunk_size, progress=notify)
+                     chunk_size=config.chunk_size, progress=notify,
+                     expected_mesh_signature=expected_mesh_signature,
+                     geometry_validator=validate_geometry if prepared is not None else None)
+    mesh_signature = native_mesh_signature(fields.node_map)
     if dense:
         notify(f'Reconstructing projected P7 tensors on GLL{config.sampling_nodes} nodes, one element at a time')
         grid, diagnostics = build_reconstructed_vortex_grid(
@@ -300,10 +389,13 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
             chunk_size=config.chunk_size, progress=notify,
         )
         report['reconstruction'].update(diagnostics)
+        report['reconstruction']['omega_route_audit_performed'] = True
     else:
         notify('Building native linear hex subcells (element-local points, no merging)')
         grid = build_native_vortex_grid(data, fields, crop=config.crop)
     mapping = fields.node_map
+    if output_selection is not None:
+        validate_volume_grid(grid, output_selection, prepared)
     report['visualization'] = dict(
         points=grid.n_points, cells=grid.n_cells, bounds=list(grid.bounds),
         point_order='element-major C order (t,s,r), r fastest; crop retains used points in order',
@@ -325,6 +417,7 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
     notify('Writing binary VTU and verifying exact coordinates, fields, connectivity and time')
     vtu = stage / Path(report['output_paths']['vtu']).name
     write_binary_vtu(vtu, grid, time=report['time'])
+    vtu_identity = regular_file_identity(vtu)
     current = source.stat()
     if ((current.st_size, current.st_mtime_ns, current.st_ino) !=
             (source_stat.st_size, source_stat.st_mtime_ns, source_stat.st_ino) or
@@ -337,23 +430,21 @@ def run_single_frame_vortex(case='N7_H', index=79, output_dir=None, *, crop=None
         geometry_validation=('passed exact native geometry and reconstructed profiles' if dense
                              else 'passed exact native geometry'),
         source_sha256=source_hash, source_unchanged=True, numerical_software_signature=signature,
-        output_sha256={'vtu': _file_hash(vtu)}, binary_vtu_roundtrip_verified=True,
-        numerical_definition=dict(omega_x='P(A[2,1] - A[1,2])',
-                                  lambda_ci='max(abs(imag(eig(P(A)))))',
-                                  A='du_i/dx_j from element_velocity_gradient',
-                                  P='existing mass-lumped GLL L2 projection on full domain'),
-        software={name: version(name) for name in ('numpy', 'pymech', 'pyvista', 'vtk')},
+        output_sha256={'vtu': binary_vtu_fingerprint(vtu, expected=vtu_identity)}, binary_vtu_roundtrip_verified=True,
+        native_mesh_signature=mesh_signature, array_sha256=grid_fingerprints(grid),
+        numerical_definition=_numerical_definition(dense),
+        software=_software_versions(),
         python=platform.python_version(), elapsed_seconds=time.perf_counter() - started,
         peak_rss_bytes=int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024),
     )
-    if dense:
-        report['numerical_definition']['lambda_ci'] = 'max(abs(imag(eig(I(P(A))))))'
-        report['numerical_definition']['omega_x'] = 'I(P(A[2,1] - A[1,2]))'
-        report['numerical_definition']['I'] = 'existing P7 tensor-product interpolation at target GLL nodes'
     metadata = stage / Path(report['output_paths']['metadata']).name
     with metadata.open('x') as stream:
         json.dump(report, stream, indent=2, allow_nan=False)
         stream.write('\n')
+    metadata_identity = regular_file_identity(metadata)
     _safe_destination(final.parent.parent, source.parent, index)
+    for path, identity in ((vtu, vtu_identity), (metadata, metadata_identity)):
+        if regular_file_identity(path) != identity:
+            raise RuntimeError('Staged artifact changed before publication; staging preserved.')
     _publish_directory(stage, final)
     return report

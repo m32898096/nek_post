@@ -140,3 +140,14 @@ and the [case-native refined-GLL workflow](h_refinement_leading_edge.md#case-nat
 The [final h-refinement study audit](h_refinement_study.md) connects Steps 1–6B,
 their quantitative findings, scientific limits, reproducibility commands, and
 artifact locations.
+
+## Three-dimensional vortex VTU export
+
+| Script | Purpose | Inputs | Outputs | Example |
+| --- | --- | --- | --- | --- |
+| `scripts/40_export_vortex_3d.py` | Export one native or reconstructed P7 frame with signed omega_x and tensor-first lambda_ci. | One external original Nek snapshot | Exclusive binary VTU/JSON pair outside Git | `PYENV_VERSION=research312 python -B scripts/40_export_vortex_3d.py --sampling-nodes 10 --dry-run` |
+| `scripts/41_export_vortex_3d_series.py` | Sequential strict-resume 3D series; N7_H positive-volume default; full-domain projection, actual-time PVD and crop-aware preflight. | Selected external original snapshots; default indices 1–81 | Immutable VTU/JSON volumes with both fields, case-level `series/` controls and `logs/` | `PYENV_VERSION=research312 python -B scripts/41_export_vortex_3d_series.py --indices 1-81 --sampling-nodes 10 --positive-x --dry-run` |
+
+See the [3D vortex export guide](vortex_3d_binary_vtu.md) for sampling semantics,
+preflight/resume/recovery, paths, resource limits and proposed real-data commands.
+The examples above are dry-run syntax, not evidence of a production execution.

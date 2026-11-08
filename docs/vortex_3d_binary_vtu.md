@@ -4,7 +4,9 @@
 `vtkUnstructuredGrid`, with float64 PointData `omega_x` and `lambda_ci` on
 the same physical points and cells. The default remains the Phase 1 native-grid
 representation. Phase 2 adds optional element-local P7 reconstruction on denser
-GLL nodal sets. There is no batch, PVD, resume, overwrite or smoothing option.
+GLL nodal sets. The single-frame CLI has no batch, PVD, resume, overwrite or
+smoothing option. [Phase 3](#phase-3-sequential-resumable-series) adds a separate
+sequential series CLI with strict resume and a case-level PVD.
 The Phase 1 description below still applies to the default path; the
 [Phase 2 section](#phase-2-p7-volume-reconstruction) specifies denser sampling.
 
@@ -471,7 +473,7 @@ tensor-first reconstruction, and quantify slice/contour/isosurface changes as
 sampling increases. Keep the original mesh with no smoothing, subdivision,
 resample-to-image or merging during comparisons. This is a proposed validation
 procedure, not a convergence result or a claim of verified ParaView/Tecplot
-import. Phase 3 batch processing and PVD generation remain deferred.
+import. The Phase 3 extension below adds temporal orchestration separately.
 
 Phase 2 synthetic verification on 2026-11-07: **107 new reconstruction cases**;
 **608 focused tests passed** (including the existing Phase 1 and numerical
@@ -493,4 +495,400 @@ PYENV_VERSION=research312 PYTHONPYCACHEPREFIX=/tmp/nek-post-phase2-pycache \
   python -m compileall -q src scripts tests
 PYENV_VERSION=research312 python -B scripts/40_export_vortex_3d.py --help
 git diff --check
+```
+
+## Phase 3: sequential resumable series
+
+`scripts/41_export_vortex_3d_series.py` calls the existing single-frame exporter
+once per pending snapshot. It does not duplicate derivatives, projection,
+interpolation, eigenvalues, cropping, mesh construction or binary serialization.
+The default is `N7_H`, indices 1–81, native sampling and the positive-x volume
+described below. Select explicit P7
+sampling with `--sampling-nodes 8`, `10`, `12` or another integer >=8. The default
+series parent root is `/data/Nek5000_data/results/vortex_3d_series`, separate
+from the Phase 1/2 default roots. The single-frame CLI remains available.
+
+### Complete positive-x volume
+
+The intended N7_H production output is a **three-dimensional UnstructuredGrid**
+covering `0 <= x <= 17`, `0 <= y <= 1.5`, `0 <= z <= 1`, containing both
+float64 PointData arrays `omega_x` and `lambda_ci`. It is not a slice, surface
+or isosurface dataset. `--positive-x` selects this preset explicitly; it is also
+the default for cases named `N7_H`/`case_N7_H`. Other cases retain the previous
+full-domain default. `--full-domain` explicitly requests all original cells,
+including negative x. These flags and `--crop` are mutually exclusive.
+
+Complete positive-side hexahedra are retained, including their **x=0 boundary
+vertices**. No exported cell extends into x<0, and no strict `x>0` point mask
+removes the first cell layer. The preset requires x=0 and x=17 to be exact
+spectral-element boundaries, with complete native y=[0,1.5], z=[0,1] extents.
+If the geometry does not satisfy these conditions, preflight reports the
+limitation and execution stops; it does not clip cells, create edge samples,
+adjust coordinates or silently discard part of the requested volume. No
+production geometry/alignment has been inspected during implementation.
+
+The series also recognizes an explicit `--crop 0 17 0 1.5 0 1` as this preset.
+Other explicit crops retain the established complete-subcell semantics. The
+single-frame CLI, its default full-domain selection and its arbitrary crop
+behavior are unchanged, including its conservative header-only estimates.
+
+Native gradients, curl and all nine-component mass-lumped projections still
+use **the entire original source domain** before output selection. Negative-x
+elements contribute to interface/periodic recovery, including values on x=0.
+Only the output mesh and denser reconstruction are restricted to selected
+elements. The dense builder does not allocate a full-domain high-resolution
+grid and then discard its negative half. Both fields share the same native or
+10/12-node sampled 3D mesh, with tensor-first lambda_ci unchanged. No ParaView
+resampling or smoothing is introduced.
+
+A compact coordinate/crop plan gives exact selected element-local point and
+hex counts, actual output bounds and a full native-mesh signature. It is reused
+across initial/locked preflight and subsequent frames; each frame's geometry is
+checked before differentiation. Region policy, crop, counts and native geometry
+are recorded in per-frame metadata, summaries and the manifest. Resume rejects
+mixing full-domain and positive-volume results in one case output root.
+
+`--indices` accepts unique comma-separated indices/ranges such as `1,41,79` or
+`1-81`. Alternatively supply **both** `--start-index` and `--end-index`.
+Omitting both forms selects 1–81. Duplicate/overlapping selections, reversed
+ranges, booleans/nonintegers and indices outside the five-digit 1–99999 naming
+range fail before calculation. `--max-frames N` caps the sorted selection after
+validating the complete supplied selection, including duplicates. It limits
+selected frames, not just newly computed frames. Nonconsecutive selections are
+supported. Physical times must be finite, unique and strictly increasing with
+frame index, including previously published frames retained in the collection.
+
+### Output organization
+
+For ten-node sampling:
+
+```text
+ROOT/gll10/case_N7_H/
+  f00001/GC0_f00001_gll10.vtu
+  f00001/GC0_f00001_gll10.json
+  ...
+  .vortex-3d-series.lock
+  .vortex-3d-f00002-<unique>/       # preserved if an attempt is interrupted
+  logs/<UTC>_<unique>.jsonl
+  logs/<UTC>_<unique>_summary.json
+  series/case_N7_H_vortex_3d_series.pvd
+  series/manifest.json
+  series/processing_summary.json
+```
+
+Native output omits `gll10/` and the `_gll10` filename suffix. Explicit eight-node
+sampling uses native filenames, as in the single-frame workflow. Each sampling
+density has its own case root and lock. Frame artifacts retain the existing
+names and immutable no-replace directory publication. The case-level collection
+is placed in `CASE/series/` so scientific frame ancestry checks remain strict;
+it references `../f00001/GC0_f00001_gll10.vtu`, never private staging.
+
+The PVD may represent a partial/nonconsecutive selection. Every update includes
+**all validated completed frames in that case root**, preserving prior entries
+and sorting by actual physical timestamps. A successful `completed` invocation
+means its requested selection completed; inspect `selected_indices`,
+`selected_frames` and `published_frames` before interpreting it as a complete
+81-frame run. PVD timestamps never come from an index or assumed interval.
+
+### Preflight, resume and publication
+
+Preflight validates every selected header and original one-based element map,
+as well as existing published frames needed to preserve the collection. It
+checks paths, actual times, configuration, producer/source checksums, software
+versions, signatures, resources and PVD references. Both original snapshots and
+generated scientific files must remain outside the repository. Symlinked
+output ancestry, control files, frames and staging directories are rejected.
+Unknown scientific frame/control artifacts are preserved and rejected.
+
+`--dry-run` is read-only: no lock, directory, log, checkpoint, velocity payload,
+VTK decoder, derivative, eigensolve or reconstructed 3D mesh is created. It reads
+headers/maps, JSON/XML metadata and **streams source/VTU checksums and binary XML
+headers**. For a cropped output it also reads one source's **native coordinates
+only**, behind a RAM gate, to validate boundaries and count selected cells.
+Velocity/pressure/temperature/scalar fields are skipped. This planning uses
+the existing structured geometry and Phase 2 GLL plan, not a high-resolution
+3D mesh. The RAM gate also includes the per-element dense workspace, rejecting
+unsafe target counts before target GLL-node generation. It can still read
+substantial bytes: a full source inventory is
+not a cheap directory listing. Existing outputs are reported as
+`metadata_valid` with `payload_validation=pending` and action
+`validate_then_skip`; dry-run never labels an undecoded payload fully valid.
+Missing/incompatible inputs and resource failures are reported in `failures`
+with `status=invalid`. Invalid argument combinations/unsafe control locations
+can raise immediately. The CLI returns failure for an invalid plan.
+
+Execution obtains the existing persistent advisory-lock helper, then repeats
+preflight under that lock. Sources/signatures must match the initial plan.
+Actions and resources are refreshed, so another cooperating writer's newly
+completed frame is validated and reused rather than recomputed. Locks are
+released on exceptions; their inode is never removed, and stale PID text is
+not treated as ownership. All writers must honor the lock; resource checks
+are not RAM/disk reservations against other jobs.
+
+Without `--resume`, any requested existing frame stops the run. With resume,
+every reused frame must have its exact VTU/JSON pair, completed metadata,
+matching source/header/time/configuration, current producer and series
+signatures, current recorded Python/library versions (including SciPy's GLL
+node dependency), source/VTU checksums and
+valid binary format. A VTK reader then checks actual float64 PointData,
+`TIME_VALUE`, ranges, geometry, connectivity, cell validity and all recorded
+array fingerprints. One saved grid is decoded at a time after a RAM gate.
+Metadata hashes are also checked against the case manifest when present.
+An incompatible or corrupted final frame is never silently recomputed over.
+
+Artifact identities use `lstat()` and include device, inode, regular-file mode,
+size, modification time and change time. Both VTU and JSON must be nonempty
+regular files. Reads use `O_NOFOLLOW`, `O_NONBLOCK` and descriptor-based identity
+checks before/after reading, together with a check of the named entry. Expected
+identities are checked before JSON parsing, VTU hashing or payload decoding;
+the Linux VTK reader uses the pinned descriptor through `/proc/self/fd/`.
+Recovery rechecks staged identities immediately before no-replace publication.
+The single-frame producer also rechecks both newly staged files before publication.
+Reused artifacts are checked during execution, before PVD publication and
+before the final completion checkpoint. A same-content symlink is never an
+acceptable substitute for the validated regular file.
+
+The advisory lock serializes cooperating writers; it cannot prevent a process
+with write access from changing directory entries after the last check. Linux
+has no operation that atomically verifies a directory's contents and renames
+it. If an uncooperative mutation occurs inside that final rename gap, the
+post-publication checks fail, no PVD/checkpoint declares the frame completed,
+and any already-renamed invalid final directory is retained for diagnosis.
+Strict resume rejects that directory; it is never deleted or overwritten.
+Likewise, existing PVDs cannot be protected from someone subsequently replacing
+their referenced files outside the locking protocol. Keep output directories
+under controlled write access; these checks are not a filesystem snapshot.
+
+New frame metadata adds bounded SHA-256 fingerprints of coordinates, native
+connectivity/offsets/types, the two scalar arrays and time. Full original
+native geometry/order signatures cover **every source element, including areas
+outside a crop**. Subsequent frames must match before differentiation, and
+all saved output meshes must match. File-order permutations in valid Nek maps
+remain distinct in source provenance while the reader's correct global element
+ordering is retained. No cross-frame scientific arrays or VTK objects are
+cached. Small interpolation matrices retain their existing process-local cache;
+native operators and geometry plans are rebuilt by the same single-frame API.
+
+Existing Phase 1/2 outputs remain protected. Historical files without these
+fingerprints or with earlier implementation signatures are not automatically
+adopted, even under `--resume`; use a fresh output root rather than overwriting
+them. No broad legacy-signature exceptions are introduced.
+
+Explicit eight-node native metadata now states that dense interpolation and
+the reconstruction-route omega audit were not performed, addressing the
+earlier provenance wording issue. The audit flag stays false during dry-run
+and becomes true only after actual denser reconstruction. Scientific arrays
+and the native calculation path are unchanged.
+
+For each generated frame, the producer writes only inside a private sibling
+directory, validates the mesh, saves binary VTU, verifies exact read-back, checks
+inline binary format, fingerprints arrays and rechecks source/implementation
+integrity. Only then does Linux `renameat2(RENAME_NOREPLACE)` publish the pair.
+The series reuses that successful read-back rather than decoding the same new
+grid again. Frame-local allocations are released before the next frame.
+
+PVD publication uses a unique same-directory temporary, flush/fsync, XML
+read-back and exact manifest/reference checks. Initial creation uses atomic
+no-replace rename; later updates atomically replace only the validated control
+collection. The old PVD remains intact if staging/replacement fails. The case
+lock and unchanged-file checks guard cooperating updates. Operational JSON
+checkpoints use the existing atomic helper, and invocation logs use exclusive
+new names. Final verification rehashes sources and immutable frame artifacts.
+This is crash-safe publication, not a filesystem snapshot or a power-loss
+durability guarantee.
+
+### Interruption and recovery
+
+Final frame directories are the recovery ground truth; progress logs are
+diagnostics. If a frame was published but PVD/manifest/checkpoint updates were
+interrupted, `--resume` validates the orphan final frame and reconciles the
+collection/checkpoint without recalculation. Existing PVD entries pointing to
+missing, invalid, duplicate or wrong-time frames fail closed.
+
+Unpublished staging blocks normal execution of that pending frame. Explicit
+`--resume --recover-staging` validates a uniquely complete staged pair before
+atomic publication. Recovery needs no new scientific-output disk allocation.
+Unreadable or unfinished staging is preserved and a new private attempt is
+used; no old staging is deleted. Incompatible completed staging or multiple
+complete candidates stops the run for manual assessment. An incomplete or
+corrupted **final** directory is never replaced by recovery. Preserve it and
+investigate, or choose a separate new output root. Do not delete lock files
+while a writer might be active.
+
+### Series resources
+
+For series crops, exact selected counts replace full-domain **output** counts
+in the Phase 1/2 allocation formulas. Input/native node counts, full-domain
+gradient/projection memory and the bounded per-element reconstruction allowance
+remain unchanged. If `Ns` is native source points and `Ps,Cs` are selected
+element-local output points/cells:
+
+```text
+Bselected = 40*Ps + 80*Cs + 1 MiB
+RAM = 8*V*Ns + source_bytes + 240*Ns + 6*Bselected + W + 1 GiB
+D = 2*Bselected + 1 MiB
+```
+
+The series does not assume that half the physical domain contains half the
+elements: nonuniform partitions are counted from actual coordinates. These
+output-size formulas are allowances, not measured compressed file sizes.
+If `D_i` is each pending
+new frame's conservative single-frame disk allowance, series preflight reserves:
+
+```text
+sum(D_i) + max(D_i, default=0) + 64 MiB
+```
+
+The control allowance grows beyond this minimum for unusually large frame
+inventories; metadata/summary RAM is also included. The 81-frame figures below
+use the 64-MiB minimum. JSON metadata is bounded at 64 MiB; inventories whose
+conservative control-file bound exceeds that budget fail before header I/O.
+
+The extra frame allowance covers staging/headroom; read-back is an additional
+RAM cost rather than a duplicate disk file. Already published or recoverable
+frames add no new scientific disk reservation. Preserved incomplete staging
+already consumes current free space and is never assumed reclaimable. Remaining
+disk is checked again before every frame. Calculation RAM is the maximum
+single-frame allowance, not its sum over time. Saved-frame validation uses
+`4*max(estimated_output_bytes, actual_vtu_bytes) + 1 GiB` and holds one grid.
+
+For reference, all 81 **full-domain** frames with the earlier float32/eight-variable assumptions:
+
+| Nodes/axis | RAM allowance | Per-frame disk allowance | Initial series disk allowance |
+| --- | ---: | ---: | ---: |
+| 8 | 12.182 GiB | 2.334 GiB | 191.420 GiB |
+| 10 | 19.537 GiB | 4.785 GiB | 392.429 GiB |
+| 12 | 30.813 GiB | 8.544 GiB | 700.642 GiB |
+
+As an illustration only, if coordinate planning finds exactly 13,056 selected
+elements out of 26,112, the positive-volume allowances would be:
+
+| Nodes/axis | Selected points | Selected hexes | RAM | Per-frame disk | 81-frame initial disk |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 8 | 6,684,672 | 4,478,208 | 8.686 GiB | 1.168 GiB | 95.862 GiB |
+| 10 | 13,056,000 | 9,517,824 | 12.364 GiB | 2.394 GiB | 196.366 GiB |
+| 12 | 22,560,768 | 17,377,536 | 18.002 GiB | 4.273 GiB | 350.472 GiB |
+
+This **does not assert** the actual N7_H positive element count. That count and
+alignment must come from an authorized coordinate-only preflight. Native
+projection in this example still uses all 13,369,344 original element-local
+GLL points; it is not a positive-only recovery.
+
+These are unbenchmarked conservative allowances, not measured compressed file
+sizes. Crops reduce output allowances but retain full-domain native projection.
+Preflight checks the process soft `RLIMIT_FSIZE` and detectable FAT-family
+four-GiB file limits. Other filesystem maximums, quotas, compression ratios,
+viewer memory and runtime remain unknown and are reported as uncertainty.
+Hashing/decoding are linear passes over scientific files; progress updates do
+not rehash every previous large VTU on every frame. Geometry validation is
+never disabled. No real-data benchmark or series has been run for this feature.
+
+### Proposed commands (not executed on real data)
+
+Read-only preflight for a fresh positive-volume series destination:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/41_export_vortex_3d_series.py \
+  --case N7_H --indices 1-81 --sampling-nodes 10 --positive-x \
+  --output-dir /data/Nek5000_data/results/vortex_3d_positive_x_phase3_production_new \
+  --periodic-axes x y --expected-element-counts 272 12 8 --dry-run
+```
+
+Selected-frame smoke test, requiring separate authorization for real data:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/41_export_vortex_3d_series.py \
+  --case N7_H --indices 1,41,79 --sampling-nodes 10 --positive-x \
+  --output-dir /data/Nek5000_data/results/vortex_3d_positive_x_phase3_smoke_new \
+  --periodic-axes x y --expected-element-counts 272 12 8
+```
+
+Full 81-frame production, only after reviewing the dry-run and authorizing it:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/41_export_vortex_3d_series.py \
+  --case N7_H --start-index 1 --end-index 81 --sampling-nodes 10 --positive-x \
+  --output-dir /data/Nek5000_data/results/vortex_3d_positive_x_phase3_production_new \
+  --periodic-axes x y --expected-element-counts 272 12 8
+```
+
+Resume/recover the same configuration after interruption; adding `--dry-run`
+first gives a read-only plan and defers VTU payload validation:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/41_export_vortex_3d_series.py \
+  --case N7_H --indices 1-81 --sampling-nodes 10 --positive-x \
+  --output-dir /data/Nek5000_data/results/vortex_3d_positive_x_phase3_production_new \
+  --periodic-axes x y --expected-element-counts 272 12 8 \
+  --resume --recover-staging
+```
+
+For a future ParaView session, open the case's `series/*_vortex_3d_series.pvd`,
+Apply, select PointData `omega_x` or `lambda_ci` and use its actual time steps.
+Keep consistent camera/ranges and the original unmerged mesh; no smoothing,
+subdivision or resample-to-image is needed to recover exported samples.
+The PVD supplies time navigation, not higher-order spatial interpolation.
+ParaView and Tecplot imports/rendering remain unverified.
+
+### Phase 3 synthetic verification
+
+Continuation verification on 2026-11-08: **781 focused tests passed in 34.82 s**;
+the complete suite passed **2,361 tests in 89.83 s**, with zero failures/skips.
+The focused suite includes 565 exporter cases. Phase 3 contributes
+120 series cases and 53 positive-volume cases, including interruption/recovery,
+corruption, no-replace publication, actual-time PVD, crop-policy resume checks,
+all six physical-axis permutations with reversed elements, native/8/10/12
+sampling, exact cropped/full point/field/connectivity comparisons, x=0 cell
+layers and whole-domain projection contributions. Coordinate-only dry-runs and
+per-frame reconstruction scopes are checked independently with call guards.
+Large target counts fail before coordinate/interpolation planning when the
+bounded dense workspace cannot fit; crop-adjusted resource-status flags are
+also checked against their revised RAM/disk budgets.
+
+Compileall, both CLI help checks, `git diff --check`, and whitespace checks of
+all twelve modified/untracked text files passed. Seventeen existing numerical,
+geometry and I/O modules and scripts 35/39/40 match HEAD byte for byte. The
+native gradient/projection arithmetic, crop, native mesh builder and binary
+writer bodies also match HEAD. No real CFD dataset, production job, viewer or
+real-data benchmark was run. Resource figures remain estimates; the real case's
+positive-boundary alignment is deliberately checked by a later authorized
+preflight rather than assumed from its name.
+
+```bash
+PYENV_VERSION=research312 python -m pytest -q \
+  tests/test_vortex_3d_positive_volume.py tests/test_vortex_3d_series.py \
+  tests/test_vortex_3d.py tests/test_vortex_3d_regressions.py \
+  tests/test_vortex_3d_reconstruction.py tests/test_vorticity.py \
+  tests/test_scalar_projection.py tests/test_l2_projection.py \
+  tests/test_spectral_derivatives.py tests/test_swirling_strength.py -ra
+PYENV_VERSION=research312 python -m pytest -q -ra
+PYENV_VERSION=research312 PYTHONPYCACHEPREFIX=/tmp/nek-post-phase3-positive-volume-pycache \
+  python -m compileall -q src scripts tests
+PYENV_VERSION=research312 python -B scripts/40_export_vortex_3d.py --help
+PYENV_VERSION=research312 python -B scripts/41_export_vortex_3d_series.py --help
+git diff --check
+```
+
+Artifact-integrity correction verification on 2026-11-08: **55 new regression
+cases passed in 10.45 s**; **228 Phase 3 tests passed in 39.19 s**;
+**608 Phase 1/2 and numerical regressions passed in 8.38 s**; the complete suite
+passed **2,416 tests in 101.67 s**, with zero failures/skips. Tests cover both
+artifact types, same-content and copied-target symlinks, missing/empty files,
+directories/FIFOs, regular-file replacement, no-follow open races, pinned VTK
+reads, descriptor cleanup, new/recovered staging and PVD publication boundaries.
+The three original reproductions now abort without completing the invocation;
+staged substitutions are rejected before publication and original bytes/PVDs
+are preserved. The explicit uncooperative-rename-gap test checks the limitation
+described above: fail without a PVD update or completed invocation, preserving
+any final directory that the kernel already renamed.
+
+Compileall, both CLI help checks, `git diff --check` and whitespace checks of
+all thirteen modified/untracked text files passed. Scientific kernels,
+selection/reconstruction, connectivity, float64 fields and physical time are
+unchanged. No real CFD data or viewer validation was required or run.
+
+```bash
+PYENV_VERSION=research312 python -m pytest -q \
+  tests/test_vortex_3d_artifact_integrity.py tests/test_vortex_3d_series.py \
+  tests/test_vortex_3d_positive_volume.py -ra
 ```

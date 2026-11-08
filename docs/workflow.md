@@ -9,8 +9,17 @@ reads one original snapshot, reuses the validated GLL derivatives and L2
 projection, and exports `omega_x` plus `lambda_ci` on one element-local mesh.
 The Phase 1 native default is preserved. Phase 2 adds `--sampling-nodes 10`
 or `12` to reconstruct the same P7 representation on denser GLL sets, with
-projected tensor interpolation before eigenvalues. No batch processing or PVD
-generation is included.
+projected tensor interpolation before eigenvalues. The separate
+[`41_export_vortex_3d_series.py` series workflow](vortex_3d_binary_vtu.md#phase-3-sequential-resumable-series)
+adds sequential frame selection, read-only preflight, strict resume, staged
+recovery and an atomic physical-time PVD. It delegates all calculations to the
+single-frame exporter. Production examples are documented but have not been run.
+For N7_H the series defaults to the complete positive-x 3D volume,
+`0 <= x <= 17`, `0 <= y <= 1.5`, `0 <= z <= 1`, retaining x=0 boundary vertices
+and both float64 fields. Use `--positive-x` explicitly in production commands.
+It requires element-aligned bounds and keeps full-domain numerical recovery;
+it does not export slices, surfaces, or clipped cells. `--full-domain` is an
+explicit comparison mode. The existing single-frame CLI remains unchanged.
 
 Raw Nek5000 data lives outside the repository:
 

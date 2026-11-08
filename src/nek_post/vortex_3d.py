@@ -20,6 +20,7 @@ from nek_post.l2_projection import (
 from nek_post.rectilinear_export import _rectilinear_geometry
 from nek_post.spectral_derivatives import element_velocity_gradient
 from nek_post.swirling_strength import compute_swirling_strength
+from nek_post.vortex_3d_artifacts import native_mesh_signature
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,8 @@ class ProjectedVortexFields:
 
 
 def compute_projected_vortex_fields(data, *, periodic_axes, expected_element_counts=None,
-                                   chunk_size=256, progress=None):
+                                   chunk_size=256, progress=None, expected_mesh_signature=None,
+                                   geometry_validator=None):
     """Prepare the common native tensor and curl, preserving projection order.
 
     omega_x = P(A[2,1] - A[1,2]); lambda_ci = max(abs(imag(eig(P(A))))).
@@ -52,6 +54,10 @@ def compute_projected_vortex_fields(data, *, periodic_axes, expected_element_cou
     # The map accepts storage uncertainty; visualization must retain exact
     # replicas/endpoints without introducing any coordinate averaging.
     _rectilinear_geometry(data, operator.node_map)
+    if expected_mesh_signature is not None and native_mesh_signature(operator.node_map) != expected_mesh_signature:
+        raise ValueError('Full native geometry or element ordering changed within the series.')
+    if geometry_validator is not None:
+        geometry_validator(data, operator.node_map)
     shape = (operator.node_map.element_count, *operator.node_map.element_shape)
     raw = np.empty(shape + (3, 3), dtype=np.float64)
     for ei, element in enumerate(data.elem):
@@ -67,11 +73,13 @@ def compute_projected_vortex_fields(data, *, periodic_axes, expected_element_cou
 
 
 def compute_native_vortex_fields(data, *, periodic_axes, expected_element_counts=None,
-                                chunk_size=256, progress=None):
+                                chunk_size=256, progress=None, expected_mesh_signature=None,
+                                geometry_validator=None):
     """Phase 1 native scalars, with the original arithmetic and eigenvalue call."""
     fields = compute_projected_vortex_fields(
         data, periodic_axes=periodic_axes, expected_element_counts=expected_element_counts,
-        chunk_size=chunk_size, progress=progress,
+        chunk_size=chunk_size, progress=progress, expected_mesh_signature=expected_mesh_signature,
+        geometry_validator=geometry_validator,
     )
     strength = compute_swirling_strength(fields.gradients, chunk_size=chunk_size).lambda_ci
     return NativeVortexFields(fields.node_map, fields.omega_x, strength)

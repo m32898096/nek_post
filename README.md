@@ -60,6 +60,17 @@ evaluates the same P7 polynomial on denser GLL sets, reconstructing projected
 gradients before `lambda_ci`. Both paths use linear hex subcells. Application
 compatibility and visualization convergence remain to be validated.
 
+For sequential multi-frame export, use
+[`scripts/41_export_vortex_3d_series.py`](scripts/41_export_vortex_3d_series.py).
+The [series guide](docs/vortex_3d_binary_vtu.md#phase-3-sequential-resumable-series)
+documents read-only dry-run, strict resume/recovery, resource allowances and
+atomic PVD publication. Scientific calculations reuse the single-frame APIs.
+The intended N7_H series output is the complete 3D positive-x volume
+`[0,17] × [0,1.5] × [0,1]`, with both float64 fields and x=0 boundary vertices.
+The series defaults to this selection for N7_H; `--positive-x` makes it explicit.
+Coordinate-only planning checks element alignment and estimates selected output
+size while gradients/projection still use the full original domain.
+
 ## Setup
 
 This project uses a `src/` layout. Install it once in editable mode so scripts and tests can import `nek_post`:
