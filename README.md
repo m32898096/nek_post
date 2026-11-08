@@ -71,6 +71,11 @@ The series defaults to this selection for N7_H; `--positive-x` makes it explicit
 Coordinate-only planning checks element alignment and estimates selected output
 size while gradients/projection still use the full original domain.
 
+For serialization-only Tecplot/ParaView experiments on existing VTUs, see
+[`42_rewrite_vtu_diagnostic.py`](scripts/42_rewrite_vtu_diagnostic.py) and the
+[compatibility guide](docs/vtu_compatibility.md). The production writer remains
+unchanged; actual application isosurface testing is still required.
+
 ## Setup
 
 This project uses a `src/` layout. Install it once in editable mode so scripts and tests can import `nek_post`:

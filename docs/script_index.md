@@ -147,7 +147,10 @@ artifact locations.
 | --- | --- | --- | --- | --- |
 | `scripts/40_export_vortex_3d.py` | Export one native or reconstructed P7 frame with signed omega_x and tensor-first lambda_ci. | One external original Nek snapshot | Exclusive binary VTU/JSON pair outside Git | `PYENV_VERSION=research312 python -B scripts/40_export_vortex_3d.py --sampling-nodes 10 --dry-run` |
 | `scripts/41_export_vortex_3d_series.py` | Sequential strict-resume 3D series; N7_H positive-volume default; full-domain projection, actual-time PVD and crop-aware preflight. | Selected external original snapshots; default indices 1–81 | Immutable VTU/JSON volumes with both fields, case-level `series/` controls and `logs/` | `PYENV_VERSION=research312 python -B scripts/41_export_vortex_3d_series.py --indices 1-81 --sampling-nodes 10 --positive-x --dry-run` |
+| `scripts/42_rewrite_vtu_diagnostic.py` | Serialization-only compatibility experiments; bounded whole-cell subset by default. | One existing external VTU | Exclusive diagnostic VTU/JSON, original-ID subset mapping | `PYENV_VERSION=research312 python -B scripts/42_rewrite_vtu_diagnostic.py INPUT.vtu --output-dir NEW_EXTERNAL_DIRECTORY --dry-run` |
 
 See the [3D vortex export guide](vortex_3d_binary_vtu.md) for sampling semantics,
 preflight/resume/recovery, paths, resource limits and proposed real-data commands.
 The examples above are dry-run syntax, not evidence of a production execution.
+The [Phase 4 compatibility guide](vtu_compatibility.md) documents diagnostic
+writer profiles and the manual Tecplot 2022 R2 isosurface test.

@@ -10,6 +10,10 @@ sequential series CLI with strict resume and a case-level PVD.
 The Phase 1 description below still applies to the default path; the
 [Phase 2 section](#phase-2-p7-volume-reconstruction) specifies denser sampling.
 
+[Phase 4 compatibility diagnostics](vtu_compatibility.md) rewrite existing VTUs
+with controlled VTK settings for manual Tecplot/ParaView testing. This separate
+tool does not change the production writer or establish application compatibility.
+
 ## Numerical sequence and assumptions
 
 The exporter reuses `element_velocity_gradient` from `spectral_derivatives.py`:
