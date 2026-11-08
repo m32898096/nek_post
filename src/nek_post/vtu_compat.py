@@ -21,7 +21,7 @@ from nek_post.vortex_3d_artifacts import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 PROFILES = ('reference', 'appended-zlib', 'appended-none', 'appended-int32')
-MAX_SUBSET_CELLS = 100000
+MAX_SUBSET_CELLS = 1000000
 _SIZES = {f'{prefix}{bits}': bits//8 for prefix in ('Int', 'UInt') for bits in (8,16,32,64)}
 _SIZES.update(Float32=4,Float64=8)
 
@@ -202,10 +202,12 @@ def select_subset(source, max_cells=4096, seed_cell=None):
     point_ids, inverse = np.unique(ids[start:start+count],return_inverse=True)
     packed = np.empty((count,9),dtype=np.int64)
     packed[:,0], packed[:,1:] = 8, inverse.reshape(-1,8)
-    grid = pv.UnstructuredGrid(packed.ravel(), source.celltypes[cell_ids].copy(), source.points[point_ids].copy())
+    # Advanced indexing already owns a new array; do not duplicate it again.
+    grid = pv.UnstructuredGrid(packed.ravel(), source.celltypes[cell_ids], source.points[point_ids])
+    del packed, inverse
     for association, name, array in _arrays(source):
         index = point_ids if association == 'point_data' else cell_ids if association == 'cell_data' else slice(None)
-        getattr(grid,association)[name] = array[index].copy()
+        getattr(grid,association)[name] = array.copy() if association == 'field_data' else array[index]
         original,target=getattr(source,association).GetArray(name),getattr(grid,association).GetArray(name)
         for component in range(original.GetNumberOfComponents()):
             label=original.GetComponentName(component)
@@ -359,10 +361,17 @@ def _destination(source, output):
     return output
 
 
-def _estimates(header, file_bytes, output_cells=None):
+def _estimates(header, file_bytes, output_cells=None, *, add_time_alias=False):
+    """Conservative allocation allowances, not measured peaks or reservations.
+
+    Keep the original source-decode allowance and add the larger selected-mesh
+    phase. Unique-ID sorting allows eight int64 workspaces per cell vertex;
+    writing allows five output-array sets plus private topology and mappings.
+    All arithmetic uses Python integers; no mesh is allocated here.
+    """
     cells=header['cells'] if output_cells is None else min(header['cells'],output_cells)
     points=header['points'] if output_cells is None else min(header['points'],8*cells)
-    sizes=[];output_sizes=[]
+    sizes=[];output_sizes=[];output_blocks=[]
     for array in header['arrays']:
         if array.get('type') not in _SIZES:
             raise ValueError('This diagnostic supports numeric VTK arrays only; metadata will never be dropped.')
@@ -370,17 +379,68 @@ def _estimates(header, file_bytes, output_cells=None):
         tuples = (header['points'] if association in ('Points','PointData') else
                   header['cells']*(8 if name=='connectivity' else 1) if association in ('Cells','CellData') else
                   int(array.get('NumberOfTuples','1')))
-        sizes.append(tuples*int(array.get('NumberOfComponents','1'))*_SIZES[array['type']])
+        components=int(array.get('NumberOfComponents','1'))
+        if tuples < 0 or components < 1:
+            raise ValueError('Invalid VTK array tuple/component counts.')
+        sizes.append(tuples*components*_SIZES[array['type']])
         target=(points if association in ('Points','PointData') else
                 cells*(8 if name=='connectivity' else 1) if association in ('Cells','CellData') else tuples)
         # A narrow source can be rewritten using Int64 topology; allow that growth.
         width=8 if association=='Cells' and name in ('connectivity','offsets') else _SIZES[array['type']]
-        output_sizes.append(target*int(array.get('NumberOfComponents','1'))*width)
+        size=target*components*width
+        output_sizes.append(size)
+        output_blocks.append((f'{association}/{name}',size))
+    if add_time_alias:
+        output_sizes.append(8)
+        output_blocks.append(('FieldData/time alias allowance',8))
     raw=sum(sizes)
-    return dict(decoded_array_bytes=raw,required_ram_bytes=7*raw+2*file_bytes+1024**3,
-                output_array_upper_bytes=sum(output_sizes),output_points_upper=points,output_cells=cells,
-                required_disk_bytes=3*sum(output_sizes)+128*1024**2,
+    output=sum(output_sizes)
+    mapping=0 if output_cells is None else 8*(points+cells)
+    unique_scratch=0 if output_cells is None else 64*(8*cells)
+    extraction=0 if output_cells is None else output+unique_scratch+72*cells+mapping
+    roundtrip=5*output+72*cells+mapping
+    selected_phase=max(extraction,roundtrip)
+    # Twice raw output covers base64, compression expansion and length words;
+    # include XML overhead and a separate compressed-NPZ allowance.
+    vtu_file=2*output+1024**2+4096*len(output_blocks)
+    mapping_file=0 if output_cells is None else 2*mapping+1024**2
+    return dict(decoded_array_bytes=raw,source_decode_allowance_bytes=7*raw+2*file_bytes,
+                extraction_working_bytes=extraction,unique_id_scratch_bytes=unique_scratch,
+                roundtrip_working_bytes=roundtrip,mapping_array_upper_bytes=mapping,
+                selected_phase_allowance_bytes=selected_phase,safety_reserve_bytes=1024**3,
+                required_ram_bytes=7*raw+2*file_bytes+selected_phase+1024**3,
+                remaining_ram_bytes=selected_phase+1024**3,
+                output_array_upper_bytes=output,output_points_upper=points,output_cells=cells,
+                output_blocks_upper=output_blocks,vtu_file_upper_bytes=vtu_file,
+                mapping_file_upper_bytes=mapping_file,
+                required_disk_bytes=vtu_file+mapping_file+128*1024**2,
                 uncertainty='Unmeasured VTK copies/compression and viewer/isocontour memory; checks are not reservations.')
+
+
+def _preflight_resources(estimates, output, *, after_decode=False):
+    """Check current headroom before decode, extraction and publication staging."""
+    available=available_memory_bytes()
+    if isinstance(available,(bool,np.bool_)) or not isinstance(available,(int,np.integer)) or available < 0:
+        raise MemoryError('Cannot establish available RAM.')
+    address_limit,_=resource.getrlimit(resource.RLIMIT_AS)
+    if address_limit != resource.RLIM_INFINITY:
+        lines=Path('/proc/self/status').read_text().splitlines()
+        virtual=next(int(line.split()[1])*1024 for line in lines if line.startswith('VmSize:'))
+        available=min(int(available),max(0,address_limit-virtual))
+    required=estimates['remaining_ram_bytes' if after_decode else 'required_ram_bytes']
+    if required >= available:
+        raise MemoryError(f'Insufficient RAM/address-space headroom: need {required} bytes, '
+                          f'available {available}; reduce max_cells or use a larger-memory host.')
+    disk=shutil.disk_usage(_nearest_directory(output)).free
+    if estimates['required_disk_bytes'] >= disk:
+        raise OSError(f'Insufficient diagnostic disk space: need {estimates["required_disk_bytes"]} bytes, '
+                      f'available {disk}; choose another output filesystem or reduce max_cells.')
+    file_limit,_=resource.getrlimit(resource.RLIMIT_FSIZE)
+    largest=max(estimates['vtu_file_upper_bytes'],estimates['mapping_file_upper_bytes'])
+    if file_limit != resource.RLIM_INFINITY and largest > file_limit:
+        raise OSError(f'Diagnostic single-file allowance {largest} bytes exceeds process '
+                      f'file-size limit {file_limit}; reduce max_cells or raise that limit.')
+    return dict(available_ram_bytes=int(available),available_disk_bytes=int(disk))
 
 
 def rewrite_vtu(source, output_dir, *, profile='reference', max_cells=4096, full_grid=False,
@@ -404,26 +464,22 @@ def rewrite_vtu(source, output_dir, *, profile='reference', max_cells=4096, full
         raise ValueError('Source VTU must be outside Git.')
     output=_destination(source,output_dir)
     header=inspect_vtu(source)
-    estimates=_estimates(header,identity[3],None if full_grid else max_cells)
-    available=available_memory_bytes()
-    if isinstance(available,(bool,np.bool_)) or not isinstance(available,(int,np.integer)) or available < 0:
-        raise MemoryError('Cannot establish available RAM.')
-    disk=shutil.disk_usage(_nearest_directory(output)).free
+    estimates=_estimates(header,identity[3],None if full_grid else max_cells,add_time_alias=add_time_alias)
+    check_storage_limits(estimates['output_points_upper'],estimates['output_cells'],
+                         estimates['output_blocks_upper'],config)
+    resources=_preflight_resources(estimates,output)
     report=dict(workflow='vtu_serialization_diagnostic',source=str(source),output_directory=str(output),
                 source_xml=header,writer=config.metadata(),selection_mode='full' if full_grid else 'whole-cell subset',
                 max_cells=max_cells,seed_cell=seed_cell,add_time_alias=add_time_alias,estimates=estimates,
-                available_ram_bytes=available,available_disk_bytes=disk,dry_run=dry_run,
+                **resources,dry_run=dry_run,
                 production_writer_changed=False,tecplot_verified=False,paraview_verified=False)
-    if estimates['required_ram_bytes'] >= available:
-        raise MemoryError('Insufficient RAM to decode the source VTU and verify the output.')
-    if estimates['required_disk_bytes'] >= disk:
-        raise OSError('Insufficient diagnostic disk space.')
     if dry_run:
         return report
     source_hash=regular_file_hash(source,expected=identity)
     grid=_read_grid(source,identity)
     if (grid.n_points,grid.n_cells) != (header['points'],header['cells']):
         raise ValueError('Decoded VTU counts differ from its XML header.')
+    report['before_extraction_resources']=_preflight_resources(estimates,output,after_decode=True)
     if full_grid:
         selected=grid
         point_ids=cell_ids=None
@@ -437,9 +493,6 @@ def rewrite_vtu(source, output_dir, *, profile='reference', max_cells=4096, full
         selected=selected.copy(deep=False)
         selected.field_data['time']=selected.field_data['TIME_VALUE'].copy()
     check_storage_limits(selected.n_points,selected.n_cells,_blocks(selected,config),config)
-    file_limit,_=resource.getrlimit(resource.RLIMIT_FSIZE)
-    if file_limit != resource.RLIM_INFINITY and 2*sum(size for _,size in _blocks(selected,config))+1024**2 > file_limit:
-        raise OSError('Diagnostic allowance exceeds the process single-file size limit.')
     isovalue,crossing_cells=_crossing_isovalue(selected)
     report.update(points=selected.n_points,cells=selected.n_cells,bounds=list(selected.bounds),
                   time=float(selected.field_data['TIME_VALUE'][0]),
@@ -467,6 +520,7 @@ def rewrite_vtu(source, output_dir, *, profile='reference', max_cells=4096, full
             raise ValueError('Source sidecar time differs from TIME_VALUE.')
         report['source_sidecar']=dict(path=str(sidecar),sha256=regular_file_hash(sidecar,expected=sidecar_identity),metadata=metadata)
     _destination(source,output)
+    report['before_writing_resources']=_preflight_resources(estimates,output,after_decode=True)
     output.parent.mkdir(parents=True,exist_ok=True)
     stage=Path(tempfile.mkdtemp(prefix='.vtu-diagnostic-',dir=output.parent))
     label=f'diagnostic__{profile}__{config.encoding}__h{config.header_bits}'+('__time' if add_time_alias else '')

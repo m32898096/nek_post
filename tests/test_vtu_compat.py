@@ -158,7 +158,8 @@ def test_path_protection(source,tmp_path,kind):
     with pytest.raises((ValueError,FileExistsError)):compat.rewrite_vtu(source,output)
 
 
-@pytest.mark.parametrize('option,value',[('max_cells',0),('max_cells',True),('max_cells',100001),
+@pytest.mark.parametrize('option,value',[('max_cells',0),('max_cells',True),('max_cells',1000001),
+    ('max_cells',-1),('max_cells',1.5),('max_cells',None),('max_cells',10**100),
     ('seed_cell',-1),('seed_cell',True),('profile','unsupported'),('appended_encoding','ascii'),
     ('header_bits',16),('header_bits',True)])
 def test_invalid_configuration_fails_before_input_read(tmp_path,monkeypatch,option,value):
@@ -185,10 +186,136 @@ def test_subset_disk_estimates_shrink_but_full_source_decode_allowance_is_retain
     header=compat.inspect_vtu(source)
     full=compat._estimates(header,source.stat().st_size)
     subset=compat._estimates(header,source.stat().st_size,1)
-    assert subset['required_ram_bytes']==full['required_ram_bytes']
+    assert subset['required_ram_bytes']<full['required_ram_bytes']
+    assert subset['source_decode_allowance_bytes']==full['source_decode_allowance_bytes']
     assert subset['decoded_array_bytes']==full['decoded_array_bytes']
-    assert subset['required_disk_bytes']<full['required_disk_bytes']
+    # Tiny subsets can have a larger total allowance because they add selection.npz.
+    assert subset['vtu_file_upper_bytes']<full['vtu_file_upper_bytes']
+    assert subset['required_disk_bytes']-subset['mapping_file_upper_bytes']<full['required_disk_bytes']
     assert subset['output_cells']==1 and subset['output_points_upper']==8
+
+
+@pytest.mark.parametrize('limit',[100000,100001,1000000])
+@pytest.mark.parametrize('profile,encoding,bits',CASES)
+def test_large_limits_preserve_small_fixture_exactly(source,tmp_path,limit,profile,encoding,bits):
+    # Exercise the actual CLI/API limit and all profiles without allocating a large mesh.
+    before=sha256(source.read_bytes()).hexdigest()
+    report=compat.rewrite_vtu(source,tmp_path/'large_limit',max_cells=limit,
+                              profile=profile,appended_encoding=encoding,header_bits=bits)
+    original=pv.read(source)
+    actual=pv.read(Path(report['output_directory'])/report['output_filename'])
+    assert report['max_cells']==limit and report['cells']==original.n_cells
+    assert report['estimates']['output_cells']==original.n_cells
+    np.testing.assert_array_equal(actual.points,original.points)
+    np.testing.assert_array_equal(actual.cell_connectivity,original.cell_connectivity)
+    np.testing.assert_array_equal(actual.celltypes,original.celltypes)
+    for name in ('omega_x','lambda_ci'):
+        np.testing.assert_array_equal(actual[name],original[name])
+        assert actual[name].dtype==np.float64
+    np.testing.assert_array_equal(actual.field_data['TIME_VALUE'],original.field_data['TIME_VALUE'])
+    assert_nonempty_contour(report,actual)
+    assert sha256(source.read_bytes()).hexdigest()==before
+
+
+def large_header():
+    """Pure synthetic header with eight distinct vertices per cell (worst case)."""
+    return dict(points=16000000,cells=2000000,arrays=[
+        dict(association='Points',type='Float64',NumberOfComponents='3'),
+        *[dict(association='PointData',Name=name,type='Float64') for name in ('omega_x','lambda_ci')],
+        dict(association='Cells',Name='connectivity',type='Int64'),
+        dict(association='Cells',Name='offsets',type='Int64'),
+        dict(association='Cells',Name='types',type='UInt8'),
+        dict(association='FieldData',Name='TIME_VALUE',type='Float64',NumberOfTuples='1')])
+
+
+@pytest.mark.parametrize('limit',[100000,1000000])
+def test_large_subset_estimates_count_every_allocation_without_a_mesh(limit):
+    estimates=compat._estimates(large_header(),1234,limit)
+    # 8 vertices*(24 coordinate+16 field bytes) + 64 connectivity+8 offset+1 type.
+    expected=393*limit+8
+    assert estimates['output_array_upper_bytes']==expected
+    assert estimates['output_cells']==limit and estimates['output_points_upper']==8*limit
+    assert estimates['unique_id_scratch_bytes']==512*limit
+    assert estimates['mapping_array_upper_bytes']==72*limit
+    assert estimates['extraction_working_bytes']==expected+656*limit
+    assert estimates['roundtrip_working_bytes']==5*expected+144*limit
+    assert estimates['required_ram_bytes']==(estimates['source_decode_allowance_bytes']+
+        max(estimates['extraction_working_bytes'],estimates['roundtrip_working_bytes'])+1024**3)
+    assert estimates['remaining_ram_bytes']==estimates['required_ram_bytes']-estimates['source_decode_allowance_bytes']
+    assert estimates['required_disk_bytes']==(estimates['vtu_file_upper_bytes']+
+        estimates['mapping_file_upper_bytes']+128*1024**2)
+    compat.check_storage_limits(estimates['output_points_upper'],estimates['output_cells'],
+                               estimates['output_blocks_upper'],compat.WriterConfiguration('reference'))
+
+
+def test_large_request_dry_run_is_header_only_and_reports_growing_resources(source,tmp_path,monkeypatch):
+    monkeypatch.setattr(compat,'inspect_vtu',lambda p:large_header())
+    monkeypatch.setattr(compat,'_read_grid',lambda *a:pytest.fail('dry run read full grid'))
+    monkeypatch.setattr(compat.shutil,'disk_usage',lambda p:type('D',(),{'free':10**15})())
+    small=compat.rewrite_vtu(source,tmp_path/'100k',max_cells=100000,dry_run=True)
+    large=compat.rewrite_vtu(source,tmp_path/'1m',max_cells=1000000,dry_run=True)
+    for key in ('required_ram_bytes','required_disk_bytes','output_array_upper_bytes'):
+        assert large['estimates'][key]>small['estimates'][key]
+    assert large['estimates']['output_cells']==1000000
+    assert not (tmp_path/'100k').exists() and not (tmp_path/'1m').exists()
+
+
+@pytest.mark.parametrize('kind',['ram','disk','file_limit','storage'])
+def test_large_request_is_rejected_before_decode_or_extraction(source,tmp_path,monkeypatch,kind):
+    header=large_header()
+    estimate=compat._estimates(header,source.stat().st_size,1000000)
+    monkeypatch.setattr(compat,'inspect_vtu',lambda p:header)
+    monkeypatch.setattr(compat,'_read_grid',lambda *a:pytest.fail('unsafe request reached decode'))
+    monkeypatch.setattr(compat,'select_subset',lambda *a:pytest.fail('unsafe request reached extraction'))
+    monkeypatch.setattr(compat.shutil,'disk_usage',lambda p:type('D',(),{'free':10**15})())
+    if kind=='ram':monkeypatch.setattr(compat,'available_memory_bytes',lambda:estimate['required_ram_bytes']-1)
+    if kind=='disk':monkeypatch.setattr(compat.shutil,'disk_usage',lambda p:type('D',(),{'free':estimate['required_disk_bytes']-1})())
+    if kind=='file_limit':
+        getlimit=resource.getrlimit
+        monkeypatch.setattr(compat.resource,'getrlimit',lambda r:(1,1) if r==resource.RLIMIT_FSIZE else getlimit(r))
+    if kind=='storage':header['arrays'][0]['NumberOfComponents']='1000'
+    error,message={'ram':(MemoryError,'headroom'),'disk':(OSError,'disk space'),
+                   'file_limit':(OSError,'file-size limit'),'storage':(ValueError,'UInt32')}[kind]
+    with pytest.raises(error,match=message):
+        compat.rewrite_vtu(source,tmp_path/'unsafe',max_cells=1000000)
+    assert not (tmp_path/'unsafe').exists() and not list(tmp_path.glob('.vtu-diagnostic-*'))
+
+
+@pytest.mark.parametrize('stage',['extraction','writing'])
+@pytest.mark.parametrize('kind',['ram','disk'])
+def test_resource_headroom_is_rechecked_before_each_large_phase(source,tmp_path,monkeypatch,stage,kind):
+    checks=iter([10**15,1] if stage=='extraction' else [10**15,10**15,1])
+    if kind=='ram':monkeypatch.setattr(compat,'available_memory_bytes',lambda:next(checks))
+    else:monkeypatch.setattr(compat.shutil,'disk_usage',lambda p:type('D',(),{'free':next(checks)})())
+    if stage=='extraction':monkeypatch.setattr(compat,'select_subset',lambda *a:pytest.fail('low headroom reached extraction'))
+    monkeypatch.setattr(compat,'write_variant',lambda *a:pytest.fail('low headroom reached writing'))
+    with pytest.raises((OSError,MemoryError)):
+        compat.rewrite_vtu(source,tmp_path/'unsafe',max_cells=1000000)
+    assert not (tmp_path/'unsafe').exists() and not list(tmp_path.glob('.vtu-diagnostic-*'))
+
+
+def test_address_space_limit_is_checked_before_decoding(source,tmp_path,monkeypatch):
+    getlimit=resource.getrlimit
+    monkeypatch.setattr(compat.resource,'getrlimit',lambda r:(1,1) if r==resource.RLIMIT_AS else getlimit(r))
+    monkeypatch.setattr(compat,'_read_grid',lambda *a:pytest.fail('address-space limit reached reader'))
+    with pytest.raises(MemoryError,match='address-space'):
+        compat.rewrite_vtu(source,tmp_path/'unsafe',max_cells=1000000)
+    assert not (tmp_path/'unsafe').exists()
+
+
+def test_subset_owns_selected_arrays_after_redundant_copies_are_removed(source):
+    original=pv.read(source)
+    selected,points,_=compat.select_subset(original,5)
+    for name in ('omega_x','lambda_ci'):
+        assert not np.shares_memory(selected[name],original[name])
+        expected=selected[name].copy()
+        original[name][points]=-123.
+        np.testing.assert_array_equal(selected[name],expected)
+    assert not np.shares_memory(selected.points,original.points)
+    original.points[:]=-123.
+    assert not np.any(selected.points==-123.)
+    original.field_data['TIME_VALUE'][0]=-123.
+    assert selected.field_data['TIME_VALUE'][0]==19.50240408807
 
 
 @pytest.mark.parametrize('damage',['float32','nan','negative','missing','time','geometry','ghost','strings','zero','constant'])
@@ -214,7 +341,9 @@ def test_resource_failures_stop_safely(source,tmp_path,monkeypatch,kind):
     if kind=='ram':monkeypatch.setattr(compat,'available_memory_bytes',lambda:1)
     if kind=='unknown_ram':monkeypatch.setattr(compat,'available_memory_bytes',lambda:None)
     if kind=='disk':monkeypatch.setattr(compat.shutil,'disk_usage',lambda p:type('D',(),{'free':1})())
-    if kind=='file_limit':monkeypatch.setattr(compat.resource,'getrlimit',lambda r:(1,1))
+    if kind=='file_limit':
+        getlimit=resource.getrlimit
+        monkeypatch.setattr(compat.resource,'getrlimit',lambda r:(1,1) if r==resource.RLIMIT_FSIZE else getlimit(r))
     with pytest.raises((OSError,MemoryError)):compat.rewrite_vtu(source,tmp_path/'none')
     assert not (tmp_path/'none').exists()
 
@@ -406,14 +535,15 @@ def test_header_errors_fail_without_payload_decode(tmp_path,contents):
     with pytest.raises(ValueError):compat.inspect_vtu(path)
 
 
-def test_cli_help_and_small_execution(source,tmp_path,capsys):
+@pytest.mark.parametrize('limit',[5,100000,1000000])
+def test_cli_help_and_small_execution(source,tmp_path,capsys,limit):
     path=compat.REPOSITORY/'scripts/42_rewrite_vtu_diagnostic.py'
     spec=importlib.util.spec_from_file_location('vtu_diag_cli',path)
     cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
     with pytest.raises(SystemExit) as info:cli.parse_args(['--help'])
     assert info.value.code==0
-    capsys.readouterr()
-    assert cli.main([str(source),'--output-dir',str(tmp_path/'cli'),'--profile','appended-int32','--max-cells','5'])==0
+    assert '1..1000000' in capsys.readouterr().out
+    assert cli.main([str(source),'--output-dir',str(tmp_path/'cli'),'--profile','appended-int32','--max-cells',str(limit)])==0
     report=json.loads(capsys.readouterr().out)
-    assert report['cells']==5 and report['roundtrip_exact']
+    assert report['cells']==min(limit,12) and report['roundtrip_exact']
     assert cli.main([str(source),'--output-dir',str(tmp_path/'cli')])==1

@@ -82,7 +82,8 @@ file. `--dry-run` makes no output directories and never constructs a VTK grid.
 ## Whole-cell subsets and exact preservation
 
 The default selects at most 4,096 existing hexahedra (configurable with
-`--max-cells 1..100000`). It locates a cell incident to the maximum lambda_ci
+`--max-cells 1..1000000`). Larger limits require passing resource preflight.
+It locates a cell incident to the maximum lambda_ci
 point, then retains a contiguous original cell-ID window around it. An explicit
 zero-based `--seed-cell` overrides this. The suggested isovalue is accepted
 only if at least one retained Hex has nodal `min < isovalue < max`. The global
@@ -191,6 +192,32 @@ Existing diagnostic VTUs and sidecars remain unchanged. New invocations still
 set `tecplot_verified=false`: the rewriter cannot certify an application test
 for a newly generated artifact.
 
+Subsequent user tests on Windows 11 with 32 GB RAM report successful loading
+and isosurface extraction for both 4,096 and 100,000 Hex cells. The complete
+frame 79 (9,517,824 Hex cells) initially loads but produces a VTK Data Loader
+error when Iso-Surfaces are enabled. Neither memory exhaustion nor an encoding
+defect has been established as the cause. Million-cell compatibility remains
+untested, and small-file success does not establish full-size compatibility.
+
+## Proposed million-Hex reference diagnostic
+
+The commands below are proposals, not recorded executions. Use a **new**
+external directory with sufficient resources; the default reference profile
+remains inline/base64, ZLib, UInt32 headers and Int64 topology. Run the dry-run
+first, inspect its estimates, then deliberately run the same command without
+`--dry-run`. No full-grid rewrite or CFD computation is involved.
+
+```bash
+PYENV_VERSION=research312 python -B scripts/42_rewrite_vtu_diagnostic.py \
+  /data/Nek5000_data/results/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.vtu \
+  --output-dir /tmp/nek_post_vtu_phase4_frame79_1m_reference \
+  --profile reference --max-cells 1000000 --dry-run
+```
+
+If that destination already exists, choose another new directory; nothing
+is overwritten. A request retains at most the given number of original whole
+cells, so a smaller source yields fewer cells without padding or interpolation.
+
 ## Manual Tecplot 360 2022 R2 test
 
 Use a fresh frame/session for each candidate so caches and old zone styles do
@@ -234,9 +261,51 @@ The 330-MB compressed file represents about **1,217,041,160 decoded array
 bytes**, before VTK objects, topology copies, decompression and any surface
 geometry. A 32-GB workstation is not evidence that all isosurface operations
 will fit. The rewriter must currently decode the full source even for a small
-subset; it is not a streaming cell extractor. RAM preflight allows
-`7*decoded_source_bytes + 2*source_file_bytes + 1 GiB` (about 9.55 GiB here).
-Disk estimates use a selected-output upper bound plus metadata allowance.
+subset; it is not a streaming cell extractor. The million-cell cap is a bound,
+not permission to bypass preflight. Header-only planning uses Python integer
+arithmetic and at most `min(source_points, 8*selected_cells)` selected points.
+Int64 connectivity/offset allowances are used even for Int32 profiles.
+
+Let `D` be decoded source-array bytes, `F` source-file bytes, `O` selected
+output-array bytes, `C` selected cells, and `P` selected point upper bound.
+For subsets, resident ID mappings use `M=8*(P+C)` bytes. Planning adds:
+
+- Extraction: `O + 512*C + 72*C + M`. The `512*C` allows eight int64 sorting/
+  compaction workspaces per cell vertex for `np.unique`; `72*C` covers packed
+  nine-integer Hex records. This compaction still sorts up to eight million
+  references for a million cells; its runtime has not been benchmarked.
+- Writing/read-back: `5*O + 72*C + M`, covering selected and read-back arrays,
+  writer buffers, comparison temporaries and private writer topology.
+- Total initial RAM: `7*D + 2*F + max(extraction, writing) + 1 GiB`. The existing
+  source/VTK/decompression allowance is retained rather than traded away for
+  the larger extraction. Full-grid mode has no extraction or ID mappings.
+- Disk: `2*O + 1 MiB + 4096*array_count` for the VTU, `2*M + 1 MiB` for subset
+  NPZ mappings, plus 128 MiB reserve. This allows base64 and compression
+  expansion without assuming a favorable compression ratio. Publication
+  renames the staged directory and does not duplicate its payload.
+
+For the documented frame-79 header and its two scalar arrays:
+
+| Requested Hex cells | Point upper bound | Output-array upper bytes | Initial available RAM required | Free disk required |
+| ---: | ---: | ---: | ---: | ---: |
+| 100,000 | 800,000 | 39,300,008 | 9.75 GiB | 0.214 GiB |
+| 1,000,000 | 8,000,000 | 393,000,008 | 11.51 GiB | 0.993 GiB |
+
+The million-cell VTU file allowance is 787,077,264 bytes; its actual compressed
+size is unknown. Sharing existing point IDs often lowers the actual point
+count, but coincident element-local points are never merged to save memory.
+Advanced indexing already makes owned selected arrays; redundant copies have
+been removed, and packed/inverse topology temporaries are released before
+copying scientific fields. Serialization settings remain unchanged.
+
+Before decoding, storage/header limits, current available RAM (including cgroup
+and process address-space limits), free disk and the process file-size limit
+are checked. RAM/disk/file-size headroom is checked again before extraction
+and before creating output staging. After decoding, the remaining requirement
+is `max(extraction, writing) + 1 GiB`; the resident source is already reflected
+in available memory. Conservative pre-decode point/block upper bounds can
+reject a request that an exact compacted count might fit. Errors explain the
+limiting resource; reduce `--max-cells` or use another host/filesystem.
 These are conservative formulas, not measured peaks or resource reservations.
 
 All retained samples remain float64. Narrowing integer topology can reduce
@@ -247,8 +316,9 @@ filesystem-specific maximums, quotas, loader internals and GPU memory remain
 unestablished. Files must not be modified concurrently; staging/identity checks
 do not freeze an uncooperative writable directory after the last check.
 
-If a small encoding works, authorize **one** full-grid candidate next, keeping
-the original intact. If all small files work but a full file fails, investigate
+Increase diagnostic sizes deliberately, keeping the original intact; this
+change does not automatically generate a million-cell or full-grid file.
+If small files work but a full file fails, investigate
 memory/size, deferred reads and application-specific behavior; this does not
 prove an encoding defect or OOM. A partitioned VTU/PVTU or VTM experiment may
 be a later step; none is implemented here. If only certain small configurations
@@ -264,18 +334,20 @@ expects only TIME_VALUE. Do not bypass these checks to adopt diagnostics.
 
 ## Automated verification
 
-After the cell-local isovalue correction on 2026-11-08, **114 diagnostic tests
-passed in 5.02 s**, including 11 writer
+After the million-cell limit extension on 2026-11-08, **166 diagnostic tests
+passed in 4.40 s**, including 11 writer
 configurations (raw/base64 and UInt32/UInt64 where supported), exact metadata
 and component-name preservation, safe Int32 limits without huge allocations,
 coincident/discontinuous nodes, time aliases, no-Nek-operator call guards,
-resource gates and interrupted/colliding/substituted outputs. The 31 added cases
-cover disjoint scalar bands, all six storage permutations of a connected
+resource gates and interrupted/colliding/substituted outputs. Existing crossing
+tests cover disjoint scalar bands, all six storage permutations of a connected
 three-cell source, independent nonempty VTK contours, unusable selections,
-unused points, float64 limits and chunk boundaries. Earlier Phase 1/2/3
-numerical/workflow verification passed 836 tests; those tests are also included
-in the current complete suite. The complete suite passed **2,530 tests in
-115.61 s**, with zero
+unused points, float64 limits and chunk boundaries. The 52 added cases cover
+100,000/100,001/1,000,000 limits with small exact round-trips, large synthetic
+header budgets without mesh allocation, invalid limits, early storage/RAM/disk/
+file-size failures, repeated headroom checks, process address-space limits,
+owned subset arrays and CLI compatibility. The complete suite, including
+Phase 1/2/3 regressions, passed **2,582 tests in 110.12 s**, with zero
 failures/skips. Compileall, CLI help and tracked/untracked whitespace checks
 passed. Production scientific and VTU workflow modules match HEAD.
 
