@@ -1,5 +1,9 @@
 # Single-frame 3D binary VTU: native grid and P7 reconstruction
 
+The [numerical methods index](methods/README.md) provides the formulas, pinned
+local Nek5000 correspondence, production provenance limits, and proposed
+independent validation. This guide retains its existing workflow/API scope.
+
 `scripts/40_export_vortex_3d.py` exports exactly one original snapshot as one
 `vtkUnstructuredGrid`, with float64 PointData `omega_x` and `lambda_ci` on
 the same physical points and cells. The default remains the Phase 1 native-grid

@@ -2,6 +2,10 @@
 
 This index lists the repository scripts in numeric order. Run commands from the repository root.
 
+The [numerical methods index](methods/README.md) documents the vortex operation
+order, GLL lumped-mass recovery, pinned local Fortran/Python correspondence,
+production provenance gaps, and the proposed Phase 1B validation specification.
+
 ## Setup and inspection
 
 | Script | Purpose | Main input | Main output | Example command |
