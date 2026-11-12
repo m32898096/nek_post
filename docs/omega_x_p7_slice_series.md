@@ -24,6 +24,12 @@ workflow does not silently rebuild the plan. The arithmetic in the scalar
 evaluation loop is unchanged. Shared traces are checked, without averaging,
 filtering, smoothing or overshoot clipping.
 
+For optional volume reconstruction, see the
+[single-frame 3D VTU exporter](vortex_3d_binary_vtu.md#phase-2-p7-volume-reconstruction).
+It interpolates the same projected-curl P7 scalar on denser GLL nodal sets and
+audits agreement against the curl of reconstructed projected gradients. This
+does not change the saved-slice workflow or its uniform 29-point sampling.
+
 ## Input and output layout
 
 The default native input root is:
