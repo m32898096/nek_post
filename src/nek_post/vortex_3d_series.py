@@ -32,7 +32,7 @@ from nek_post.vortex_3d_artifacts import (
 from nek_post.vortex_3d_selection import VolumeSelection, series_volume_selection, apply_volume_output_plan
 
 
-DEFAULT_OUTPUT_ROOT = Path('/data/Nek5000_data/results/vortex_3d_series')
+DEFAULT_OUTPUT_ROOT = Path('/data/Nek5000_data/results/h_refinement/vortex_3d_series')
 SCHEMA = 1
 CONTROL_MARGIN = 64 * 1024**2
 MAX_METADATA_BYTES = 64 * 1024**2

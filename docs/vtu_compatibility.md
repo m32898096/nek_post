@@ -9,10 +9,10 @@ round-trip is **not** a successful Tecplot isosurface test.
 
 ## Observed reference and legacy converter
 
-The existing input inspected on 2026-11-08 is:
+The input inspected on 2026-11-08 is now located at
 
 ```text
-/data/Nek5000_data/results/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.vtu
+/data/Nek5000_data/results/h_refinement/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.vtu
 ```
 
 It is 330,551,953 bytes (about 315.24 MiB), with SHA-256
@@ -131,7 +131,7 @@ existing destinations always fail. All outputs must be outside Git, original
 CFD directories and existing scientific frame directories.
 
 ```bash
-source_vtu=/data/Nek5000_data/results/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.vtu
+source_vtu=/data/Nek5000_data/results/h_refinement/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.vtu
 diagnostic_root=/tmp/nek_post_vtu_phase4_manual_new
 
 PYENV_VERSION=research312 python -B scripts/42_rewrite_vtu_diagnostic.py "$source_vtu" \
@@ -209,7 +209,7 @@ first, inspect its estimates, then deliberately run the same command without
 
 ```bash
 PYENV_VERSION=research312 python -B scripts/42_rewrite_vtu_diagnostic.py \
-  /data/Nek5000_data/results/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.vtu \
+  /data/Nek5000_data/results/h_refinement/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.vtu \
   --output-dir /tmp/nek_post_vtu_phase4_frame79_1m_reference \
   --profile reference --max-cells 1000000 --dry-run
 ```

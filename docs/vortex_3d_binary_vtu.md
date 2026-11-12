@@ -509,8 +509,51 @@ interpolation, eigenvalues, cropping, mesh construction or binary serialization.
 The default is `N7_H`, indices 1–81, native sampling and the positive-x volume
 described below. Select explicit P7
 sampling with `--sampling-nodes 8`, `10`, `12` or another integer >=8. The default
-series parent root is `/data/Nek5000_data/results/vortex_3d_series`, separate
+series parent root is `/data/Nek5000_data/results/h_refinement/vortex_3d_series`, separate
 from the Phase 1/2 default roots. The single-frame CLI remains available.
+
+### Relocated production series
+
+The existing GLL10 N7_H series was relocated beneath `h_refinement` on
+2026-11-12. Its frame-79 volume is available at
+
+```text
+/data/Nek5000_data/results/h_refinement/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.vtu
+```
+
+`--output-dir` continues to select an external parent, with `gllN/CASE`
+appended for dense sampling. The Python series API uses the same default.
+
+PVD entries use paths relative to `series/`, so the collection travels with
+the frame directories. Frame JSON sidecars store absolute `output_directory`
+and `output_paths` values. Relocation therefore requires an explicit metadata
+migration and updated per-frame metadata checksums in the active manifest.
+The active processing summary also carries output and log locations.
+
+The dataset-root `relocation_manifest.json` archives the exact original text
+and SHA-256 of every migrated metadata file, the original file inventory and
+checksums, and the source-to-destination mapping. Each migrated document links
+to that record through `output_relocation`. The record also preserves the
+original series-module source and both checkpoint signatures. The active
+checkpoints were rebound only after verifying that the module's sole change
+was the default output-root assignment and every other signature entry matched.
+Frame numerical signatures identify the generating implementation. Historical
+invocation logs retain their original paths, which the relocation record maps
+to the current dataset. Workflow resume reads the active manifest, processing
+summary and frame sidecars.
+
+Strict resume continues to validate source hashes, element maps, configuration,
+software provenance, VTU checksums and saved payloads before reusing frames.
+For a read-only metadata/checksum preflight of the relocated series, run
+
+```bash
+PYENV_VERSION=research312 python -B scripts/41_export_vortex_3d_series.py \
+  --indices 1-81 --sampling-nodes 10 --positive-x --resume --dry-run
+```
+
+The dry-run reports `validate_then_skip` for completed frames and defers VTU
+payload decoding. The relocation audit separately exercises the saved-payload
+validator without publishing a new production invocation.
 
 ### Complete positive-x volume
 

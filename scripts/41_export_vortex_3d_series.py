@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from nek_post.vortex_3d_series import run_vortex_series
+from nek_post.vortex_3d_series import DEFAULT_OUTPUT_ROOT, run_vortex_series
 
 
 def parse_args(argv=None):
@@ -17,7 +17,8 @@ def parse_args(argv=None):
     parser.add_argument('--end-index', type=int)
     parser.add_argument('--max-frames', type=int, help='Cap the sorted selection after validating all supplied indices.')
     parser.add_argument('--sampling-nodes', type=int, help='P7 target GLL nodes/axis, >=8; omit for native.')
-    parser.add_argument('--output-dir', type=Path, help='External parent root; default vortex_3d_series.')
+    parser.add_argument('--output-dir', type=Path, default=DEFAULT_OUTPUT_ROOT,
+                        help='External parent root.')
     region = parser.add_mutually_exclusive_group()
     region.add_argument('--positive-x', action='store_true',
                         help='Complete 3D [0,17] x [0,1.5] x [0,1] volume; default for N7_H. Requires element boundaries.')

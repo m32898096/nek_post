@@ -65,6 +65,9 @@ For sequential multi-frame export, use
 The [series guide](docs/vortex_3d_binary_vtu.md#phase-3-sequential-resumable-series)
 documents read-only dry-run, strict resume/recovery, resource allowances and
 atomic PVD publication. Scientific calculations reuse the single-frame APIs.
+The default series parent is
+`/data/Nek5000_data/results/h_refinement/vortex_3d_series`.
+Use `--output-dir` to choose another external parent.
 The intended N7_H series output is the complete 3D positive-x volume
 `[0,17] × [0,1.5] × [0,1]`, with both float64 fields and x=0 boundary vertices.
 The series defaults to this selection for N7_H; `--positive-x` makes it explicit.

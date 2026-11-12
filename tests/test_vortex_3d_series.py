@@ -178,6 +178,81 @@ def test_resume_dry_run_defers_payload_validation_and_changes_no_outputs(tmp_pat
     assert hashes(Path(p) for p in protected) == protected
 
 
+def test_series_default_root_and_explicit_output_parent(tmp_path, monkeypatch):
+    assert series.DEFAULT_OUTPUT_ROOT == Path(
+        '/data/Nek5000_data/results/h_refinement/vortex_3d_series')
+    case, output = frames(tmp_path)
+    default = tmp_path/'h_refinement/vortex_3d_series'
+    monkeypatch.setattr(series, 'DEFAULT_OUTPUT_ROOT', default)
+    report = run(case, None, indices=(1,), sampling_nodes=10, dry_run=True)
+    assert Path(report['output_root']) == root(case, default, 10)
+    custom = run(case, output, indices=(1,), sampling_nodes=10, dry_run=True)
+    assert Path(custom['output_root']) == root(case, output, 10)
+    assert not default.exists() and not output.exists()
+
+
+@pytest.mark.parametrize('count', [None, 10])
+def test_relocated_series_resumes_after_audited_metadata_rebase(tmp_path, monkeypatch, count):
+    case, output = frames(tmp_path)
+    run(case, output, indices=(1, 3), sampling_nodes=count)
+    original_vtus = {i: frame_paths(case, output, i, count)['vtu'].read_bytes() for i in (1, 3)}
+    original_pvd = next(output.rglob('*.pvd')).read_bytes()
+    relocated = tmp_path/'h_refinement/vortex_3d_series'
+    relocated.parent.mkdir()
+    output.rename(relocated)
+    failed = run(case, relocated, indices=(1, 3), sampling_nodes=count, resume=True, dry_run=True)
+    assert failed['status'] == 'invalid'
+    assert any('output_paths' in failure for failure in failed['failures'])
+
+    controls = root(case, relocated, count)/'series'
+    manifest_path = controls/'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    for index in (1, 3):
+        paths = frame_paths(case, relocated, index, count)
+        original = paths['metadata'].read_bytes()
+        report = json.loads(original)
+        report['output_relocation'] = dict(original_metadata_sha256=sha256(original).hexdigest(),
+                                         original_output_paths=report['output_paths'])
+        report['output_directory'] = str(paths['vtu'].parent)
+        report['output_paths'] = {key: str(path) for key, path in paths.items()}
+        paths['metadata'].write_text(json.dumps(report, indent=2)+'\n')
+        manifest['frames'][str(index)]['metadata_sha256'] = sha256(paths['metadata'].read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest, indent=2)+'\n')
+    summary_path = controls/'processing_summary.json'
+    summary = json.loads(summary_path.read_text())
+    for key in ('log_path', 'summary_path'):
+        summary[key] = str(relocated/Path(summary[key]).relative_to(output))
+    preflight = summary['preflight']
+    for key in ('output_root', 'pvd_path'):
+        preflight[key] = str(relocated/Path(preflight[key]).relative_to(output))
+    for frame in preflight['frames']:
+        frame['output_paths'] = {key: str(relocated/Path(path).relative_to(output))
+                                 for key, path in frame['output_paths'].items()}
+    summary_path.write_text(json.dumps(summary, indent=2)+'\n')
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('relocation regenerated a completed scientific frame')
+    monkeypatch.setattr(single, 'run_single_frame_vortex', forbidden)
+    protected = hashes(p for p in relocated.rglob('*') if p.parent.name.startswith('f') and p.is_file())
+    result = run(case, relocated, indices=(1, 3), sampling_nodes=count, resume=True)
+    assert result['status'] == 'completed'
+    assert [frame['action'] for frame in result['frames']] == ['reused', 'reused']
+    assert result['preflight']['existing_indices'] == [1, 3]
+    assert next(relocated.rglob('*.pvd')).read_bytes() == original_pvd
+    assert hashes(Path(path) for path in protected) == protected
+    assert not output.exists()
+    for index, payload in original_vtus.items():
+        assert frame_paths(case, relocated, index, count)['vtu'].read_bytes() == payload
+
+    # Rebased paths still require the original numerical provenance and checksums.
+    paths = frame_paths(case, relocated, 1, count)
+    report = json.loads(paths['metadata'].read_text())
+    report['numerical_software_signature']['vortex_3d.py'] = '0'*64
+    paths['metadata'].write_text(json.dumps(report))
+    with pytest.raises(ValueError, match='signature'):
+        run(case, relocated, indices=(1, 3), sampling_nodes=count, resume=True)
+
+
 @pytest.mark.parametrize('damage', ['vtu','metadata_missing','metadata_json','time','index','config',
     'source_hash','implementation','arrays','completion','mesh','metadata_bool','software','scipy','python'])
 def test_corrupted_or_incompatible_completed_frames_never_reused(tmp_path, damage):
@@ -465,6 +540,7 @@ def test_series_cli_help_options_and_synthetic_execution(tmp_path,capsys):
     cli = importlib.util.module_from_spec(spec); spec.loader.exec_module(cli)
     args = cli.parse_args([])
     assert args.case == 'N7_H' and args.indices is None and args.sampling_nodes is None
+    assert args.output_dir == series.DEFAULT_OUTPUT_ROOT
     case, output = frames(tmp_path)
     assert cli.main(['--case',str(case),'--output-dir',str(output),'--indices','1,3',
                      '--expected-element-counts','2','1','1','--sampling-nodes','10','--dry-run']) == 0
