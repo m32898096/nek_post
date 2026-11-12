@@ -53,6 +53,10 @@ Duplicate projected `(x,z)` points are averaged before interpolation onto the co
 
 See [docs/script_index.md](docs/script_index.md) for a concise index of available scripts.
 
+For the vortex formulas, pinned local Nek5000 correspondence, production-source
+provenance limits, and the proposed independent validation work, start with the
+[numerical methods index](docs/methods/README.md).
+
 For a single 3D binary VTU containing both signed `omega_x` and `lambda_ci`, see
 the [native and P7 reconstruction exporter](docs/vortex_3d_binary_vtu.md).
 The native default retains interior GLL nodes; `--sampling-nodes 10` or `12`

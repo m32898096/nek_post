@@ -1,0 +1,972 @@
+{
+  "observed_on": "2026-11-12",
+  "repository_baseline": "c63bbd8b7b4e1c823ab7336ff07a7c153676d30d",
+  "files": [
+    {
+      "role": "local_reference_source",
+      "path": "/home/dai_lab/Nek5000/core/HEADER",
+      "bytes": 1014,
+      "sha256": "b2a195ed1a135bb881c1fd25cdd3cf42240774b69af32978167141e648a87085",
+      "second_tree_identical": true
+    },
+    {
+      "role": "local_reference_source",
+      "path": "/home/dai_lab/Nek5000/core/speclib.f",
+      "bytes": 37015,
+      "sha256": "f2c3d61429c88b38f1757ae475860751af22ec300a293de64aa2cb286e24c7f5",
+      "second_tree_identical": true
+    },
+    {
+      "role": "local_reference_source",
+      "path": "/home/dai_lab/Nek5000/core/navier5.f",
+      "bytes": 96320,
+      "sha256": "535365b8eaaa87c175a636c99d7d8f9780818b57620e2a0795dba23740850d9a",
+      "second_tree_identical": true
+    },
+    {
+      "role": "local_reference_source",
+      "path": "/home/dai_lab/Nek5000/core/postpro.f",
+      "bytes": 55849,
+      "sha256": "ec2791b721f852ab385a7a9304331f47170a796a114c9ae1f4b480a4a1235100",
+      "second_tree_identical": true
+    },
+    {
+      "role": "local_reference_source",
+      "path": "/home/dai_lab/Nek5000/core/coef.f",
+      "bytes": 61889,
+      "sha256": "b948e1af4b8e408bfd0bd14ca1a70317d6e0582b69ffedbcebf60ff3e9d3a7c6",
+      "second_tree_identical": true
+    },
+    {
+      "role": "local_reference_source",
+      "path": "/home/dai_lab/Nek5000/core/dssum.f",
+      "bytes": 23828,
+      "sha256": "89819f4a8177f9a380a3e66d24b1c093b409f3eab8d4fe660b023664c22ed608",
+      "second_tree_identical": true
+    },
+    {
+      "role": "local_reference_source",
+      "path": "/home/dai_lab/Nek5000/core/navier8.f",
+      "bytes": 66994,
+      "sha256": "bfa97144539114317b4c0f2a46d48ffbda066d2e3751cb38411a422c3ebdf6ec",
+      "second_tree_identical": true
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/gll.py",
+      "bytes": 8489,
+      "sha256": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/spectral_derivatives.py",
+      "bytes": 9588,
+      "sha256": "326bf2c73b8dda1826c6b3598c1f004327fc923512c1ccc7ffa6f86107387981"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/l2_projection.py",
+      "bytes": 23781,
+      "sha256": "1254d7ea6b54ada2540ce438e5b589970f079a92de4572a1ed02c80ebc795934"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vorticity.py",
+      "bytes": 2997,
+      "sha256": "978ec2f80f32cce3b8edb4db41e438a05c276c18f38f404a6a181bd50dae5578"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/swirling_strength.py",
+      "bytes": 4662,
+      "sha256": "722d35c6427cc76297351473ed1be9661771c1941de06df7aaefa01a877adfe5"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vortex_3d.py",
+      "bytes": 11151,
+      "sha256": "897fddca7a2568bb54fd8642ec1891b774e14a83f384257f50bc46dfa5ea8dff"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vortex_3d_reconstruction.py",
+      "bytes": 14605,
+      "sha256": "257246a28d5056c763cd5b69827dbb187458b787e592b25eb8bdec5f7861ad3c"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/gll_refinement.py",
+      "bytes": 7244,
+      "sha256": "fb9d26ae6ca95c85dc659f283e11af340f79182b9d4e29b4c8c1d1adfac0ef8a"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/rectilinear_export.py",
+      "bytes": 6715,
+      "sha256": "bb75dfce824705bcbf3724048ae369879f781a61f0abc9d11c1bed6cf781088e"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/lambda_ci_workflow.py",
+      "bytes": 14469,
+      "sha256": "4727e9a404f8465a37e789a9bd4049314b48a28a17952fc08bce3f23da5549ad"
+    },
+    {
+      "role": "python_implementation",
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/lambda_ci_plotting.py",
+      "bytes": 25732,
+      "sha256": "eca2ad6b713044dbc4e9e1c4b8fe9115c722c18328a6d9e2f549bf183176997e"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/makefile",
+      "bytes": 10431,
+      "sha256": "9f42ea2d70bdcfa34f10505abfb8afc6e829284cde415aabdfc9e4bcbff09f75"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/SIZE",
+      "bytes": 2134,
+      "sha256": "c6f61b6730493c837ec50b29a50cb20461e99c510c41bc848c068a303f194e53"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/GC.box",
+      "bytes": 828,
+      "sha256": "57047301a3f352b4a84029e1cd41f01337bd9a24cdac0f38bcda99d9dbc6f9be"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/GC.par",
+      "bytes": 490,
+      "sha256": "92c01513779b25600bfe86a977a7bb9284d9981d28a1ea6a06221a967489f9ab"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/GC.usr",
+      "bytes": 4913,
+      "sha256": "208d387f45c560da669e550e1ff6b4882de0ee00c8d7fc2e50c7ad950e561c58"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/GC.re2",
+      "bytes": 6639724,
+      "sha256": "516143a42541a1c5d815fc293f8540a4a244831f6c23eb88059817c679085dee"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/GC.ma2",
+      "bytes": 940168,
+      "sha256": "0c6e11cb91468cdc9c8a4eb851664e0639ea935a926f9d0a463e437439c8b539"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/GC.log1.80",
+      "bytes": 95777,
+      "sha256": "6f986b23715421063025044c7e7dbcbd5ad131bbeb2ec7a3d612e24c7fdd3fa6"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/logfile",
+      "bytes": 153984,
+      "sha256": "20f44e3893bfe9af5e7cc76c224ef45fa9897f2653bad38303b3d1eafb3e7332"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/SESSION.NAME",
+      "bytes": 27,
+      "sha256": "9ee71dd48eded5c3f9947607dae2961f1ec3d41974e953078447e5b15bd22a8a"
+    },
+    {
+      "role": "historical_candidate",
+      "path": "/data/3D_chnl_pbc/nek5000",
+      "bytes": 1950408,
+      "sha256": "d6b8d7188ba38dd740ce5b48eb7160ddb51d4ff8ae3c25e9ab3627a709de5721"
+    },
+    {
+      "role": "postprocessing_candidate",
+      "path": "/data/Nek5000_data/postproc/SIZE",
+      "bytes": 2135,
+      "sha256": "9c240597c16c396919afc9cd5f4aba5d0d623b662caccd369027ce9d56d512ae"
+    },
+    {
+      "role": "postprocessing_candidate",
+      "path": "/data/Nek5000_data/postproc/GC.par",
+      "bytes": 485,
+      "sha256": "48a6877326d1bb6988584fbfba75c4dbf368c114cc549875017dcd5f033d3bfe"
+    },
+    {
+      "role": "postprocessing_candidate",
+      "path": "/data/Nek5000_data/postproc/GC.usr",
+      "bytes": 9567,
+      "sha256": "4304529f8339651639305391a3412f5b90c56d793eb22707924ce521fbac0dd0"
+    },
+    {
+      "role": "postprocessing_candidate",
+      "path": "/data/Nek5000_data/postproc/GC.re2",
+      "bytes": 6639724,
+      "sha256": "516143a42541a1c5d815fc293f8540a4a244831f6c23eb88059817c679085dee"
+    },
+    {
+      "role": "practice_only",
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_small/makefile",
+      "bytes": 10521,
+      "sha256": "f20b01d134167e6b73658851f04a3609a36d9e03ea1dc362aa447c035bf5d80a"
+    },
+    {
+      "role": "practice_only",
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_small/SIZE",
+      "bytes": 2003,
+      "sha256": "599ed5cccc123e6c0fbc8cb2bc5074614074119c3b05328ee23f663f9dfe94e5"
+    },
+    {
+      "role": "practice_only",
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_small/GC_small.par",
+      "bytes": 379,
+      "sha256": "500f46d5516c8698246bdf01ce54f3fa776e41fe88cf7feea792dca92590087d"
+    },
+    {
+      "role": "practice_only",
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_small/build.log",
+      "bytes": 29855,
+      "sha256": "b1415c022839da9f63b5dd7cf56d8ddd7edf93606f205e2f8da0ed8ddfa9709a"
+    },
+    {
+      "role": "practice_only",
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_small/GC_small.log1.4",
+      "bytes": 3289000,
+      "sha256": "bc0ad33545e63fc55f476353fa05e858586f6456f6c4fabf7a49e7de2264cfd8"
+    },
+    {
+      "role": "practice_only",
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_small/nek5000",
+      "bytes": 1921720,
+      "sha256": "dd2ff843d79977d2f77c81c9a74ae18bca46ba388d09bbe218c33a9fec88823a"
+    },
+    {
+      "role": "custom_filtered_swirling",
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_post_lci/GC_small.usr",
+      "bytes": 8236,
+      "sha256": "2ceb35edfad68d46056755d5efe3013372efa5003733d9094923eb9412b5e762"
+    }
+  ],
+  "raw_header_inventory": [
+    {
+      "case": "case_N5",
+      "snapshots": 81,
+      "header_variants": [
+        {
+          "word_bytes": 4,
+          "nodes_xyz": [
+            6,
+            6,
+            6
+          ],
+          "global_elements": 26112,
+          "file_elements": 26112,
+          "count": 81
+        }
+      ],
+      "first_time": 0,
+      "last_time": 20,
+      "strictly_increasing": true
+    },
+    {
+      "case": "case_N7",
+      "snapshots": 81,
+      "header_variants": [
+        {
+          "word_bytes": 4,
+          "nodes_xyz": [
+            8,
+            8,
+            8
+          ],
+          "global_elements": 26112,
+          "file_elements": 26112,
+          "count": 81
+        }
+      ],
+      "first_time": 0,
+      "last_time": 20,
+      "strictly_increasing": true
+    },
+    {
+      "case": "case_N9",
+      "snapshots": 81,
+      "header_variants": [
+        {
+          "word_bytes": 4,
+          "nodes_xyz": [
+            10,
+            10,
+            10
+          ],
+          "global_elements": 26112,
+          "file_elements": 26112,
+          "count": 81
+        }
+      ],
+      "first_time": 0,
+      "last_time": 20,
+      "strictly_increasing": true
+    },
+    {
+      "case": "case_N11",
+      "snapshots": 101,
+      "header_variants": [
+        {
+          "word_bytes": 4,
+          "nodes_xyz": [
+            12,
+            12,
+            12
+          ],
+          "global_elements": 26112,
+          "file_elements": 26112,
+          "count": 101
+        }
+      ],
+      "first_time": 0,
+      "last_time": 50,
+      "strictly_increasing": true
+    },
+    {
+      "case": "GC8950_N7",
+      "snapshots": 81,
+      "header_variants": [
+        {
+          "word_bytes": 4,
+          "nodes_xyz": [
+            8,
+            8,
+            8
+          ],
+          "global_elements": 52224,
+          "file_elements": 52224,
+          "count": 81
+        }
+      ],
+      "first_time": 0,
+      "last_time": 20,
+      "strictly_increasing": true
+    },
+    {
+      "case": "case_N7_H",
+      "snapshots": 81,
+      "header_variants": [
+        {
+          "word_bytes": 4,
+          "nodes_xyz": [
+            8,
+            8,
+            8
+          ],
+          "global_elements": 26112,
+          "file_elements": 26112,
+          "count": 81
+        }
+      ],
+      "first_time": 0,
+      "last_time": 20,
+      "strictly_increasing": true
+    },
+    {
+      "case": "case_N7_VH",
+      "snapshots": 81,
+      "header_variants": [
+        {
+          "word_bytes": 4,
+          "nodes_xyz": [
+            8,
+            8,
+            8
+          ],
+          "global_elements": 64600,
+          "file_elements": 64600,
+          "count": 81
+        }
+      ],
+      "first_time": 0,
+      "last_time": 20,
+      "strictly_increasing": true
+    },
+    {
+      "case": "case_N7_VVH",
+      "snapshots": 81,
+      "header_variants": [
+        {
+          "word_bytes": 4,
+          "nodes_xyz": [
+            8,
+            8,
+            8
+          ],
+          "global_elements": 129360,
+          "file_elements": 129360,
+          "count": 81
+        }
+      ],
+      "first_time": 0,
+      "last_time": 20,
+      "strictly_increasing": true
+    }
+  ],
+  "archive_member_fingerprints": [
+    {
+      "archive": "/data/3D_chnl_pbc/3D_chnl_pbc.tar",
+      "member": "makefile",
+      "bytes": 10442,
+      "sha256": "47bebc6c847929c371632e1da35cb5107ff65cbd768e1912bb78190d3518d2e8"
+    },
+    {
+      "archive": "/data/3D_chnl_pbc/3D_chnl_pbc.tar",
+      "member": "SIZE",
+      "bytes": 2134,
+      "sha256": "79917634ee91fc131382c9cbb52a63a9ca4d3cc13328953a330e1c4fd630174c"
+    },
+    {
+      "archive": "/data/3D_chnl_pbc/3D_chnl_pbc.tar",
+      "member": "GC.box",
+      "bytes": 794,
+      "sha256": "019beb7f3f2a7b3afc6968818095cbb0bd3fab8c1c18dffa38dcc9386068df36"
+    },
+    {
+      "archive": "/data/3D_chnl_pbc/3D_chnl_pbc.tar",
+      "member": "GC.par",
+      "bytes": 476,
+      "sha256": "c7662e7530f8e69553bc4c8ba001d8af8e224ed2bd68c32ae0afcc396d05882c"
+    },
+    {
+      "archive": "/data/3D_chnl_pbc/3D_chnl_pbc.tar",
+      "member": "GC.usr",
+      "bytes": 3694,
+      "sha256": "60e00af0664897dc196935215b4905ed11be5bfd0091b9895e82ee45374944ad"
+    },
+    {
+      "archive": "/data/3D_chnl_pbc/3D_chnl_pbc.tar",
+      "member": "SESSION.NAME",
+      "bytes": 38,
+      "sha256": "77a058cd1d34afbe9d6ed4b10bf7a4764715381c0b42f2981257746f66566b6f"
+    }
+  ],
+  "frame79_metadata_evidence": {
+    "path": "/data/Nek5000_data/results/h_refinement/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.json",
+    "sha256": "346c0e1c57e20a0837515e82904beb43eb8681e4963fe7b99c391c0445a3b02c",
+    "source_file": "/data/Nek5000_data/case_N7_H/GC0.f00079",
+    "time": 19.50240408807,
+    "configuration": {
+      "periodic_axes": [
+        "x",
+        "y"
+      ],
+      "expected_element_counts": [
+        272,
+        12,
+        8
+      ],
+      "chunk_size": 256,
+      "crop": [
+        0,
+        17,
+        0,
+        1.5,
+        0,
+        1
+      ],
+      "sampling_nodes": 10
+    },
+    "native_mesh_signature": {
+      "coordinate_order_sha256": "36476e4166b1cc3865e44d17b74cd59c2491254d2f2d7dd58f48336c80d79cac",
+      "element_shape": [
+        8,
+        8,
+        8
+      ],
+      "element_counts": [
+        272,
+        12,
+        8
+      ],
+      "physical_to_array_axes": [
+        2,
+        1,
+        0
+      ],
+      "cells_sha256": "b5e089903d67811cda0e378449430577ecfd6da8a18b942315f7b2c3d4795016",
+      "orientations_sha256": "0a18380064034b6a9eb2f66125e9520c37e3d950e0a6b709b6c585fdff27410d"
+    },
+    "numerical_definition": {
+      "omega_x": "I(P(A[2,1] - A[1,2]))",
+      "lambda_ci": "max(abs(imag(eig(I(P(A))))))",
+      "A": "du_i/dx_j from element_velocity_gradient",
+      "P": "existing mass-lumped GLL L2 projection on full domain",
+      "I": "existing P7 tensor-product interpolation at target GLL nodes"
+    },
+    "completion_status": "completed",
+    "note": "Existing postprocessing metadata, not evidence of original solver build."
+  },
+  "schema_version": 1,
+  "purpose": "Phase 1A documentation evidence; not a production checkpoint or a solver-generated numerical reference.",
+  "scope": {
+    "searched_case_roots": [
+      "/data/Nek5000_data/case_N5",
+      "/data/Nek5000_data/case_N7",
+      "/data/Nek5000_data/case_N9",
+      "/data/Nek5000_data/case_N11",
+      "/data/Nek5000_data/GC8950_N7",
+      "/data/Nek5000_data/case_N7_H",
+      "/data/Nek5000_data/case_N7_VH",
+      "/data/Nek5000_data/case_N7_VVH"
+    ],
+    "additional_inspected_roots": [
+      "/data/Nek5000_data/postproc",
+      "/data/3D_chnl_pbc",
+      "/home/dai_lab/Nek5000/core",
+      "/home/dai_lab/Nek5000/Nek5000-master/core",
+      "/home/dai_lab/Nek5000/run/LX_practice"
+    ],
+    "search_limits": "Targeted source/build-file discovery also covered /home/dai_lab/Nek5000_post, /home/dai_lab/Documents, /home/dai_lab/Downloads and /data/code. No claim of an exhaustive filesystem or remote-machine search.",
+    "actions": "Read text, hashes of the listed small files, raw 132-byte headers, selected first-record coordinates, mesh records, ELF identity, and six tar members in memory. No solver, make, simulation, result-generation, VTU decoder, or resume command was run.",
+    "production_source_revision": null,
+    "production_executable_identity": null
+  },
+  "historical_candidate": {
+    "path": "/data/3D_chnl_pbc",
+    "status": "CONFIRMED historical artifacts; UNVERIFIED relationship to configured production datasets",
+    "makefile_source_root": "/home/ylhuang/Nek5000",
+    "makefile_case_root": "/home/ylhuang/chnl_pbc",
+    "makefile_generated_date_literal": "09/22/2025 09:44:05",
+    "recorded_compiler_commands": {
+      "FC": "mpif77",
+      "LD": "mpif77",
+      "CC": "mpicc"
+    },
+    "recorded_fflags": "-cpp -fdefault-real-8 -fdefault-double-8 -w -std=legacy -mcmodel=medium -fPIC",
+    "recorded_precision_scope": "Eight-byte default real flags in this makefile; does not establish flags used for N7_H or exact binary-to-makefile correspondence.",
+    "executable": {
+      "path": "/data/3D_chnl_pbc/nek5000",
+      "sha256": "d6b8d7188ba38dd740ce5b48eb7160ddb51d4ff8ae3c25e9ab3627a709de5721",
+      "elf_build_id": "1d4434b82b82709aaebb653593a5f9955cf60357",
+      "format": "ELF 64-bit LSB x86-64 executable; not executed",
+      "comment_strings": [
+        "GCC: (GNU) 8.5.0 20210514 (Red Hat 8.5.0-3)",
+        "GCC: (GNU) 8.5.0 20210514 (Red Hat 8.5.0-4)"
+      ],
+      "caveat": "ELF build ID is not a Git revision. GCC strings can describe linked components, not a complete Fortran/MPI toolchain."
+    },
+    "log_evidence": {
+      "path": "/data/3D_chnl_pbc/GC.log1.80",
+      "version": "20.0-dev",
+      "mpi_ranks": 80,
+      "elements": 26112,
+      "lx1_lx2_lx3_lxd": [
+        6,
+        4,
+        6,
+        9
+      ],
+      "endtime_literal": "50"
+    },
+    "conflicts": [
+      "Loose GC.par has endTime=2*5e-2, while GC.log1.80 records 50.",
+      "Tar member GC.par has viscosity/conductivity 1.538e-4; loose GC.par has 2.8986e-4.",
+      "Tar member GC.box uses a negative z-count and p/W/A codes; loose GC.box and binary mesh have different records.",
+      "Candidate GC0.f00001 time is 0.5035343677323, versus 0 in configured case_N5 and case_N7_H first snapshots."
+    ],
+    "archive_scope": "15 members; no solver core tree or Git metadata found in member names. Six small text members fingerprinted without filesystem extraction."
+  },
+  "mesh_evidence": {
+    "path": "/data/3D_chnl_pbc/GC.re2",
+    "format": "#v002, 26112 elements, dimension 3, eight-byte mesh values",
+    "sha256": "516143a42541a1c5d815fc293f8540a4a244831f6c23eb88059817c679085dee",
+    "postproc_mesh_identical": true,
+    "corner_bounds_xyz": [
+      [
+        -17,
+        17
+      ],
+      [
+        0,
+        1.5
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "unique_corner_coordinate_counts_xyz": [
+      273,
+      13,
+      9
+    ],
+    "curved_edge_records": 0,
+    "z_boundaries": [
+      0,
+      0.05009999871253967,
+      0.16140000522136688,
+      0.31839999556541443,
+      0.5,
+      0.6815999746322632,
+      0.8385999798774719,
+      0.9498999714851379,
+      1
+    ],
+    "velocity_bc_counts": {
+      "P": 4544,
+      "W": 3264,
+      "SYM": 3264
+    },
+    "temperature_bc_counts": {
+      "P": 4544,
+      "I": 3264,
+      "SYM": 3264
+    },
+    "periodic_directed_records_by_centroid_axis": {
+      "x": 192,
+      "y": 4352
+    },
+    "nonreciprocal_periodic_records_per_field": 0,
+    "interpretation_limit": "Reciprocal BC records and pair-centroid directions support x/y pairing for this candidate mesh. A full face permutation/orientation audit and production-snapshot linkage are not established.",
+    "parser_reference": "Installed pymech 2.0.1 neksuite/mesh.py readre2:601 describes the record layout. A read-only record decoder inspected the small mesh without allocating a simulation field."
+  },
+  "coordinate_samples": [
+    {
+      "case": "case_N5",
+      "file": "GC0.f00001",
+      "file_record": 0,
+      "global_element_id": 13142,
+      "nodes_xyz": [
+        6,
+        6,
+        6
+      ],
+      "bounds_xyz": [
+        [
+          -6.375,
+          -6.25
+        ],
+        [
+          0,
+          0.125
+        ],
+        [
+          0.5,
+          0.6815999746322632
+        ]
+      ]
+    },
+    {
+      "case": "case_N7",
+      "file": "GC0.f00001",
+      "file_record": 0,
+      "global_element_id": 13142,
+      "nodes_xyz": [
+        8,
+        8,
+        8
+      ],
+      "bounds_xyz": [
+        [
+          -6.375,
+          -6.25
+        ],
+        [
+          0,
+          0.125
+        ],
+        [
+          0.5,
+          0.6815999746322632
+        ]
+      ]
+    },
+    {
+      "case": "case_N7_H",
+      "file": "GC0.f00001",
+      "file_record": 0,
+      "global_element_id": 13142,
+      "nodes_xyz": [
+        8,
+        8,
+        8
+      ],
+      "bounds_xyz": [
+        [
+          -6.375,
+          -6.25
+        ],
+        [
+          0,
+          0.125
+        ],
+        [
+          0.5,
+          0.6693999767303467
+        ]
+      ]
+    }
+  ],
+  "source_citations": [
+    {
+      "path": "/home/dai_lab/Nek5000/core/HEADER",
+      "line": 12,
+      "contains": "Version:  20.0-dev"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/speclib.f",
+      "line": 107,
+      "contains": "SUBROUTINE ZWGLL"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/speclib.f",
+      "line": 238,
+      "contains": "SUBROUTINE ZWGLJD"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/speclib.f",
+      "line": 800,
+      "contains": "SUBROUTINE DGLL"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/coef.f",
+      "line": 260,
+      "contains": "CALL ZWGLL"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/coef.f",
+      "line": 488,
+      "contains": "CALL MXM"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/coef.f",
+      "line": 551,
+      "contains": "call invers2(jacmi,jacm1,ntot1)"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/coef.f",
+      "line": 735,
+      "contains": "CALL COL3 (BM1"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/coef.f",
+      "line": 1500,
+      "contains": "subroutine setinvm"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/navier5.f",
+      "line": 428,
+      "contains": "subroutine local_grad3"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/navier5.f",
+      "line": 462,
+      "contains": "subroutine gradm1"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/navier5.f",
+      "line": 512,
+      "contains": "subroutine comp_vort3"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/navier5.f",
+      "line": 583,
+      "contains": "call col2"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/postpro.f",
+      "line": 19,
+      "contains": "subroutine lambda2"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/postpro.f",
+      "line": 252,
+      "contains": "subroutine comp_gije"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/postpro.f",
+      "line": 343,
+      "contains": "subroutine filter_s0"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/dssum.f",
+      "line": 1,
+      "contains": "subroutine setupds"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/dssum.f",
+      "line": 33,
+      "contains": "subroutine dssum"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/dssum.f",
+      "line": 79,
+      "contains": "call fgslib_gs_op"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/core/navier8.f",
+      "line": 3,
+      "contains": "subroutine set_vert"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_post_lci/GC_small.usr",
+      "line": 172,
+      "contains": "subroutine compute_swirling"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_post_lci/GC_small.usr",
+      "line": 239,
+      "contains": "call filter_s0"
+    },
+    {
+      "path": "/data/3D_chnl_pbc/makefile",
+      "line": 5,
+      "contains": "S:=/home/ylhuang/Nek5000"
+    },
+    {
+      "path": "/data/3D_chnl_pbc/makefile",
+      "line": 13,
+      "contains": "FFLAGS+="
+    },
+    {
+      "path": "/data/3D_chnl_pbc/GC.box",
+      "line": 23,
+      "contains": "P  ,P  ,P  ,P  ,W  ,SYM"
+    },
+    {
+      "path": "/data/Nek5000_data/postproc/GC.usr",
+      "line": 153,
+      "contains": "call lambda2"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000/run/LX_practice/GC_small/makefile",
+      "line": 5,
+      "contains": "S:=/home/dai_lab/Nek5000"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/gll.py",
+      "line": 20,
+      "contains": "def _cached_gll_nodes"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/gll.py",
+      "line": 50,
+      "contains": "def _cached_gll_quadrature_weights"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/gll.py",
+      "line": 152,
+      "contains": "def _cached_gll_differentiation_matrix"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/gll.py",
+      "line": 196,
+      "contains": "def gll_interpolation_matrix"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/spectral_derivatives.py",
+      "line": 63,
+      "contains": "def reference_derivatives"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/spectral_derivatives.py",
+      "line": 117,
+      "contains": "def element_jacobian"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/spectral_derivatives.py",
+      "line": 134,
+      "contains": "def _solve_gradient"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/spectral_derivatives.py",
+      "line": 177,
+      "contains": "def velocity_gradient_tensor"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/l2_projection.py",
+      "line": 137,
+      "contains": "def node_ids"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/l2_projection.py",
+      "line": 176,
+      "contains": "def build_structured_node_map"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/l2_projection.py",
+      "line": 230,
+      "contains": "def element_gll_weights"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/l2_projection.py",
+      "line": 273,
+      "contains": "def build_l2_projection_operator"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/l2_projection.py",
+      "line": 376,
+      "contains": "def _project_scalar_component"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/l2_projection.py",
+      "line": 400,
+      "contains": "def project_scalar_field"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/l2_projection.py",
+      "line": 442,
+      "contains": "def project_velocity_gradient"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vorticity.py",
+      "line": 13,
+      "contains": "def element_streamwise_vorticity"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vorticity.py",
+      "line": 39,
+      "contains": "def compute_projected_omega_x"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/swirling_strength.py",
+      "line": 38,
+      "contains": "def compute_swirling_strength"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vortex_3d.py",
+      "line": 40,
+      "contains": "def compute_projected_vortex_fields"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vortex_3d.py",
+      "line": 75,
+      "contains": "def compute_native_vortex_fields"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vortex_3d_reconstruction.py",
+      "line": 68,
+      "contains": "def build_sampling_plan"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/vortex_3d_reconstruction.py",
+      "line": 118,
+      "contains": "def reconstruct_element"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/gll_refinement.py",
+      "line": 34,
+      "contains": "def refine_gll_tensor3"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/lambda_ci_workflow.py",
+      "line": 205,
+      "contains": "projected = project_velocity_gradient"
+    },
+    {
+      "path": "/home/dai_lab/Nek5000_post/nek_post/src/nek_post/lambda_ci_workflow.py",
+      "line": 216,
+      "contains": "swirling = compute_swirling_strength"
+    }
+  ]
+}

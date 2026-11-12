@@ -1,5 +1,11 @@
 # Native-GLL streamwise vorticity and scalar L2 recovery
 
+For the 2026-11-12 pinned local-source comparison and the distinction between
+confirmed formulas and unresolved production provenance, see the
+[numerical method](methods/vortex_numerical_method.md) and
+[source evidence](methods/nek5000_provenance.md). The dated upstream inspection
+and development validation records below remain historical evidence.
+
 ## Definition and discrete sequence
 
 For Cartesian velocity `(u,v,w)`, `omega_x = dw/dy - dv/dz` (inverse time).
