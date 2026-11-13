@@ -17,3 +17,6 @@
 執行命令前依各指南確認輸入、輸出與覆寫條件。導覽連結與通過測試不代表已重跑
 production 工作流程，也不代表與 production Nek5000 executable 完全對等。
 後續分批依[已審查的重構計畫](../refactoring/refactor_plan.md)進行；本批不開始 Phase 3C。
+
+[Batch 2 腳本相容性契約](script_compatibility_contracts.md)說明 script 08/13 的
+CLI、暫存輸出、獨立參考與 protected-source guard，以及尚未驗證的介面。
