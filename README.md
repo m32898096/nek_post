@@ -49,12 +49,13 @@ Duplicate projected `(x,z)` points are averaged before interpolation onto the co
 - `config/` contains YAML configuration files for paths and cases.
 - `scripts/` contains entry-point scripts for each workflow stage.
 - `src/nek_post/` contains the import-safe Python package.
-- `tests/` contains minimal unit tests for the metrics helpers.
+- `tests/` contains numerical reference, unit, CLI, workflow, provenance and catalog regression tests.
 
 See [docs/script_index.md](docs/script_index.md) for a concise index of available scripts.
+The [task guide](docs/guides/README.md) groups existing workflow documentation by purpose.
 
 For the vortex formulas, pinned local Nek5000 correspondence, production-source
-provenance limits, and the proposed independent validation work, start with the
+provenance limits, and the completed independent numerical reference validation, start with the
 [numerical methods index](docs/methods/README.md).
 
 For a single 3D binary VTU containing both signed `omega_x` and `lambda_ci`, see

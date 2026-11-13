@@ -1,6 +1,8 @@
 # Script Index
 
 This index lists the repository scripts in numeric order. Run commands from the repository root.
+For task-based navigation without changing script paths, see the
+[workflow task guide](guides/README.md).
 
 The [numerical methods index](methods/README.md) documents the vortex operation
 order, GLL lumped-mass recovery, pinned local Fortran/Python correspondence,
@@ -39,6 +41,12 @@ production provenance gaps, and the proposed Phase 1B validation specification.
 | `scripts/11_make_teacher_summary_tables.py` | Create teacher-facing summary CSV tables from the multi-time error summary. | `multitime_error_summary.csv` | `/data/Nek5000_data/results/poly_order_compare/reports/` | `python scripts/11_make_teacher_summary_tables.py` |
 
 ## Energy budget diagnostic
+
+固定入口仍是 [scripts/12_check_energy_budget_closure.py](../scripts/12_check_energy_budget_closure.py)。
+它負責 CLI 與流程協調；數值、輸入/CSV/報表與繪圖分別由
+`nek_post.energy_budget`、`nek_post.energy_budget_io`、`nek_post.energy_budget_plotting` 提供。
+本批僅改善導覽，沒有搬檔或新增 wrapper；參數、預設值、輸出位置與錯誤行為均保留。
+詳見[能源收支使用與相容性說明](energy_budget_closure.md#入口與相容性)。
 
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
