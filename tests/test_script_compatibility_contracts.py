@@ -232,3 +232,70 @@ def test_protected_source_maps_match_phase3a_baseline():
                   for name in expected}
         assert actual == expected
         assert importlib.import_module('nek_post.' + module)._signature() == expected
+
+
+def test_script08_legacy_exports_and_import_safety(tmp_path):
+    from nek_post import multitime_summary_io as summary
+
+    legacy = load(SCRIPTS[0])
+    aliases = {
+        '_collect_file': summary.collect_error_file,
+        '_sort_key': summary.error_row_sort_key,
+        '_write_summary': summary.write_error_summary,
+        '_require_columns': summary._require_columns,
+    }
+    expected_parameters = {
+        '_collect_file': ['path', 'comparison_set', 'comparison_config', 'field'],
+        '_sort_key': ['row'],
+        '_write_summary': ['path', 'rows'],
+        '_require_columns': ['path', 'fieldnames', 'required_columns'],
+    }
+    for name, implementation in aliases.items():
+        assert getattr(legacy, name) is implementation
+        signature = inspect.signature(implementation)
+        assert list(signature.parameters) == expected_parameters[name]
+        assert all(parameter.default is inspect.Parameter.empty
+                   and parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+                   for parameter in signature.parameters.values())
+    for name in ('FIELD_ORDER', 'FIELD_MAPPINGS', 'COMMON_INPUT_COLUMNS', 'OUTPUT_COLUMNS'):
+        assert getattr(legacy, name) is getattr(summary, name)
+    imported = subprocess.run(
+        [sys.executable, '-B', '-c', 'import nek_post.multitime_summary_io'],
+        cwd=tmp_path, capture_output=True, text=True, timeout=30,
+        env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'},
+    )
+    assert imported.returncode == 0 and not imported.stdout and not imported.stderr
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_script08_pre_extraction_csv_and_help(checkout, tmp_path):
+    """Exact small CSV captured from ed8fe68 before the Batch 3 extraction."""
+    import json
+
+    root, paths = checkout
+    tables = Path(paths['results_root']) / 'tables'
+    tables.mkdir(parents=True)
+    (tables / 'velocity_error_early.csv').write_text(
+        'case,order,index,reference_index,valid_point_count,total_grid_point_count,'
+        'relative_L2_speed,mean_abs_error_speed,absolute_Linf_speed,relative_Linf_speed\n'
+        'N7,7,79,80,10,12,0.125,0.25,0.5,0.75\n'
+    )
+    result = run(root / 'scripts' / SCRIPTS[0], tmp_path,
+                 '--comparison-sets', 'early', '--fields', 'velocity')
+    assert result.returncode == 0 and not result.stderr
+    output = tables / 'multitime_error_summary.csv'
+    assert output.read_bytes() == (
+        b'comparison_set,target_time,field,case,order,reference_case,index,reference_index,'
+        b'relative_L2,mean_abs_error,max_abs_error,relative_Linf,valid_point_count,total_grid_point_count\r\n'
+        b'early,1,velocity,N7,7,N11,79,80,0.125,0.25,0.5,0.75,10,12\r\n'
+    )
+    assert result.stdout == (
+        'Comparison sets: early\nFields: velocity\nRows written: 1\n'
+        f'Output CSV: {output}\n'
+    )
+    captured = json.loads((REPO / 'docs/refactoring/cli_contracts.json').read_text())
+    expected_help = next(item for item in captured['scripts']
+                         if item['path'] == 'scripts/' + SCRIPTS[0])
+    help_result = run(REPO / 'scripts' / SCRIPTS[0], tmp_path, '--help')
+    assert (help_result.returncode, help_result.stdout, help_result.stderr) == (
+        expected_help['returncode'], expected_help['stdout'], expected_help['stderr'])

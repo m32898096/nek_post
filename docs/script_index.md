@@ -27,6 +27,9 @@ production provenance gaps, and the proposed Phase 1B validation specification.
 
 ## Multi-time comparison
 
+Script 08 的 CSV schema、欄位映射、排序與寫檔由 `nek_post.multitime_summary_io` 提供。
+既有 numbered entrypoint 與 CLI 持續保留，詳見[Batch 3 分工與相容性證據](refactoring/phase3b_batch3.md)。
+
 | Script | Purpose | Main input | Main output | Example command |
 | --- | --- | --- | --- | --- |
 | `scripts/07_run_multitime_pipeline.py` | Run existing extraction, comparison, and plotting steps across comparison sets. | Configured comparison sets | Per-time slice, comparison, table, figure, and log outputs | `python scripts/07_run_multitime_pipeline.py --comparison-sets t05,t10,t15,t19p5 --fields concentration,velocity,pressure --overwrite` |
