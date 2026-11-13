@@ -2,6 +2,20 @@
 
 本階段只有稽核、介面快照與後續設計；沒有移動程式、建立 wrapper、變更數值方法或開始 Phase 3B。研究者應先讀[架構稽核](phase3a_architecture_audit.md)，再讀[相容性矩陣](compatibility_matrix.md)及[分批計畫](refactor_plan.md)。紊流與渦流分析的科學定義仍以[數值方法索引](../methods/README.md)為準。
 
+## 後續實作紀錄
+
+| 已提交批次 | 責任與閱讀入口 |
+| --- | --- |
+| Phase 3B Batch 1 | [任務導覽](../guides/README.md)與[能源 CLI 相容性說明](../energy_budget_closure.md#入口與相容性) |
+| Phase 3B Batch 2 | [script 08/13 的 CLI、API 與輸出契約](../guides/script_compatibility_contracts.md) |
+| Phase 3B Batch 3 | [script 08 的 CSV helper 分工與保留介面](phase3b_batch3.md) |
+| Phase 3C Batch 1 | [directional-GLL 測試 helper 歸屬](phase3c_batch1.md) |
+
+原[分批計畫](refactor_plan.md)保存提案與風險分析；實際完成範圍請查各批紀錄。
+本頁下方的來源清單、測試數與驗證日期均屬 Phase 3A 的固定基準。
+數值方法與 production solver 證據限制請讀[方法索引](../methods/README.md)。
+回到[repository README](../../README.md)或[任務導覽](../guides/README.md)。
+
 ## 基準與證據層級
 
 - 基準 `dev`：`0048d9e0c070133403f2789d3fd27186a37fbbe9`；新分支 `feature/repository-refactor`。

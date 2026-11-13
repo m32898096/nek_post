@@ -4,11 +4,16 @@ Phase 1A records the implemented vortex method and the available solver
 provenance. Evidence was inspected on **2026-11-12**, against repository baseline
 `c63bbd8b7b4e1c823ab7336ff07a7c153676d30d`.
 
+閱讀目前驗證狀態時，請接著查閱 [Phase 1B 獨立數值參照結果](phase1b_results.md)。
+該紀錄涵蓋解析參照與選定本機 Fortran reference build 的比較；實際 production
+Nek5000 source/build/executable 的對應仍未建立。原有 Phase 1A 日期與基準保留原有範圍。
+
 | Read first | Purpose |
 | --- | --- |
 | [Vortex numerical method](vortex_numerical_method.md) | Definitions, operation order, mass recovery, source correspondence, and supported geometry |
 | [Nek5000 provenance](nek5000_provenance.md) | Local source identity, historical build/mesh evidence, and unresolved production linkage |
 | [Phase 1B validation specification](phase1b_validation.md) | Independent comparisons needed before claiming solver equivalence |
+| [Phase 1B reference results](phase1b_results.md) | Completed independent comparisons, tested scope, and remaining production-equivalence limitations |
 | [Evidence inventory](nek5000_evidence.json) | SHA-256 fingerprints, source-line checks, raw-header observations, and bounded mesh/coordinate evidence |
 
 **CONFIRMED** means directly observed in the identified files, or an algebraic

@@ -53,6 +53,10 @@ Duplicate projected `(x,z)` points are averaged before interpolation onto the co
 
 See [docs/script_index.md](docs/script_index.md) for a concise index of available scripts.
 The [task guide](docs/guides/README.md) groups existing workflow documentation by purpose.
+For published research products, start with the
+[results catalog guides](docs/results_catalog/README.md).
+The [architecture and compatibility records](docs/refactoring/README.md)
+link the audit baseline and accepted implementation notes.
 
 For the vortex formulas, pinned local Nek5000 correspondence, production-source
 provenance limits, and the completed independent numerical reference validation, start with the

@@ -6,7 +6,8 @@ For task-based navigation without changing script paths, see the
 
 The [numerical methods index](methods/README.md) documents the vortex operation
 order, GLL lumped-mass recovery, pinned local Fortran/Python correspondence,
-production provenance gaps, and the proposed Phase 1B validation specification.
+production provenance gaps, the Phase 1B validation specification, and the
+[completed independent reference results](methods/phase1b_results.md).
 
 ## Setup and inspection
 
