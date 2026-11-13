@@ -1,4 +1,4 @@
-# Research results catalog foundation
+# Research results catalog: foundation and navigation publication
 
 Phase 2A provides a read-only discovery API and CLI for
 `/data/Nek5000_data/results`. The inspected tree on 2026-11-13 contains 2,556
@@ -49,7 +49,10 @@ paths, including duplicate basenames in different directories.
 
 The top-level JSON contains `schema_version`, `datasets`, `artifacts`,
 `file_count`, `logical_bytes`, and `warnings`. Counts include regular files,
-including lock/control files. Symlinks are excluded and reported. Empty roots
+including lock/control files, except the reserved root-level `README.md` and
+`results_index.csv` navigation artifacts. These two names are excluded regardless
+of their contents; exclusion does not establish ownership or permit replacement.
+Same-named files below the root remain inventoried. Symlinks are excluded and reported. Empty roots
 produce empty lists and zero totals. Unreadable directories/files fail the
 scan when encountered through file inspection. Concurrently changing trees
 require a later refresh.
@@ -133,9 +136,10 @@ are rejected. It reads no VTU/VTR/VTI/NPZ payloads and performs no volume hashes
 Directory-label heuristics support navigation without establishing physical
 case identity, Reynolds number, polynomial degree, or solver equivalence.
 
-The output writer protects the scanned root and the actual production root,
-including their resolved aliases. It exclusively creates a new directory.
-Catalog publication into the scientific results tree belongs to Phase 2B.
+The Phase 2A output writer protects the scanned root and the actual production
+root, including their resolved aliases. It exclusively creates a new directory.
+The separate Phase 2B publisher below has a narrow root-only interface for the
+two authorized navigation files; the Phase 2A writer's guards remain in force.
 
 ## Verified research navigation examples
 
@@ -181,12 +185,149 @@ outputs, and cross-directory figure/table associations. Oversize relocation
 metadata, per-run JSON inspection caps and color-map JSON lists are reported
 explicitly. No historical artifact is automatically retired.
 
-For Phase 2B, first review these provisional groups and the warning list,
-agree on curated cross-directory associations and the publication location,
-then authorize publication of a reviewed catalog snapshot. Manifest-managed
-production directories require preserving their existing file identities.
-Any catalog refresh should use a fresh destination and compare dataset/path
-changes before publishing. Phase 2A leaves the scientific tree intact.
+Phase 2B provides curated research navigation over these provisional groups.
+The CSV retains the Phase 2A grouping, IDs and schema; the guide supplies
+cross-directory links without relabeling groups as validated scientific runs.
+Manifest-managed production directories retain their existing file identities.
+
+## Phase 2B preview and publication
+
+The published artifacts are external files, outside this Git checkout:
+
+- `/data/Nek5000_data/results/README.md`: the Traditional Chinese guide from
+  [navigation_zh_tw.md](navigation_zh_tw.md). Its relative links are interpreted
+  at the results root, rather than at the template's repository directory.
+- `/data/Nek5000_data/results/results_index.csv`: dataset rows using the
+  unchanged 25-column schema version 1 above.
+
+The [publication CLI](../../scripts/44_publish_results_catalog.py) reuses
+`build_catalog` and `write_catalog` through
+[results_catalog_publication.py](../../src/nek_post/results_catalog_publication.py).
+These are the initial generation commands used from the repository root:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/43_build_results_catalog.py \
+  /data/Nek5000_data/results --output-dir /tmp/phase2b-catalog-baseline-20261113 --artifacts
+PYENV_VERSION=research312 python -B scripts/44_publish_results_catalog.py \
+  /data/Nek5000_data/results --preview-dir /tmp/phase2b-navigation-preview-20261113 \
+  --readme-source docs/results_catalog/navigation_zh_tw.md
+```
+
+The preview directory must be new and outside both the scanned root and the
+production scientific root. It contains the usual `catalog.json`, `datasets.csv`,
+`artifacts.csv`, plus `README.md`. The preview CSV is published under the name
+`results_index.csv`. Review the complete guide, CSV and JSON diagnostics before
+requesting publication. Scientific payloads are never opened by these tools.
+
+The initial preview review found that the energy-budget summary contains only
+N7, although three separately named N5/N7/N9 time-series tables exist. The guide
+states this limitation and leaves the generic closure figure's provenance
+unverified. A fresh final preview incorporates that clarification:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/44_publish_results_catalog.py \
+  /data/Nek5000_data/results --preview-dir /tmp/phase2b-navigation-preview-20261113-final \
+  --readme-source docs/results_catalog/navigation_zh_tw.md
+PYENV_VERSION=research312 python -B scripts/44_publish_results_catalog.py \
+  /data/Nek5000_data/results --preview-dir /tmp/phase2b-navigation-preview-20261113-final --publish
+```
+
+Publication rebuilds the full catalog, including artifact paths, sizes and
+nanosecond mtimes, and compares it with the preview JSON. It checks CSV bytes
+against the same serializer and validates the guide's simple inline local
+Markdown links. Every linked target must exist within the root without symlink
+aliases; `results_index.csv` is the sole allowed future target. The template
+uses no external links, link titles, query strings, fragments or reference-style
+links; the validator supports the inline form used here. It does not infer
+scientific meaning from link text. Scientific role and case claims require
+manual control/source inspection, as performed for this guide.
+
+Both root targets must be absent, including directories and dangling symlinks.
+Each is created with exclusive binary mode, with no overwrite or removal.
+Only `README.md` and `results_index.csv` are written. Publication beneath the
+actual production root is rejected unless the target is that root itself.
+A failure between writes
+can leave a partial catalog pair for inspection: this is not an atomic pair
+transaction, and a retry refuses any existing target. Do not remove an existing
+file simply to bypass collision protection.
+
+### Refresh and verification
+
+For a refresh, choose fresh external preview paths and rerun preview generation.
+Compare dataset IDs, paths, statuses, diagnostics and scientific-file inventory
+with the previous preview. Validate all root-relative links with
+`validate_navigation(text, results_root)` and resolve CSV `relative_path`,
+`entrypoint_file`, `manifest_path`, and each `metadata_sources` path at the root.
+Scientific sources should be quiescent during review and publication. Inventory
+checks can detect observed changes, but do not lock out concurrent external
+writers or authenticate historical file contents.
+
+There is currently **no in-place refresh/overwrite mode**. With either published
+target present, `--publish` stops without replacing it. Publishing a replacement
+requires a separately reviewed and authorized catalog-specific replacement
+procedure. Preview generation remains available after publication and excludes
+the two reserved root artifacts. It should reproduce the same dataset IDs,
+counts, rows and CSV bytes when scientific sources have not changed.
+
+The first publication baseline is 2,556 original files totaling 40,760,621,218
+logical bytes. `/tmp/phase2b-original-inventory.json` records every original
+relative path, size and mtime for the before/after check. The navigation snapshot
+contains 94 provisional datasets, 187 diagnostic messages, 92 unknown statuses
+and 2 reported-completed statuses; all 94 have `validation_level=inventory_only`.
+The diagnostic count includes informational grouping and timestep notes.
+Oversize relocation JSON, color-map arrays and partial JSON coverage remain
+visible. Unknown producers, revisions and unsupported historical schemas remain
+unknown; publication confers no additional scientific validation.
+
+Adding these root files is outside the inspected workflows' strict frame and
+collection inventories. For example,
+[vortex_3d_series.py](../../src/nek_post/vortex_3d_series.py) checks exact frame
+contents, its `series` control directory and explicit numerical module hashes;
+[lambda_ci_series.py](../../src/nek_post/lambda_ci_series.py) protects `f*/**/*`
+under its run root;
+[omega_x_p7_series.py](../../src/nek_post/omega_x_p7_series.py) discovers native
+frame sidecars and checks exact triplets;
+[omega_x_series_pvd.py](../../src/nek_post/omega_x_series_pvd.py) inventories
+`.vtr`, `.pvd` and `.json` files in its native input tree. The reserved `.md` and
+`.csv` root files are outside these scopes. No production code, signature,
+manifest, checkpoint or PVD reference is changed. This inspection does not
+establish compatibility with arbitrary external tools that inventory all root
+files; such tools need their own review.
+
+After publication, compare every original baseline tuple, require exactly the
+two new root files, and repeat the read-only scan into a fresh external output
+directory. Physical file count becomes 2,558; the scientific inventory remains
+2,556 files and the dataset count remains 94. Compare subsequent `datasets.csv`
+bytes with the published `results_index.csv`. PVD timestamps and paths remain
+as originally stored. This metadata inventory comparison does not replace
+scientific payload hashing or executable-to-executable solver validation.
+
+### Initial publication verification: 2026-11-13
+
+Publication succeeded with only the two authorized new root files. All 2,556
+original paths, sizes and nanosecond mtimes matched the recorded baseline.
+The physical total is 2,558 files. The post-publication CLI scan used:
+
+```bash
+PYENV_VERSION=research312 python -B scripts/43_build_results_catalog.py \
+  /data/Nek5000_data/results --output-dir /tmp/phase2b-catalog-after-publication-20261113 --artifacts
+```
+
+The post-publication catalog equals the complete pre-publication catalog,
+including artifact ownership and metadata. Its CSV equals the published CSV
+byte for byte, with SHA-256
+`ad17998b434a9c553fcde26eeca541b02487ddeb5e86ac0d28161e20476e50a0`.
+All 42 guide links and 568 references in 88 PVDs resolved. All 81 vortex manifest
+records matched frame metadata times and sidecar hashes, with their declared
+output paths present. No large volume payload was hashed for this task.
+A second `--publish` invocation refused the existing README without writing.
+
+The 73 catalog tests passed in 0.35 seconds; the full suite passed 2,779 tests
+in 102.43 seconds. Syntax/import checks, both CLI help commands, CSV schema,
+Markdown links, Git whitespace and new-file whitespace checks passed.
+Temporary audit evidence is in `/tmp/phase2b-publication-verification.json`;
+temporary previews and inventories are local working evidence, rather than
+authenticated historical records or committed external artifacts.
 
 ## Phase 2A validation
 

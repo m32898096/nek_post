@@ -15,6 +15,7 @@ SCHEMA_VERSION = 1
 MAX_CONTROL_BYTES = 1_048_576
 MAX_JSON_PER_DATASET = 64
 SCIENTIFIC_ROOT = Path('/data/Nek5000_data/results')
+CATALOG_FILES = frozenset({'README.md', 'results_index.csv'})
 DATASET_COLUMNS = (
     'dataset_id', 'study', 'analysis', 'case_id', 'variant', 'artifact_class',
     'status', 'field_names', 'polynomial_degree', 'sampling_method',
@@ -197,6 +198,10 @@ def build_catalog(results_root, *, include_artifacts=False):
     for directory, dirs, names in os.walk(root, followlinks=False, onerror=_walk_error):
         for name in sorted(dirs + names):
             path = Path(directory) / name
+            # Only these root-level names are reserved for navigation artifacts.
+            # Same-named files inside scientific collections remain inventoried.
+            if Path(directory) == root and name in CATALOG_FILES:
+                continue
             if path.is_symlink():
                 warnings.append(f'skipped symlink {path.relative_to(root)}')
                 if name in dirs:
