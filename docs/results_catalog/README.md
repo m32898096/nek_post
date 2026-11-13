@@ -1,5 +1,19 @@
 # Research results catalog: foundation and navigation publication
 
+## 研究者閱讀入口（Phase 2C）
+
+- [網格細化、omega_x、lambda_ci 與三維渦場](h_refinement.md)
+- [多項式階數、能量與前緣分析](poly_order_compare.md)
+- [歷史、診斷與不確定分類](historical_results.md)
+- [分析與 producer-script 證據](producer_scripts.md)
+
+先以研究問題選擇指南，再用已發布 CSV 的 study、analysis、case_id、variant、notes
+查找細節。VERIFIED FROM EXPLICIT METADATA 表示控制檔直接支持；
+VERIFIED FROM SOURCE CODE 表示目前實作支持；INFERRED FROM CONVENTIONS 表示名稱或
+路徑線索；UNKNOWN 表示證據不足。四者不可互換。
+指南位於 Git repository；外部 README/CSV 在 Phase 2C 保持唯讀，並未同步發布新內容。
+既有 Traditional Chinese 根目錄模板保留原樣，避免與已發布副本分歧。
+
 Phase 2A provides a read-only discovery API and CLI for
 `/data/Nek5000_data/results`. The inspected tree on 2026-11-13 contains 2,556
 files and 40,760,621,218 logical bytes across `h_refinement` and
