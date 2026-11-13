@@ -1,0 +1,303 @@
+{
+  "baseline": "0048d9e0c070133403f2789d3fd27186a37fbbe9",
+  "signatures": {
+    "vortex_frame": {
+      "fields.py": "f2a668f48ef3b4a28363fa5e9daf496653235783d81ca0c7564855f723ca3346",
+      "io_nek.py": "0e194625cc2ad85d2aaf0a8b5d38a9433889cf09e94aa9fd8d9f7040541bb7da",
+      "gll.py": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b",
+      "spectral_derivatives.py": "326bf2c73b8dda1826c6b3598c1f004327fc923512c1ccc7ffa6f86107387981",
+      "spectral_interpolation.py": "40b597e252ac3bbc366e05306fb37c473a06ad4a7b35f00a0472e6902a04db04",
+      "gll_directional_integration.py": "f946f049147dd0d686d84c99b38296923743a6de4e8a45cef8f743c9e73c959f",
+      "l2_projection.py": "1254d7ea6b54ada2540ce438e5b589970f079a92de4572a1ed02c80ebc795934",
+      "swirling_strength.py": "722d35c6427cc76297351473ed1be9661771c1941de06df7aaefa01a877adfe5",
+      "rectilinear_export.py": "bb75dfce824705bcbf3724048ae369879f781a61f0abc9d11c1bed6cf781088e",
+      "lambda_ci_workflow.py": "4727e9a404f8465a37e789a9bd4049314b48a28a17952fc08bce3f23da5549ad",
+      "lambda_ci_series.py": "cf0dd4449ded02ef48466831843085c2e4d0dc4eb91e1cd726f5e6cde0ca2bb4",
+      "hex_validation.py": "dd5ec26bedc90440253927d6f8b870d3676ad7b13207b94c3c343811340e7711",
+      "vortex_3d.py": "897fddca7a2568bb54fd8642ec1891b774e14a83f384257f50bc46dfa5ea8dff",
+      "vortex_3d_workflow.py": "3f04e61361af488dd23ae1e6445360a7f07d9f30e792fb773ac9591f1ea0f8a3",
+      "gll_refinement.py": "fb9d26ae6ca95c85dc659f283e11af340f79182b9d4e29b4c8c1d1adfac0ef8a",
+      "vortex_3d_reconstruction.py": "257246a28d5056c763cd5b69827dbb187458b787e592b25eb8bdec5f7861ad3c",
+      "vortex_3d_artifacts.py": "6c6bd4f4efe2828711e446a876fbb1d77d8e82bcce2d44ba31dc11eca933d68b",
+      "vortex_3d_selection.py": "1184d7eb2be28ea3182d073e52c138d93760b161d19d6f6361658843f76538c3"
+    },
+    "vortex_series": {
+      "fields.py": "f2a668f48ef3b4a28363fa5e9daf496653235783d81ca0c7564855f723ca3346",
+      "io_nek.py": "0e194625cc2ad85d2aaf0a8b5d38a9433889cf09e94aa9fd8d9f7040541bb7da",
+      "gll.py": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b",
+      "spectral_derivatives.py": "326bf2c73b8dda1826c6b3598c1f004327fc923512c1ccc7ffa6f86107387981",
+      "spectral_interpolation.py": "40b597e252ac3bbc366e05306fb37c473a06ad4a7b35f00a0472e6902a04db04",
+      "gll_directional_integration.py": "f946f049147dd0d686d84c99b38296923743a6de4e8a45cef8f743c9e73c959f",
+      "l2_projection.py": "1254d7ea6b54ada2540ce438e5b589970f079a92de4572a1ed02c80ebc795934",
+      "swirling_strength.py": "722d35c6427cc76297351473ed1be9661771c1941de06df7aaefa01a877adfe5",
+      "rectilinear_export.py": "bb75dfce824705bcbf3724048ae369879f781a61f0abc9d11c1bed6cf781088e",
+      "lambda_ci_workflow.py": "4727e9a404f8465a37e789a9bd4049314b48a28a17952fc08bce3f23da5549ad",
+      "lambda_ci_series.py": "cf0dd4449ded02ef48466831843085c2e4d0dc4eb91e1cd726f5e6cde0ca2bb4",
+      "hex_validation.py": "dd5ec26bedc90440253927d6f8b870d3676ad7b13207b94c3c343811340e7711",
+      "vortex_3d.py": "897fddca7a2568bb54fd8642ec1891b774e14a83f384257f50bc46dfa5ea8dff",
+      "vortex_3d_workflow.py": "3f04e61361af488dd23ae1e6445360a7f07d9f30e792fb773ac9591f1ea0f8a3",
+      "gll_refinement.py": "fb9d26ae6ca95c85dc659f283e11af340f79182b9d4e29b4c8c1d1adfac0ef8a",
+      "vortex_3d_reconstruction.py": "257246a28d5056c763cd5b69827dbb187458b787e592b25eb8bdec5f7861ad3c",
+      "vortex_3d_artifacts.py": "6c6bd4f4efe2828711e446a876fbb1d77d8e82bcce2d44ba31dc11eca933d68b",
+      "vortex_3d_selection.py": "1184d7eb2be28ea3182d073e52c138d93760b161d19d6f6361658843f76538c3",
+      "vortex_3d_series.py": "058013a218944e263651c96b49712391fd45d197e9d31bc044247f47f5bece2b",
+      "lambda_ci_slice_export.py": "b7d5d9cedad7c475df9913778725b2dff4f59da02431bba1c75b038c713d5b45"
+    },
+    "lambda_ci_slices": {
+      "gll.py": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b",
+      "spectral_derivatives.py": "326bf2c73b8dda1826c6b3598c1f004327fc923512c1ccc7ffa6f86107387981",
+      "l2_projection.py": "1254d7ea6b54ada2540ce438e5b589970f079a92de4572a1ed02c80ebc795934",
+      "swirling_strength.py": "722d35c6427cc76297351473ed1be9661771c1941de06df7aaefa01a877adfe5",
+      "lambda_ci_plotting.py": "eca2ad6b713044dbc4e9e1c4b8fe9115c722c18328a6d9e2f549bf183176997e"
+    },
+    "omega_x_native": {
+      "gll.py": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b",
+      "spectral_derivatives.py": "326bf2c73b8dda1826c6b3598c1f004327fc923512c1ccc7ffa6f86107387981",
+      "l2_projection.py": "1254d7ea6b54ada2540ce438e5b589970f079a92de4572a1ed02c80ebc795934",
+      "vorticity.py": "978ec2f80f32cce3b8edb4db41e438a05c276c18f38f404a6a181bd50dae5578",
+      "rectilinear_export.py": "bb75dfce824705bcbf3724048ae369879f781a61f0abc9d11c1bed6cf781088e",
+      "omega_x_workflow.py": "8b7b441f7eb45d7deeb3159b98d256502231b0377151ae1fa7214997241d6176"
+    },
+    "omega_x_p7": {
+      "gll.py": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b",
+      "gll_directional_integration.py": "f946f049147dd0d686d84c99b38296923743a6de4e8a45cef8f743c9e73c959f",
+      "lambda_ci_plotting.py": "eca2ad6b713044dbc4e9e1c4b8fe9115c722c18328a6d9e2f549bf183176997e",
+      "lambda_ci_series.py": "cf0dd4449ded02ef48466831843085c2e4d0dc4eb91e1cd726f5e6cde0ca2bb4",
+      "omega_x_p7_slice.py": "13c89cd77ab78f95656dc811110685837d63d1ee9da71c0a98a3aba9cab3e736",
+      "omega_x_p7_series.py": "17228defc3aa972c9ee5934c7319ce15305eacd30f3f8bfebd5a143086e14d6a"
+    }
+  },
+  "published_control_observations": {
+    "frame79": {
+      "path": "/data/Nek5000_data/results/h_refinement/vortex_3d_series/gll10/case_N7_H/f00079/GC0_f00079_gll10.json",
+      "signature": {
+        "fields.py": "f2a668f48ef3b4a28363fa5e9daf496653235783d81ca0c7564855f723ca3346",
+        "io_nek.py": "0e194625cc2ad85d2aaf0a8b5d38a9433889cf09e94aa9fd8d9f7040541bb7da",
+        "gll.py": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b",
+        "spectral_derivatives.py": "326bf2c73b8dda1826c6b3598c1f004327fc923512c1ccc7ffa6f86107387981",
+        "spectral_interpolation.py": "40b597e252ac3bbc366e05306fb37c473a06ad4a7b35f00a0472e6902a04db04",
+        "gll_directional_integration.py": "f946f049147dd0d686d84c99b38296923743a6de4e8a45cef8f743c9e73c959f",
+        "l2_projection.py": "1254d7ea6b54ada2540ce438e5b589970f079a92de4572a1ed02c80ebc795934",
+        "swirling_strength.py": "722d35c6427cc76297351473ed1be9661771c1941de06df7aaefa01a877adfe5",
+        "rectilinear_export.py": "bb75dfce824705bcbf3724048ae369879f781a61f0abc9d11c1bed6cf781088e",
+        "lambda_ci_workflow.py": "4727e9a404f8465a37e789a9bd4049314b48a28a17952fc08bce3f23da5549ad",
+        "lambda_ci_series.py": "cf0dd4449ded02ef48466831843085c2e4d0dc4eb91e1cd726f5e6cde0ca2bb4",
+        "hex_validation.py": "dd5ec26bedc90440253927d6f8b870d3676ad7b13207b94c3c343811340e7711",
+        "vortex_3d.py": "897fddca7a2568bb54fd8642ec1891b774e14a83f384257f50bc46dfa5ea8dff",
+        "vortex_3d_workflow.py": "3f04e61361af488dd23ae1e6445360a7f07d9f30e792fb773ac9591f1ea0f8a3",
+        "gll_refinement.py": "fb9d26ae6ca95c85dc659f283e11af340f79182b9d4e29b4c8c1d1adfac0ef8a",
+        "vortex_3d_reconstruction.py": "257246a28d5056c763cd5b69827dbb187458b787e592b25eb8bdec5f7861ad3c",
+        "vortex_3d_artifacts.py": "6c6bd4f4efe2828711e446a876fbb1d77d8e82bcce2d44ba31dc11eca933d68b",
+        "vortex_3d_selection.py": "1184d7eb2be28ea3182d073e52c138d93760b161d19d6f6361658843f76538c3"
+      },
+      "matches_current": true,
+      "bounded_control_fields": {
+        "schema_version": 1,
+        "case": "case_N7_H",
+        "source_file": "/data/Nek5000_data/case_N7_H/GC0.f00079",
+        "frame_index": 79,
+        "time": 19.50240408807,
+        "configuration": {
+          "periodic_axes": [
+            "x",
+            "y"
+          ],
+          "expected_element_counts": [
+            272,
+            12,
+            8
+          ],
+          "chunk_size": 256,
+          "crop": [
+            0.0,
+            17.0,
+            0.0,
+            1.5,
+            0.0,
+            1.0
+          ],
+          "sampling_nodes": 10
+        },
+        "output_selection": {
+          "mode": "positive_x",
+          "bounds": [
+            0.0,
+            17.0,
+            0.0,
+            1.5,
+            0.0,
+            1.0
+          ],
+          "dataset": "3D vtkUnstructuredGrid volume",
+          "fields": [
+            "omega_x",
+            "lambda_ci"
+          ],
+          "cells": "complete hexahedra; no clipping or crop-edge interpolation",
+          "retain_x0_boundary_vertices": true,
+          "require_element_boundaries": true
+        },
+        "software": {
+          "numpy": "2.4.3",
+          "scipy": "1.17.1",
+          "pymech": "2.0.1",
+          "pyvista": "0.48.4",
+          "vtk": "9.6.2"
+        },
+        "python": "3.12.2",
+        "numerical_definition": {
+          "omega_x": "I(P(A[2,1] - A[1,2]))",
+          "lambda_ci": "max(abs(imag(eig(I(P(A))))))",
+          "A": "du_i/dx_j from element_velocity_gradient",
+          "P": "existing mass-lumped GLL L2 projection on full domain",
+          "I": "existing P7 tensor-product interpolation at target GLL nodes"
+        },
+        "completion_status": "completed"
+      }
+    },
+    "manifest": {
+      "path": "/data/Nek5000_data/results/h_refinement/vortex_3d_series/gll10/case_N7_H/series/manifest.json",
+      "signature": {
+        "fields.py": "f2a668f48ef3b4a28363fa5e9daf496653235783d81ca0c7564855f723ca3346",
+        "io_nek.py": "0e194625cc2ad85d2aaf0a8b5d38a9433889cf09e94aa9fd8d9f7040541bb7da",
+        "gll.py": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b",
+        "spectral_derivatives.py": "326bf2c73b8dda1826c6b3598c1f004327fc923512c1ccc7ffa6f86107387981",
+        "spectral_interpolation.py": "40b597e252ac3bbc366e05306fb37c473a06ad4a7b35f00a0472e6902a04db04",
+        "gll_directional_integration.py": "f946f049147dd0d686d84c99b38296923743a6de4e8a45cef8f743c9e73c959f",
+        "l2_projection.py": "1254d7ea6b54ada2540ce438e5b589970f079a92de4572a1ed02c80ebc795934",
+        "swirling_strength.py": "722d35c6427cc76297351473ed1be9661771c1941de06df7aaefa01a877adfe5",
+        "rectilinear_export.py": "bb75dfce824705bcbf3724048ae369879f781a61f0abc9d11c1bed6cf781088e",
+        "lambda_ci_workflow.py": "4727e9a404f8465a37e789a9bd4049314b48a28a17952fc08bce3f23da5549ad",
+        "lambda_ci_series.py": "cf0dd4449ded02ef48466831843085c2e4d0dc4eb91e1cd726f5e6cde0ca2bb4",
+        "hex_validation.py": "dd5ec26bedc90440253927d6f8b870d3676ad7b13207b94c3c343811340e7711",
+        "vortex_3d.py": "897fddca7a2568bb54fd8642ec1891b774e14a83f384257f50bc46dfa5ea8dff",
+        "vortex_3d_workflow.py": "3f04e61361af488dd23ae1e6445360a7f07d9f30e792fb773ac9591f1ea0f8a3",
+        "gll_refinement.py": "fb9d26ae6ca95c85dc659f283e11af340f79182b9d4e29b4c8c1d1adfac0ef8a",
+        "vortex_3d_reconstruction.py": "257246a28d5056c763cd5b69827dbb187458b787e592b25eb8bdec5f7861ad3c",
+        "vortex_3d_artifacts.py": "6c6bd4f4efe2828711e446a876fbb1d77d8e82bcce2d44ba31dc11eca933d68b",
+        "vortex_3d_selection.py": "1184d7eb2be28ea3182d073e52c138d93760b161d19d6f6361658843f76538c3",
+        "vortex_3d_series.py": "058013a218944e263651c96b49712391fd45d197e9d31bc044247f47f5bece2b",
+        "lambda_ci_slice_export.py": "b7d5d9cedad7c475df9913778725b2dff4f59da02431bba1c75b038c713d5b45"
+      },
+      "matches_current": true,
+      "bounded_control_fields": {
+        "schema_version": 1,
+        "workflow": "vortex_3d_series",
+        "source_case": "/data/Nek5000_data/case_N7_H",
+        "configuration": {
+          "periodic_axes": [
+            "x",
+            "y"
+          ],
+          "expected_element_counts": [
+            272,
+            12,
+            8
+          ],
+          "crop": [
+            0.0,
+            17.0,
+            0.0,
+            1.5,
+            0.0,
+            1.0
+          ],
+          "chunk_size": 256,
+          "sampling_nodes": 10
+        },
+        "output_selection": {
+          "mode": "positive_x",
+          "bounds": [
+            0.0,
+            17.0,
+            0.0,
+            1.5,
+            0.0,
+            1.0
+          ],
+          "dataset": "3D vtkUnstructuredGrid volume",
+          "fields": [
+            "omega_x",
+            "lambda_ci"
+          ],
+          "cells": "complete hexahedra; no clipping or crop-edge interpolation",
+          "retain_x0_boundary_vertices": true,
+          "require_element_boundaries": true
+        }
+      },
+      "frame_record_count": 81
+    },
+    "summary": {
+      "path": "/data/Nek5000_data/results/h_refinement/vortex_3d_series/gll10/case_N7_H/series/processing_summary.json",
+      "signature": {
+        "fields.py": "f2a668f48ef3b4a28363fa5e9daf496653235783d81ca0c7564855f723ca3346",
+        "io_nek.py": "0e194625cc2ad85d2aaf0a8b5d38a9433889cf09e94aa9fd8d9f7040541bb7da",
+        "gll.py": "b5d0a191ce11f6aabdc36ebc8c4e0db8313c6404509e5f1cd489f7e2997a032b",
+        "spectral_derivatives.py": "326bf2c73b8dda1826c6b3598c1f004327fc923512c1ccc7ffa6f86107387981",
+        "spectral_interpolation.py": "40b597e252ac3bbc366e05306fb37c473a06ad4a7b35f00a0472e6902a04db04",
+        "gll_directional_integration.py": "f946f049147dd0d686d84c99b38296923743a6de4e8a45cef8f743c9e73c959f",
+        "l2_projection.py": "1254d7ea6b54ada2540ce438e5b589970f079a92de4572a1ed02c80ebc795934",
+        "swirling_strength.py": "722d35c6427cc76297351473ed1be9661771c1941de06df7aaefa01a877adfe5",
+        "rectilinear_export.py": "bb75dfce824705bcbf3724048ae369879f781a61f0abc9d11c1bed6cf781088e",
+        "lambda_ci_workflow.py": "4727e9a404f8465a37e789a9bd4049314b48a28a17952fc08bce3f23da5549ad",
+        "lambda_ci_series.py": "cf0dd4449ded02ef48466831843085c2e4d0dc4eb91e1cd726f5e6cde0ca2bb4",
+        "hex_validation.py": "dd5ec26bedc90440253927d6f8b870d3676ad7b13207b94c3c343811340e7711",
+        "vortex_3d.py": "897fddca7a2568bb54fd8642ec1891b774e14a83f384257f50bc46dfa5ea8dff",
+        "vortex_3d_workflow.py": "3f04e61361af488dd23ae1e6445360a7f07d9f30e792fb773ac9591f1ea0f8a3",
+        "gll_refinement.py": "fb9d26ae6ca95c85dc659f283e11af340f79182b9d4e29b4c8c1d1adfac0ef8a",
+        "vortex_3d_reconstruction.py": "257246a28d5056c763cd5b69827dbb187458b787e592b25eb8bdec5f7861ad3c",
+        "vortex_3d_artifacts.py": "6c6bd4f4efe2828711e446a876fbb1d77d8e82bcce2d44ba31dc11eca933d68b",
+        "vortex_3d_selection.py": "1184d7eb2be28ea3182d073e52c138d93760b161d19d6f6361658843f76538c3",
+        "vortex_3d_series.py": "058013a218944e263651c96b49712391fd45d197e9d31bc044247f47f5bece2b",
+        "lambda_ci_slice_export.py": "b7d5d9cedad7c475df9913778725b2dff4f59da02431bba1c75b038c713d5b45"
+      },
+      "matches_current": true,
+      "bounded_control_fields": {
+        "schema_version": 1,
+        "workflow": "vortex_3d_series",
+        "source_case": "/data/Nek5000_data/case_N7_H",
+        "configuration": {
+          "periodic_axes": [
+            "x",
+            "y"
+          ],
+          "expected_element_counts": [
+            272,
+            12,
+            8
+          ],
+          "crop": [
+            0.0,
+            17.0,
+            0.0,
+            1.5,
+            0.0,
+            1.0
+          ],
+          "chunk_size": 256,
+          "sampling_nodes": 10
+        },
+        "output_selection": {
+          "mode": "positive_x",
+          "bounds": [
+            0.0,
+            17.0,
+            0.0,
+            1.5,
+            0.0,
+            1.0
+          ],
+          "dataset": "3D vtkUnstructuredGrid volume",
+          "fields": [
+            "omega_x",
+            "lambda_ci"
+          ],
+          "cells": "complete hexahedra; no clipping or crop-edge interpolation",
+          "retain_x0_boundary_vertices": true,
+          "require_element_boundaries": true
+        }
+      },
+      "frame_record_count": 81
+    }
+  }
+}

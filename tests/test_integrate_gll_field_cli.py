@@ -8,7 +8,7 @@ import pytest
 
 from nek_post.gll_directional_workflow import load_gll_directional_integral_npz
 from nek_post.paths import ProjectPaths
-from test_gll_directional_workflow import _data
+from gll_directional_test_support import make_directional_data as _data
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "22_integrate_gll_field.py"

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from nek_post.gll import gll_nodes
+from gll_directional_test_support import make_directional_data as _data
 from nek_post.gll_directional_workflow import (
     compute_gll_directional_integral,
     gll_directional_field_getter,
@@ -15,33 +16,6 @@ from nek_post.gll_directional_workflow import (
     normalize_gll_directional_field,
     save_gll_directional_integral_npz,
 )
-
-
-def _data(
-    *,
-    bad_concentration_shape: bool = False,
-    velocity_components: tuple[float, float, float] | None = None,
-) -> SimpleNamespace:
-    nodes = gll_nodes(3)
-    z, y, x = np.meshgrid(nodes, nodes, nodes, indexing="ij")
-    concentration = np.ones_like(x)
-    if bad_concentration_shape:
-        concentration = concentration[0]
-    velocity = (
-        (x + 1.0, y + 2.0, z + 3.0)
-        if velocity_components is None
-        else tuple(np.full_like(x, component) for component in velocity_components)
-    )
-    return SimpleNamespace(
-        elem=(
-            SimpleNamespace(
-                pos=(x, y, z),
-                temp=(concentration,),
-                vel=velocity,
-                pres=(x - y + z,),
-            ),
-        )
-    )
 
 
 @pytest.mark.parametrize("field", ("concentration", "u", "v", "w", "speed", "pressure"))
