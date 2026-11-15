@@ -9,5 +9,8 @@ description = "Post-processing tools for Nek5000 gravity-current simulations"
 readme = "README.md"
 requires-python = ">=3.12"
 
+[project.scripts]
+nek-post = "nek_post.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
