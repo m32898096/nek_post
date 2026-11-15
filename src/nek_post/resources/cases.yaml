@@ -1,0 +1,87 @@
+reference_case: N11
+
+orders:
+  N5: 5
+  N7: 7
+  N9: 9
+  N11: 11
+
+file_prefix: GC0
+
+file_indices:
+  - 1
+  - 20
+  - 40
+  - 60
+  - 80
+
+comparison_sets:
+  t05:
+    description: "Polynomial-order comparison near t = 5.0"
+    target_time: 5.0
+    reference_case: N11
+    case_indices:
+      N5: 21
+      N7: 21
+      N9: 21
+      N11: 11
+  t10:
+    description: "Polynomial-order comparison near t = 10.0"
+    target_time: 10.0
+    reference_case: N11
+    case_indices:
+      N5: 41
+      N7: 41
+      N9: 41
+      N11: 21
+  t15:
+    description: "Polynomial-order comparison near t = 15.0"
+    target_time: 15.0
+    reference_case: N11
+    case_indices:
+      N5: 61
+      N7: 61
+      N9: 61
+      N11: 31
+  t19p5:
+    description: "Polynomial-order comparison near t = 19.5"
+    target_time: 19.5
+    reference_case: N11
+    case_indices:
+      N5: 79
+      N7: 79
+      N9: 79
+      N11: 40
+
+multitime_comparison_sets:
+  - t05
+  - t10
+  - t15
+  - t19p5
+
+slice:
+  type: y_mid
+  mode: nearest_plane
+  slab_ratio: 0.01
+  y_round_decimals: 10
+
+grid:
+  nx: 500
+  nz: 200
+
+leading_edge:
+  case: N7
+  extraction_method: rightmost-crossing
+  x_min: 0.0
+  reynolds_number: 3450
+  nx: 1000
+  z_target: 0.04
+  threshold: 0.1
+  y_upsample_factor: 2
+  contour_time_spacing: 0.25
+  workers: 2
+
+fields:
+  - concentration
+  - velocity
+  - pressure

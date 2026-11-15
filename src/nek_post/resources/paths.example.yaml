@@ -1,0 +1,16 @@
+# Example only. Supply a complete machine inventory explicitly before writing.
+data_root: datasets
+case_dirs:
+  N5: datasets/case_N5
+  N7: datasets/case_N7
+  N9: datasets/case_N9
+  N11: datasets/case_N11
+  GC8950_N7: datasets/GC8950_N7
+  N7_H: datasets/case_N7_H
+  N7_VH: datasets/case_N7_VH
+  N7_VVH: datasets/case_N7_VVH
+postproc_root: historical/postproc
+results_root: historical/results
+paper_data:
+  cantero_fig5a_re3450_csv: references/re3450.csv
+  cantero_fig5a_re8950_csv: references/re8950.csv

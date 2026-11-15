@@ -1,0 +1,7 @@
+# Candidate ordering and reference are hypotheses checked by the inventory.
+cases: [N7_H, N7_VH, N7_VVH]
+file_prefix: GC0
+expected_polynomial_order: 7
+provisional_reference_case: N7_VVH
+# Absolute coordinate tolerance; relative tolerance is zero.
+domain_atol: 1.0e-6
