@@ -9,7 +9,7 @@ from .registry import COMMANDS, GROUP_HELP
 def build_parser() -> argparse.ArgumentParser:
     """Build the accepted hierarchy with a required command at every group."""
     epilog = (
-        "Phase 4B-1 CLI foundation. All registered commands are not implemented. "
+        "Phase 4B-2 CLI foundation. All registered commands are not implemented. "
         f"Execution exits with status {UNAVAILABLE_EXIT_STATUS}."
     )
     parser = argparse.ArgumentParser(
@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=epilog,
         allow_abbrev=False,
     )
+    add_options(parser)
     subparsers = {
         (): parser.add_subparsers(title="commands", metavar="COMMAND", required=True),
     }
@@ -32,6 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
                     epilog=epilog,
                     allow_abbrev=False,
                 )
+                add_options(group_parser)
                 subparsers[group] = group_parser.add_subparsers(
                     title="commands", metavar="COMMAND", required=True,
                 )
@@ -42,5 +44,16 @@ def build_parser() -> argparse.ArgumentParser:
             epilog=epilog,
             allow_abbrev=False,
         )
+        add_options(leaf_parser)
         leaf_parser.set_defaults(command=command)
     return parser
+
+
+def add_options(parser):
+    """Accept foundation options at root, group or leaf without default clobbering."""
+    for flag in ("paths-config", "cases-config", "study-config", "output-root",
+                 "input-root", "case-dir", "output-dir", "publication-root", "preview-dir"):
+        parser.add_argument("--" + flag, default=argparse.SUPPRESS)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--plan", action="store_true", default=argparse.SUPPRESS)
+    mode.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS)

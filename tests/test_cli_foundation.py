@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import zipfile
 
 import pytest
@@ -92,7 +93,7 @@ def test_unknown_command(route, capsys):
     assert "invalid choice" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("flag", ["--plan", "--dry-run", "--overwrite", "--output-root"])
+@pytest.mark.parametrize("flag", ["--overwrite", "--future-option"])
 def test_future_execution_options_are_unrecognized(flag, capsys):
     with pytest.raises(SystemExit) as error:
         main(["leading-edge", "extract", flag])
@@ -119,6 +120,7 @@ environment = dict(os.environ)
 allowed_package_modules = {
     "nek_post", "nek_post.cli", "nek_post.cli.parser",
     "nek_post.cli.registry", "nek_post.cli.__main__",
+    "nek_post.cli.configuration", "nek_post.cli.contracts", "nek_post.cli.safety", "nek_post.cli.planning",
 }
 scientific_roots = {"numpy", "scipy", "pymech", "matplotlib", "vtk",
                     "vtkmodules", "pyvista", "PIL", "yaml"}
@@ -236,7 +238,7 @@ def installed_wheel(tmp_path_factory):
     env = {key: value for key, value in os.environ.items() if key not in {"PYTHONPATH", "PYTHONHOME"}}
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     result = subprocess.run(
-        [sys.executable, "-B", "-c", "from setuptools.build_meta import build_wheel; build_wheel('dist')"],
+        [sys.executable, "-B", "-c", "from setuptools.build_meta import build_wheel, build_sdist; build_wheel('dist'); build_sdist('dist')"],
         cwd=source, env=env, capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -244,9 +246,17 @@ def installed_wheel(tmp_path_factory):
     with zipfile.ZipFile(wheel) as archive:
         entrypoints = archive.read("nek_post-0.1.0.dist-info/entry_points.txt").decode()
         assert "nek-post = nek_post.cli:main" in entrypoints
+        resource_names = {name.rsplit("/", 1)[-1] for name in archive.namelist()
+                          if name.startswith("nek_post/resources/") and name.endswith(".yaml")}
+        assert resource_names == {"cases.yaml", "h_refinement.yaml", "paths.example.yaml"}
         for name in ("__init__.py", "__main__.py", "parser.py", "registry.py"):
             assert archive.read("nek_post/cli/" + name) == (REPO / "src/nek_post/cli" / name).read_bytes()
         assert not any(name.startswith(("scripts/", "config/")) for name in archive.namelist())
+    sdist, = (source / "dist").glob("*.tar.gz")
+    with tarfile.open(sdist) as archive:
+        resources = {Path(name).name for name in archive.getnames()
+                     if "/src/nek_post/resources/" in name and name.endswith(".yaml")}
+        assert resources == {"cases.yaml", "h_refinement.yaml", "paths.example.yaml"}
     venv = root / "venv"
     subprocess.run([sys.executable, "-B", "-m", "venv", str(venv)], env=env, check=True, timeout=60)
     python = venv / "bin/python"
@@ -308,3 +318,19 @@ def test_installed_console_and_module_without_checkout(installed_wheel, tmp_path
     assert result.stdout.strip() == "purity verified"
     assert snapshot(tmp_path) == before
     assert snapshot(package) == package_before
+
+
+def test_installed_scientific_resources(installed_wheel, tmp_path):
+    python, console, package = installed_wheel
+    result = subprocess.run(
+        [str(python), '-B', '-I', '-c',
+         'from importlib.resources import files; import json; '
+         'r=files("nek_post.resources"); '
+         'print(json.dumps({n:r.joinpath(n).read_text() for n in '
+         '("cases.yaml","h_refinement.yaml","paths.example.yaml")}))'],
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    )
+    values = json.loads(result.stdout)
+    for name in values:
+        assert values[name] == (REPO/'src/nek_post/resources'/name).read_text()
+    assert '/data/' not in values['paths.example.yaml']
